@@ -339,7 +339,7 @@ function parseDescriptionOptions(description?: string | null): ParsedDishOptions
   return { sideIds, extrasList, askCooking };
 }
 
-function AdminContent() {
+function AdminPageContent() {
   const params = useParams<{ id?: string; restaurant_id?: string }>();
   const searchParams = useSearchParams();
   const decodeAndTrim = (value: unknown) => {
@@ -3072,7 +3072,7 @@ function AdminContent() {
 export default function AdminPage() {
   return (
     <Suspense fallback={<div>Chargement...</div>}>
-      <AdminContent />
+      <AdminPageContent />
     </Suspense>
   );
 }
