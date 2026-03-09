@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import { supabase } from "../lib/supabase";
 import { getCookingLabelFr, normalizeCookingKey } from "../lib/ui-translations";
@@ -339,7 +339,7 @@ function parseDescriptionOptions(description?: string | null): ParsedDishOptions
   return { sideIds, extrasList, askCooking };
 }
 
-export default function AdminPage() {
+function AdminPageContent() {
   const params = useParams<{ id?: string; restaurant_id?: string }>();
   const searchParams = useSearchParams();
   const decodeAndTrim = (value: unknown) => {
@@ -3066,6 +3066,14 @@ export default function AdminPage() {
         </div>
       ) : null}
     </div>
+  );
+}
+
+export default function AdminPage() {
+  return (
+    <Suspense fallback={<div>Chargement...</div>}>
+      <AdminPageContent />
+    </Suspense>
   );
 }
 
