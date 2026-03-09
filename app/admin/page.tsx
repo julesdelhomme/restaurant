@@ -1158,7 +1158,7 @@ function AdminContent() {
     if (line.selectedExtras.length > 0) {
       parts.push(
         `Suppléments: ${line.selectedExtras
-.map((extra) => `${extra.name} (+${extra.price.toFixed(2)}€)`)
+.map((extra) => `${extra.name} (+${extra.price.toFixed(2)}\u20AC)`)
           .join(", ")}`
       );
     }
@@ -2697,7 +2697,7 @@ function AdminContent() {
               </div>
             </div>
             <div className="text-sm font-bold">Articles: {fastItemCount}</div>
-            <div className="text-sm font-bold">Total: {fastTotal.toFixed(2)}€</div>
+            <div className="text-sm font-bold">Total: {fastTotal.toFixed(2)}&euro;</div>
           </div>
 
           <div className="mb-4 flex flex-wrap gap-2">
@@ -2740,7 +2740,7 @@ function AdminContent() {
                   <div>
                     <div className="font-bold">{getDishName(dish)}</div>
                   </div>
-                  <div className="pr-4 text-sm">{getDishPrice(dish).toFixed(2)}€</div>
+                  <div className="pr-4 text-sm">{getDishPrice(dish).toFixed(2)}&euro;</div>
                   <div className="text-center">
                     <button
                       type="button"
@@ -2768,7 +2768,7 @@ function AdminContent() {
                       {line.quantity}x {line.dishName}
                     </span>
                     <div className="flex items-center gap-2">
-                      <span className="font-bold">{(line.unitPrice * line.quantity).toFixed(2)}€</span>
+                      <span className="font-bold">{(line.unitPrice * line.quantity).toFixed(2)}&euro;</span>
                       <button
                         type="button"
                         onClick={() => removeFastLine(line.lineId)}
@@ -2968,9 +2968,9 @@ function AdminContent() {
                 const unitTotal = basePrice + extrasPrice;
                 const lineTotal = unitTotal * modalQty;
                 if (extrasPrice > 0) {
-                  return `Prix: ${basePrice.toFixed(2)}€ + suppléments ${extrasPrice.toFixed(2)}€ = ${unitTotal.toFixed(2)}€ (x${modalQty} = ${lineTotal.toFixed(2)}€)`;
+                  return `Prix: ${basePrice.toFixed(2)}\u20AC + suppléments ${extrasPrice.toFixed(2)}\u20AC = ${unitTotal.toFixed(2)}\u20AC (x${modalQty} = ${lineTotal.toFixed(2)}\u20AC)`;
                 }
-                return `Prix: ${unitTotal.toFixed(2)}€ (x${modalQty} = ${lineTotal.toFixed(2)}€)`;
+                return `Prix: ${unitTotal.toFixed(2)}\u20AC (x${modalQty} = ${lineTotal.toFixed(2)}\u20AC)`;
               })()}
             </div>
 
@@ -3023,7 +3023,7 @@ function AdminContent() {
                             }
                           }}
                         />
-                        <span>{extra.name} (+{extra.price.toFixed(2)}€)</span>
+                        <span>{extra.name} (+{extra.price.toFixed(2)}&euro;)</span>
                       </label>
                     );
                   })}

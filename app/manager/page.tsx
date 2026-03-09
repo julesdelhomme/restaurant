@@ -2440,6 +2440,28 @@ export default function MenuManager() {
           row.text_color ?? parseObjectRecord((row as Record<string, unknown>).table_config).text_color,
           "#111111"
         ),
+        card_bg_color: normalizeHexColor(row.card_bg_color, "#FFFFFF"),
+        card_bg_opacity: normalizeOpacityPercent(
+          row.card_bg_opacity ?? parseObjectRecord((row as Record<string, unknown>).table_config).card_bg_opacity,
+          toBoolean(
+            row.card_transparent ??
+              parseObjectRecord((row as Record<string, unknown>).table_config).card_transparent ??
+              parseObjectRecord((row as Record<string, unknown>).table_config).cards_transparent,
+            false
+          )
+            ? 0
+            : 100
+        ),
+        card_text_color: normalizeHexColor(
+          row.card_text_color ?? parseObjectRecord((row as Record<string, unknown>).table_config).card_text_color,
+          "#111111"
+        ),
+        card_transparent: toBoolean(
+          row.card_transparent ??
+            parseObjectRecord((row as Record<string, unknown>).table_config).card_transparent ??
+            parseObjectRecord((row as Record<string, unknown>).table_config).cards_transparent,
+          false
+        ),
         font_family: resolvedFontFamily,
         menu_layout: normalizeMenuLayout((row as Record<string, unknown>).menu_layout),
         card_layout:
@@ -2548,11 +2570,11 @@ export default function MenuManager() {
         ),
         card_bg_color: normalizeHexColor(row.card_bg_color, "#FFFFFF"),
         card_bg_opacity: normalizeOpacityPercent(
-          tableConfig.card_bg_opacity,
-          toBoolean(tableConfig.card_transparent ?? tableConfig.cards_transparent, false) ? 10 : 100
+          row.card_bg_opacity ?? tableConfig.card_bg_opacity,
+          toBoolean(row.card_transparent ?? tableConfig.card_transparent ?? tableConfig.cards_transparent, false) ? 0 : 100
         ),
-        card_text_color: normalizeHexColor(tableConfig.card_text_color, "#111111"),
-        card_transparent: toBoolean(tableConfig.card_transparent ?? tableConfig.cards_transparent, false),
+        card_text_color: normalizeHexColor(row.card_text_color ?? tableConfig.card_text_color, "#111111"),
+        card_transparent: toBoolean(row.card_transparent ?? tableConfig.card_transparent ?? tableConfig.cards_transparent, false),
         quick_add_to_cart_enabled: toBoolean(
           tableConfig.quick_add_to_cart_enabled ?? tableConfig.quick_add_enabled,
           false
@@ -4271,15 +4293,24 @@ export default function MenuManager() {
       );
       const safeCardTransparent = toBoolean(
         (restaurantForm as Record<string, unknown>).card_transparent,
-        toBoolean(parseObjectRecord((restaurant as Record<string, unknown>)?.table_config).card_transparent, false)
+        toBoolean(
+          (restaurant as Record<string, unknown>)?.card_transparent ??
+            parseObjectRecord((restaurant as Record<string, unknown>)?.table_config).card_transparent ??
+            parseObjectRecord((restaurant as Record<string, unknown>)?.table_config).cards_transparent,
+          false
+        )
       );
       const safeCardBgOpacity = normalizeOpacityPercent(
         (restaurantForm as Record<string, unknown>).card_bg_opacity,
-        safeCardTransparent ? 10 : 100
+        safeCardTransparent ? 0 : 100
       );
       const safeCardTextColor = normalizeHexColor(
         (restaurantForm as Record<string, unknown>).card_text_color,
-        normalizeHexColor(parseObjectRecord((restaurant as Record<string, unknown>)?.table_config).card_text_color, "#111111")
+        normalizeHexColor(
+          (restaurant as Record<string, unknown>)?.card_text_color ??
+            parseObjectRecord((restaurant as Record<string, unknown>)?.table_config).card_text_color,
+          "#111111"
+        )
       );
       const safeQuickAddToCartEnabled = toBoolean(
         (restaurantForm as Record<string, unknown>).quick_add_to_cart_enabled,
@@ -7716,7 +7747,7 @@ export default function MenuManager() {
                     ...restaurantForm,
                     card_transparent: e.target.checked,
                     card_bg_opacity: e.target.checked
-                      ? Math.min(Number((restaurantForm as Record<string, unknown>).card_bg_opacity ?? 100), 10)
+                      ? 0
                       : Math.max(Number((restaurantForm as Record<string, unknown>).card_bg_opacity ?? 0), 100),
                   })
                 }

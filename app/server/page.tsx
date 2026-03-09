@@ -469,8 +469,8 @@ function sanitizeDisplayText(value: unknown) {
   const raw = String(value || "").trim();
   if (!raw) return "";
   return raw
-    .replace(/\(\+\s*[\d.,]+\s*€\)/gi, "")
-    .replace(/\+\s*[\d.,]+\s*€\b/gi, "")
+    .replace(/\(\+\s*[\d.,]+\s*\u20AC\)/gi, "")
+    .replace(/\+\s*[\d.,]+\s*\u20AC\b/gi, "")
     .replace(/\s{2,}/g, " ")
     .trim();
 }
@@ -1282,7 +1282,7 @@ export default function ServerPage() {
     if (line.selectedSides.length > 0) parts.push(`Accompagnements: ${line.selectedSides.join(", ")}`);
     if (line.selectedExtras.length > 0) {
       parts.push(
-        `Suppléments: ${line.selectedExtras.map((extra) => `${extra.name} (+${extra.price.toFixed(2)}€)`).join(", ")}`
+        `Suppléments: ${line.selectedExtras.map((extra) => `${extra.name} (+${extra.price.toFixed(2)}\u20AC)`).join(", ")}`
       );
     }
     if (line.selectedCooking) parts.push(`Cuisson: ${line.selectedCooking}`);
@@ -2152,14 +2152,14 @@ export default function ServerPage() {
             ${printableItems
               .map(
                 (item) =>
-                  `<div class="line"><span>${item.quantity}x ${item.name}${item.notes ? `<br/><small>${item.notes}</small>` : ""}</span><span>${item.lineTotal.toFixed(2)} €</span></div>`
+                  `<div class="line"><span>${item.quantity}x ${item.name}${item.notes ? `<br/><small>${item.notes}</small>` : ""}</span><span>${item.lineTotal.toFixed(2)} \u20AC</span></div>`
               )
               .join("")}
           </div>
           <div class="section">
-            <div class="line"><span>TVA 10%</span><span>${vat.vat10.toFixed(2)} €</span></div>
-            <div class="line"><span>TVA 20%</span><span>${vat.vat20.toFixed(2)} €</span></div>
-            <div class="line total"><span>Total</span><span>${vat.total.toFixed(2)} €</span></div>
+            <div class="line"><span>TVA 10%</span><span>${vat.vat10.toFixed(2)} \u20AC</span></div>
+            <div class="line"><span>TVA 20%</span><span>${vat.vat20.toFixed(2)} \u20AC</span></div>
+            <div class="line total"><span>Total</span><span>${vat.total.toFixed(2)} \u20AC</span></div>
           </div>
         </body>
       </html>
@@ -2550,7 +2550,7 @@ export default function ServerPage() {
               </datalist>
             </div>
             <div className="text-sm font-bold">Articles: {fastLines.reduce((sum, line) => sum + line.quantity, 0)}</div>
-            <div className="text-sm font-bold">Total: {fastTotal.toFixed(2)}€</div>
+            <div className="text-sm font-bold">Total: {fastTotal.toFixed(2)}&euro;</div>
           </div>
 
           <div className="mb-4 flex flex-wrap gap-2">
@@ -2585,7 +2585,7 @@ export default function ServerPage() {
                     <div className="font-bold">{getDishName(dish)}</div>
                     {cleanDescription ? <div className="text-xs text-gray-600">{cleanDescription}</div> : null}
                   </div>
-                  <div className="pr-4 text-sm">{getDishPrice(dish).toFixed(2)}€</div>
+                  <div className="pr-4 text-sm">{getDishPrice(dish).toFixed(2)}&euro;</div>
                   <div className="flex items-center gap-2">
                     <button type="button" onClick={() => handleFastMinus(dish)} className="h-10 w-10 border-2 border-black font-black">
                       -
@@ -2616,7 +2616,7 @@ export default function ServerPage() {
                     <span className="font-bold">
                       {line.quantity}x {line.dishName}
                     </span>
-                    <span className="font-black">{(line.unitPrice * line.quantity).toFixed(2)}€</span>
+                    <span className="font-black">{(line.unitPrice * line.quantity).toFixed(2)}&euro;</span>
                   </div>
                   {buildLineInstructions(line) ? <div className="text-xs text-gray-700 mt-1">{buildLineInstructions(line)}</div> : null}
                 </div>
@@ -2739,7 +2739,7 @@ export default function ServerPage() {
                           }}
                         />
                         <span>
-                          {extra.name} (+{extra.price.toFixed(2)}€)
+                          {extra.name} (+{extra.price.toFixed(2)}&euro;)
                         </span>
                       </label>
                     );

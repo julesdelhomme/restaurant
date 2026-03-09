@@ -597,6 +597,13 @@ function normalizeBackgroundOpacity(value: unknown, fallback = 1) {
   return Math.max(0, Math.min(1, parsed));
 }
 
+function normalizeOpacityPercent(value: unknown, fallback = 100) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  if (parsed >= 0 && parsed <= 1) return Math.max(0, Math.min(100, Math.round(parsed * 100)));
+  return Math.max(0, Math.min(100, Math.round(parsed)));
+}
+
 function getHexContrastTextColor(backgroundHex: string) {
   const hex = normalizeHexColor(backgroundHex, "#FFFFFF").slice(1);
   const r = parseInt(hex.slice(0, 2), 16);
@@ -834,6 +841,10 @@ interface Restaurant {
   primary_color?: string | null;
   text_color?: string | null;
   card_bg_color?: string | null;
+  card_bg_opacity?: number | null;
+  card_text_color?: string | null;
+  card_transparent?: boolean | null;
+  cards_transparent?: boolean | null;
   font_family?: string | null;
   card_style?: string | null;
   card_density?: string | null;
@@ -2111,6 +2122,7 @@ export default function MenuDigital() {
         ""
     ).trim() || "Voir dÃ©tails";
   const restaurantTableConfig = parseJsonObject(restaurant?.table_config);
+  const restaurantRecord = restaurant as Record<string, unknown> | null;
   const quickAddToCartEnabled =
     !isInteractionDisabled &&
     parseShowCalories(
@@ -2119,12 +2131,20 @@ export default function MenuDigital() {
     );
   const cardTransparentEnabled = darkMode
     ? false
-    : parseShowCalories(restaurantTableConfig.card_transparent ?? restaurantTableConfig.cards_transparent, false);
+    : parseShowCalories(
+        restaurantRecord?.card_transparent ??
+          restaurantRecord?.cards_transparent ??
+          restaurantTableConfig.card_transparent ??
+          restaurantTableConfig.cards_transparent,
+        false
+      );
   const bannerBgColor = darkMode ? "#000000" : normalizeHexColor(restaurant?.primary_color, "#FFFFFF");
   const bannerTextColor = getHexContrastTextColor(bannerBgColor);
   const bannerImageUrl = sanitizeMediaUrl(
-    (restaurant as Record<string, unknown> | null)?.banner_image_url ||
-      (restaurant as Record<string, unknown> | null)?.banner_url ||
+    restaurantRecord?.banner_image_url ||
+      restaurantRecord?.banner_url ||
+      restaurantTableConfig.banner_image_url ||
+      restaurantTableConfig.banner_url ||
       ""
   );
   const hasBannerImage = bannerImageUrl.length > 0;
@@ -2138,17 +2158,20 @@ export default function MenuDigital() {
   const hasHeaderLogo = headerLogoUrl.length > 0;
   const showHeaderLogo = hasHeaderLogo && !headerLogoLoadError;
   const cardBgColor = darkMode ? "#000000" : normalizeHexColor(restaurant?.card_bg_color, "#FFFFFF");
+  const cardBgOpacityPercent = darkMode
+    ? 100
+    : normalizeOpacityPercent(
+        restaurantRecord?.card_bg_opacity ?? restaurantTableConfig.card_bg_opacity,
+        cardTransparentEnabled ? 0 : 100
+      );
   const cardBgOpacityAlpha = darkMode
     ? "FF"
-    : alphaHexFromPercent(
-        restaurantTableConfig.card_bg_opacity,
-        cardTransparentEnabled ? 10 : 100
-      );
+    : alphaHexFromPercent(cardBgOpacityPercent, cardTransparentEnabled ? 0 : 100);
   const cardSurfaceBg = darkMode ? "#000000" : withAlpha(cardBgColor, cardBgOpacityAlpha);
   const cardImagePanelBg = darkMode ? "#000000" : withAlpha(cardBgColor, cardBgOpacityAlpha);
   const cardTextColorValue = darkMode
     ? getHexContrastTextColor(cardBgColor)
-    : normalizeHexColor(restaurantTableConfig.card_text_color, "#111111");
+    : normalizeHexColor(restaurantRecord?.card_text_color ?? restaurantTableConfig.card_text_color, "#111111");
   const cardTextIsLight = darkMode && cardTextColorValue === "#FFFFFF";
   const globalTextColorValue = darkMode
     ? "#F5F5F5"
@@ -2159,8 +2182,11 @@ export default function MenuDigital() {
         getHexContrastTextColor(bannerBgColor)
       );
   const backgroundImageUrl = sanitizeMediaUrl(
-    (restaurant as Record<string, unknown> | null)?.background_url ||
-      (restaurant as Record<string, unknown> | null)?.background_image_url ||
+    restaurantRecord?.background_url ||
+      restaurantRecord?.background_image_url ||
+      restaurantTableConfig.background_url ||
+      restaurantTableConfig.background_image_url ||
+      restaurantTableConfig.bg_image_url ||
       ""
   );
   const backgroundOpacity = darkMode
@@ -2241,7 +2267,10 @@ export default function MenuDigital() {
       Object.prototype.hasOwnProperty.call(row, "background_image_url") ||
       Object.prototype.hasOwnProperty.call(row, "primary_color") ||
       Object.prototype.hasOwnProperty.call(row, "text_color") ||
-      Object.prototype.hasOwnProperty.call(row, "card_bg_color")
+      Object.prototype.hasOwnProperty.call(row, "card_bg_color") ||
+      Object.prototype.hasOwnProperty.call(row, "card_bg_opacity") ||
+      Object.prototype.hasOwnProperty.call(row, "card_text_color") ||
+      Object.prototype.hasOwnProperty.call(row, "card_transparent")
     ) {
       setRestaurant((prev) => ({
         ...(prev || ({} as Restaurant)),
@@ -2446,9 +2475,25 @@ export default function MenuDigital() {
     let restaurantFound = false;
     const applyRestaurantRow = (baseRow: Restaurant & Record<string, unknown>) => {
       const tableConfig = parseJsonObject(baseRow.table_config);
-      const bannerImage = sanitizeMediaUrl(baseRow.banner_image_url || baseRow.banner_url || "");
+      const bannerImage = sanitizeMediaUrl(
+        baseRow.banner_image_url ||
+          baseRow.banner_url ||
+          tableConfig.banner_image_url ||
+          tableConfig.banner_url ||
+          ""
+      );
       const backgroundImage = sanitizeMediaUrl(
-        baseRow.background_url || baseRow.background_image_url || baseRow.bg_image_url || ""
+        baseRow.background_url ||
+          baseRow.background_image_url ||
+          baseRow.bg_image_url ||
+          tableConfig.background_url ||
+          tableConfig.background_image_url ||
+          tableConfig.bg_image_url ||
+          ""
+      );
+      const resolvedCardTransparent = parseShowCalories(
+        baseRow.card_transparent ?? tableConfig.card_transparent ?? tableConfig.cards_transparent,
+        false
       );
       const restaurantRow = {
         ...baseRow,
@@ -2460,6 +2505,12 @@ export default function MenuDigital() {
         primary_color: normalizeHexColor(baseRow.primary_color, "#FFFFFF"),
         text_color: normalizeHexColor(baseRow.text_color ?? tableConfig.text_color ?? tableConfig.global_text_color, "#111111"),
         card_bg_color: normalizeHexColor(baseRow.card_bg_color, "#FFFFFF"),
+        card_text_color: normalizeHexColor(baseRow.card_text_color ?? tableConfig.card_text_color, "#111111"),
+        card_bg_opacity: normalizeOpacityPercent(
+          baseRow.card_bg_opacity ?? tableConfig.card_bg_opacity,
+          resolvedCardTransparent ? 0 : 100
+        ),
+        card_transparent: resolvedCardTransparent,
         card_density: String(baseRow.card_density || baseRow.density_style || tableConfig.card_density || tableConfig.density_style || "").trim() || null,
         density_style: String(baseRow.density_style || baseRow.card_density || tableConfig.density_style || tableConfig.card_density || "").trim() || null,
         bg_opacity: normalizeBackgroundOpacity(baseRow.bg_opacity ?? tableConfig.bg_opacity, 1),
@@ -5148,7 +5199,7 @@ export default function MenuDigital() {
               />
             </div>
             <div className="text-sm font-bold text-black mb-2">
-              Total article: {modalTotalPrice.toFixed(2)} â‚¬
+              Total article: {modalTotalPrice.toFixed(2)}&euro;
             </div>
 
             {sideError && (
@@ -5200,7 +5251,7 @@ export default function MenuDigital() {
                     setSideError("");
                   }}
                 >
-                  {`${uiText.addToCart} (${modalTotalPrice.toFixed(2)} â‚¬)`}
+                  {`${uiText.addToCart} (${modalTotalPrice.toFixed(2)} \u20AC)`}
                 </button>
               </div>
             )}

@@ -167,11 +167,11 @@ export default function KitchenPage() {
     if (!raw) return "";
 
     let repaired = raw;
-    if (/[ÃÂâ€]/.test(raw)) {
+    if (/[ÃÂâ\u20AC]/.test(raw)) {
       try {
         const bytes = Uint8Array.from([...raw].map((char) => char.charCodeAt(0) & 0xff));
         const decoded = new TextDecoder("utf-8").decode(bytes).trim();
-        const mojibakeScore = (input: string) => (input.match(/[ÃÂâ€]/g) || []).length;
+        const mojibakeScore = (input: string) => (input.match(/[ÃÂâ\u20AC]/g) || []).length;
         if (decoded && !decoded.includes("�") && mojibakeScore(decoded) < mojibakeScore(raw)) {
           repaired = decoded;
         }
@@ -299,8 +299,8 @@ export default function KitchenPage() {
     const raw = repairUtf8Text(value);
     if (!raw) return "";
     return raw
-      .replace(/\(\+\s*[\d.,]+\s*(?:€|â‚¬)\)/gi, "")
-      .replace(/\+\s*[\d.,]+\s*(?:€|â‚¬)\b/gi, "")
+      .replace(/\(\+\s*[\d.,]+\s*(?:\u20AC|â‚¬)\)/gi, "")
+      .replace(/\+\s*[\d.,]+\s*(?:\u20AC|â‚¬)\b/gi, "")
       .replace(/\s{2,}/g, " ")
       .trim();
   };
