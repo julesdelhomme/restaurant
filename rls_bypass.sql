@@ -1,0 +1,1 @@
+-- Disable RLS temporarily to test connectivity ALTER TABLE orders DISABLE ROW LEVEL SECURITY; ALTER TABLE notifications DISABLE ROW LEVEL SECURITY;

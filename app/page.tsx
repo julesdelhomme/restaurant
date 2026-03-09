@@ -1,0 +1,5405 @@
+﻿
+"use client";
+
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useParams, usePathname, useSearchParams } from "next/navigation";
+import { supabase } from "../lib/supabase";
+import { AlertTriangle, CheckCircle2, CircleHelp, Droplets, Euro, Globe, Moon, PhoneCall, Receipt, ShoppingCart, Sun, Trash2, XCircle } from "lucide-react";
+import RestaurantOffline from "./components/RestaurantOffline";
+import {
+  DEFAULT_LANGUAGE_FLAGS as SHARED_LANGUAGE_FLAGS,
+  DEFAULT_LANGUAGE_LABELS as SHARED_LANGUAGE_LABELS,
+  getCookingLabelFr,
+  normalizeCookingKey,
+  translateAllergenFallback,
+  translateHungerLevelFallback,
+  translateSpicyLevelFallback,
+} from "./lib/ui-translations";
+import { SMART_CALL_I18N_EXTENDED } from "./lib/languagesConfig";
+import { MASTER_UI_DICTIONARY } from "../constants/translations";
+const UI_TRANSLATIONS = MASTER_UI_DICTIONARY;
+const PRICE_FORMATTER_EUR = new Intl.NumberFormat("fr-FR", {
+  style: "currency",
+  currency: "EUR",
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
+const supabaseUrl = "https://ezzetspsjqgylsqkukdp.supabase.co";
+const supabaseKey = "sb_publishable_ckJLAlKTmQN1KJw4m2Bk9A_k2Aij-Xd";
+const BACKGROUND_URL = "";
+const DEFAULT_RESTAURANT_NAME = "Mon Restaurant";
+const SETTINGS_ROW_ID = "c9012859-d0af-469d-8dbb-af9dee733aaa";
+
+type CoreUiLang = "fr" | "en" | "es" | "de";
+
+const DEFAULT_LANGUAGE_LABELS: Record<string, string> = SHARED_LANGUAGE_LABELS;
+const DEFAULT_LANGUAGE_FLAGS: Record<string, string> = SHARED_LANGUAGE_FLAGS;
+const DEFAULT_SUGGESTION_LEADS: Record<CoreUiLang, string> = {
+  fr: "Ce plat se marie tres bien avec",
+  en: "This dish pairs perfectly with",
+  es: "Este plato combina perfectamente con",
+  de: "Dieses Gericht passt perfekt zu",
+};
+const MENU_FONT_OPTIONS = [
+  "Inter",
+  "Roboto",
+  "Open Sans",
+  "Lato",
+  "Poppins",
+  "Nunito",
+  "Work Sans",
+  "Source Sans 3",
+  "Manrope",
+  "Noto Sans",
+  "Mulish",
+  "Montserrat",
+  "Raleway",
+  "Ubuntu",
+  "Merriweather",
+  "Lora",
+  "PT Serif",
+  "Libre Baskerville",
+  "Playfair Display",
+  "Cormorant Garamond",
+  "Bitter",
+  "Fira Sans",
+  "Rubik",
+  "Oswald",
+  "Bebas Neue",
+  "Quicksand",
+  "Barlow",
+  "Cabin",
+  "Dancing Script",
+  "Pacifico",
+  "Satisfy",
+  "Amatic SC",
+] as const;
+
+type SmartCallOptionKey =
+  | "help_question"
+  | "ask_bill"
+  | "need_water"
+  | "need_bread"
+  | "clear_table"
+  | "report_problem";
+
+const SMART_CALL_UI = SMART_CALL_I18N_EXTENDED;
+
+const SMART_CALL_OPTION_META: Array<{
+  key: SmartCallOptionKey;
+  icon: typeof CircleHelp;
+  colorClass: string;
+}> = [
+  { key: "help_question", icon: CircleHelp, colorClass: "text-blue-600" },
+  { key: "ask_bill", icon: Receipt, colorClass: "text-purple-600" },
+  { key: "need_water", icon: Droplets, colorClass: "text-cyan-600" },
+  { key: "need_bread", icon: CircleHelp, colorClass: "text-amber-600" },
+  { key: "clear_table", icon: Trash2, colorClass: "text-gray-700" },
+  { key: "report_problem", icon: AlertTriangle, colorClass: "text-red-600" },
+];
+
+const UI_TEXT = {
+  fr: {
+    categories: ["Tous", "Entrï¿½es", "Plats", "Desserts", "Boissons"],
+    labels: {
+      all: "Tous",
+      others: "Autres",
+      order_success: "Votre commande a ï¿½tï¿½ envoyï¿½e avec succï¿½s. Votre plat va bientï¿½t arriver. Bon appï¿½tit.",
+      order_confirmed: "Votre commande a ï¿½tï¿½ envoyï¿½e avec succï¿½s. Votre plat va bientï¿½t arriver. Bon appï¿½tit.",
+      order_success_message: "Votre commande a ï¿½tï¿½ envoyï¿½e avec succï¿½s ! Table {table}. Bon appï¿½tit !",
+      consultation_mode_banner: "La commande se fait auprï¿½s de votre serveur. Utilisez ce menu pour dï¿½couvrir nos plats !",
+      validation_code_prompt: "Saisissez le code PIN de votre table pour valider la commande.",
+      validation_code_label: "Code PIN",
+      validation_code_placeholder: "Code PIN",
+      validation_code_invalid: "Code PIN incorrect.",
+      table_required: "Veuillez renseigner votre table.",
+      table_invalid: "Numï¿½ro de table invalide.",
+      empty_cart_error: "Votre panier est vide.",
+      side_required_error: "Veuillez choisir un accompagnement obligatoire.",
+      cooking_required_error: "Veuillez choisir une cuisson.",
+      max_options_error: "Maximum {max} options.",
+      server_called_success: "Serveur appelï¿½ !",
+      generic_error: "Erreur.",
+      supabase_error_prefix: "Erreur Supabase :",
+      item_added: "Article ajoutï¿½ !",
+      added: "Ajoutï¿½ au panier",
+      details_label: "Prï¿½cisions",
+      details_none: "Aucune demande particuliï¿½re.",
+      pin_required_cart: "Renseignez la table et le code PIN avant d'ajouter un article.",
+      loading: "Chargement...",
+      featured_daily: "Plat du Jour",
+      featured_chef: "Suggestion du Chef",
+      sales_advice_title: "Conseil du Chef",
+      sales_advice_view_item: "Voir l'article",
+      vegetarian: "Vï¿½gï¿½tarien",
+      spicy: "Pimentï¿½",
+      select_sides_up_to: "Choisissez jusqu'ï¿½ {max} choix",
+      select_sides_up_to_icecream: "Choisissez jusqu'ï¿½ {max} parfums",
+      no_side_configured: "Aucun accompagnement configurï¿½ pour ce plat.",
+    },
+    categoryMap: {
+      all: "Tous",
+      tous: "Tous",
+      entree: "Entrï¿½es",
+      entrees: "Entrï¿½es",
+      plats: "Plats",
+      plat: "Plats",
+      dessert: "Desserts",
+      desserts: "Desserts",
+      boisson: "Boissons",
+      boissons: "Boissons",
+      starters: "Entrï¿½es",
+      mains: "Plats",
+      drinks: "Boissons",
+    },
+    subcategoryMap: {
+      autres: "Autres",
+      other: "Autres",
+      others: "Autres",
+    },
+    addToCart: "Ajouter au panier",
+    cart: "Panier",
+    total: "Total",
+    order: "Commander",
+    backToMenu: "Retour au menu",
+    menu: "Menu",
+    callServer: "Appeler le serveur",
+    help: "Besoin d'aide ?",
+    close: "Fermer",
+    quantity: "Quantitï¿½",
+    emptyCart: "Votre panier est vide.",
+    noDishes: "Aucun plat disponible.",
+    specialRequestLabel: "Demande spï¿½ciale",
+    specialRequestPlaceholder: "Ex : sans oignons, sauce ï¿½ part...",
+    sidesLabel: "Accompagnements",
+    allergensLabel: "Allergï¿½nes",
+    extraLabel: "Supplï¿½ment",
+    extrasLabel: "Supplï¿½ments",
+    table: "Table",
+    pin: "Code PIN",
+    yourTable: "Votre Table",
+    pinCode: "Code PIN",
+    hunger: {
+      small: "Petite faim",
+      medium: "Moyenne faim",
+      large: "Grande faim",
+    },
+    cookingLabel: "Cuisson",
+    cooking: {
+      blue: "Bleu",
+      rare: "Saignant",
+      medium: "ï¿½ï¿½ï¿½ point",
+      wellDone: "Bien cuit",
+    },
+  },
+  en: {
+    categories: ["All", "Starters", "Mains", "Desserts", "Drinks"],
+    labels: {
+      all: "All",
+      others: "Others",
+      order_success: "Your order has been sent successfully. Your dish will arrive soon. Enjoy your meal.",
+      order_confirmed: "Your order has been sent successfully. Your dish will arrive soon. Enjoy your meal.",
+      order_success_message: "Your order has been sent successfully! Table {table}. Enjoy your meal!",
+      consultation_mode_banner: "Please order directly with your server. Use this menu to discover our dishes!",
+      validation_code_prompt: "Enter your table PIN code to confirm the order.",
+      validation_code_label: "PIN code",
+      validation_code_placeholder: "PIN code",
+      validation_code_invalid: "Invalid PIN code.",
+      table_required: "Please enter your table number.",
+      table_invalid: "Invalid table number.",
+      empty_cart_error: "Your cart is empty.",
+      side_required_error: "Please choose a required side.",
+      cooking_required_error: "Please choose a cooking level.",
+      max_options_error: "Maximum {max} options.",
+      server_called_success: "Server called!",
+      generic_error: "Error.",
+      supabase_error_prefix: "Supabase error:",
+      item_added: "Item added!",
+      added: "Added to cart",
+      details_label: "Details",
+      details_none: "No special request.",
+      pin_required_cart: "Enter table number and a valid PIN code before adding an item.",
+      loading: "Loading...",
+      featured_daily: "Dish of the Day",
+      featured_chef: "Chef Suggestion",
+      sales_advice_title: "Chef's recommendation",
+      sales_advice_view_item: "View item",
+      vegetarian: "Vegetarian",
+      spicy: "Spicy",
+      select_sides_up_to: "Choose up to {max} options",
+      select_sides_up_to_icecream: "Choose up to {max} flavors",
+      no_side_configured: "No side configured for this dish.",
+    },
+    categoryMap: {
+      all: "All",
+      tous: "All",
+      entree: "Starters",
+      entrees: "Starters",
+      plats: "Mains",
+      plat: "Mains",
+      dessert: "Desserts",
+      desserts: "Desserts",
+      boisson: "Drinks",
+      boissons: "Drinks",
+      starters: "Starters",
+      mains: "Mains",
+      drinks: "Drinks",
+    },
+    subcategoryMap: {
+      autres: "Others",
+      other: "Others",
+      others: "Others",
+    },
+    addToCart: "Add to cart",
+    cart: "Cart",
+    total: "Total",
+    order: "Order",
+    backToMenu: "Back to menu",
+    menu: "Menu",
+    callServer: "Call the server",
+    help: "Need help?",
+    close: "Close",
+    quantity: "Quantity",
+    emptyCart: "Your cart is empty.",
+    noDishes: "No dishes available.",
+    specialRequestLabel: "Special request",
+    specialRequestPlaceholder: "Ex: no onions, sauce on the side...",
+    sidesLabel: "Sides",
+    allergensLabel: "Allergens",
+    extraLabel: "Extra",
+    extrasLabel: "Extras",
+    table: "Table",
+    pin: "PIN code",
+    yourTable: "Your Table",
+    pinCode: "PIN Code",
+    hunger: {
+      small: "Small appetite",
+      medium: "Medium appetite",
+      large: "Large appetite",
+    },
+    cookingLabel: "Cooking",
+    cooking: {
+      blue: "Blue",
+      rare: "Rare",
+      medium: "Medium",
+      wellDone: "Well done",
+    },
+  },
+  es: {
+    categories: ["Todos", "Entrantes", "Platos", "Postres", "Bebidas"],
+    labels: {
+      all: "Todos",
+      others: "Otros",
+      order_success: "Tu pedido se ha enviado con ï¿½xito. Tu plato llegarï¿½ pronto. Buen provecho.",
+      order_confirmed: "Tu pedido se ha enviado con ï¿½xito. Tu plato llegarï¿½ pronto. Buen provecho.",
+      order_success_message: "ï¿½ï¿½Tu pedido se ha enviado con ï¿½xito! Mesa {table}. ï¿½ï¿½Buen provecho!",
+      consultation_mode_banner: "El pedido se realiza con su camarero. ï¿½ï¿½Use este menï¿½ para descubrir nuestros platos!",
+      validation_code_prompt: "Introduzca el cï¿½digo PIN de su mesa para validar el pedido.",
+      validation_code_label: "Cï¿½digo PIN",
+      validation_code_placeholder: "Cï¿½digo PIN",
+      validation_code_invalid: "Cï¿½digo PIN incorrecto.",
+      table_required: "Indique su nï¿½mero de mesa.",
+      table_invalid: "Nï¿½mero de mesa invï¿½lido.",
+      empty_cart_error: "Tu carrito estï¿½ vacï¿½o.",
+      side_required_error: "Seleccione un acompaï¿½amiento obligatorio.",
+      cooking_required_error: "Seleccione un punto de cocciï¿½n.",
+      max_options_error: "Mï¿½ximo {max} opciones.",
+      server_called_success: "ï¿½ï¿½Camarero avisado!",
+      generic_error: "Error.",
+      supabase_error_prefix: "Error de Supabase:",
+      item_added: "ï¿½ï¿½Artï¿½culo aï¿½adido!",
+      added: "Aï¿½adido al carrito",
+      details_label: "Detalles",
+      details_none: "Sin peticiï¿½n especial.",
+      pin_required_cart: "Indique mesa y cï¿½digo PIN vï¿½lido antes de aï¿½adir un artï¿½culo.",
+      loading: "Cargando...",
+      featured_daily: "Plato del Dï¿½a",
+      featured_chef: "Sugerencia del Chef",
+      sales_advice_title: "Consejo del chef",
+      sales_advice_view_item: "Ver artï¿½culo",
+      vegetarian: "Vegetariano",
+      spicy: "Picante",
+      select_sides_up_to: "Elige hasta {max} opciones",
+      select_sides_up_to_icecream: "Elige hasta {max} sabores",
+      no_side_configured: "No hay acompaï¿½amiento configurado para este plato.",
+    },
+    categoryMap: {
+      all: "Todos",
+      todos: "Todos",
+      entree: "Entrantes",
+      entrees: "Entrantes",
+      platos: "Platos",
+      plat: "Platos",
+      dessert: "Postres",
+      desserts: "Postres",
+      boisson: "Bebidas",
+      boissons: "Bebidas",
+      starters: "Entrantes",
+      mains: "Platos",
+      drinks: "Bebidas",
+    },
+    subcategoryMap: {
+      autres: "Otros",
+      other: "Otros",
+      others: "Otros",
+    },
+    addToCart: "Aï¿½adir al carrito",
+    cart: "Carrito",
+    total: "Total",
+    order: "Pedir",
+    backToMenu: "Volver al menï¿½",
+    menu: "Menï¿½",
+    callServer: "Llamar al camarero",
+    help: "ï¿½ï¿½Necesitas ayuda?",
+    close: "Cerrar",
+    quantity: "Cantidad",
+    emptyCart: "Tu carrito estï¿½ vacï¿½o.",
+    noDishes: "No hay platos disponibles.",
+    specialRequestLabel: "Peticiï¿½n especial",
+    specialRequestPlaceholder: "Ej: sin cebolla, salsa aparte...",
+    sidesLabel: "Acompaï¿½amientos",
+    allergensLabel: "Alï¿½rgenos",
+    extraLabel: "Suplemento",
+    extrasLabel: "Suplementos",
+    table: "Mesa",
+    pin: "Cï¿½digo PIN",
+    yourTable: "Su Mesa",
+    pinCode: "Cï¿½digo PIN",
+    hunger: {
+      small: "Poca hambre",
+      medium: "Hambre media",
+      large: "Mucha hambre",
+    },
+    cookingLabel: "Cocciï¿½n",
+    cooking: {
+      blue: "Poco hecho",
+      rare: "Poco cocido",
+      medium: "En su punto",
+      wellDone: "Bien cocido",
+    },
+  },
+  de: {
+    categories: ["Alle", "Vorspeisen", "Hauptgerichte", "Desserts", "Getrï¿½nke"],
+    labels: {
+      all: "Alle",
+      others: "Andere",
+      order_success: "Ihre Bestellung wurde erfolgreich gesendet. Ihr Gericht kommt bald. Guten Appetit.",
+      order_confirmed: "Ihre Bestellung wurde erfolgreich gesendet. Ihr Gericht kommt bald. Guten Appetit.",
+      order_success_message: "Ihre Bestellung wurde erfolgreich gesendet! Tisch {table}. Guten Appetit!",
+      consultation_mode_banner: "Bestellen Sie bitte direkt beim Service. Nutzen Sie dieses Menï¿½, um unsere Gerichte zu entdecken!",
+      validation_code_prompt: "Geben Sie den PIN-Code Ihres Tisches ein, um die Bestellung zu bestï¿½tigen.",
+      validation_code_label: "PIN-Code",
+      validation_code_placeholder: "PIN-Code",
+      validation_code_invalid: "Ungï¿½ltiger PIN-Code.",
+      table_required: "Bitte geben Sie Ihre Tischnummer ein.",
+      table_invalid: "Ung?ltige Tischnummer.",
+      empty_cart_error: "Ihr Warenkorb ist leer.",
+      side_required_error: "Bitte wï¿½hlen Sie eine Beilage aus.",
+      cooking_required_error: "Bitte wï¿½hlen Sie eine Garstufe.",
+      max_options_error: "Maximal {max} Optionen.",
+      server_called_success: "Service gerufen!",
+      generic_error: "Fehler.",
+      supabase_error_prefix: "Supabase-Fehler:",
+      item_added: "Artikel hinzugef?gt!",
+      added: "In den Warenkorb",
+      details_label: "Details",
+      details_none: "Keine besondere Anfrage.",
+      pin_required_cart: "Geben Sie Tischnummer und g?ltigen PIN-Code ein, bevor Sie einen Artikel hinzufï¿½gen.",
+      loading: "Wird geladen...",
+      featured_daily: "Tagesgericht",
+      featured_chef: "Empfehlung des Chefs",
+      sales_advice_title: "Empfehlung des Kï¿½chenchefs",
+      sales_advice_view_item: "Artikel ansehen",
+      vegetarian: "Vegetarisch",
+      spicy: "Scharf",
+      select_sides_up_to: "W?hlen Sie bis zu {max} Optionen",
+      select_sides_up_to_icecream: "W?hlen Sie bis zu {max} Sorten",
+      no_side_configured: "Keine Beilage fï¿½r dieses Gericht konfiguriert.",
+    },
+    categoryMap: {
+      all: "Alle",
+      tous: "Alle",
+      entree: "Vorspeisen",
+      entrees: "Vorspeisen",
+      plat: "Hauptgerichte",
+      plats: "Hauptgerichte",
+      dessert: "Desserts",
+      desserts: "Desserts",
+      boisson: "Getrï¿½nke",
+      boissons: "Getrï¿½nke",
+      starters: "Vorspeisen",
+      mains: "Hauptgerichte",
+      drinks: "Getrï¿½nke",
+    },
+    subcategoryMap: {
+      autres: "Andere",
+      other: "Andere",
+      others: "Andere",
+    },
+    addToCart: "In den Warenkorb",
+    cart: "Warenkorb",
+    total: "Summe",
+    order: "Bestellen",
+    backToMenu: "Zurï¿½ck zum Menï¿½",
+    menu: "Menï¿½",
+    callServer: "Service rufen",
+    help: "Hilfe benï¿½tigt?",
+    close: "Schlieï¿½xen",
+    quantity: "Menge",
+    emptyCart: "Ihr Warenkorb ist leer.",
+    noDishes: "Keine Gerichte verfï¿½gbar.",
+    specialRequestLabel: "Besonderer Wunsch",
+    specialRequestPlaceholder: "Z.B. ohne Zwiebeln, Sauce extra...",
+    sidesLabel: "Beilagen",
+    allergensLabel: "Allergene",
+    extraLabel: "Extra",
+    extrasLabel: "Extras",
+    table: "Tisch",
+    pin: "PIN-Code",
+    yourTable: "Ihr Tisch",
+    pinCode: "PIN-Code",
+    hunger: {
+      small: "Kleiner Hunger",
+      medium: "Mittlerer Hunger",
+      large: "Groï¿½xer Hunger",
+    },
+    cookingLabel: "Garstufe",
+    cooking: {
+      blue: "Sehr blutig",
+      rare: "Blutig",
+      medium: "Medium",
+      wellDone: "Durchgebraten",
+    },
+  },
+} as const;
+
+const CATEGORY_KEYS = ["all", "entree", "plat", "dessert", "boisson"] as const;
+
+function normalizeCategory(value: string) {
+  return value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, "");
+}
+
+function normalizeText(value: string) {
+  return value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
+function fixDisplayText(value: string) {
+  let output = String(value || "");
+  const replacements: Array<[string, string]> = [
+    ["\u00C3\u00A9", "\u00E9"],
+    ["\u00C3\u00A8", "\u00E8"],
+    ["\u00C3\u00AA", "\u00EA"],
+    ["\u00C3\u00AB", "\u00EB"],
+    ["\u00C3\u00A7", "\u00E7"],
+    ["\u00C3\u00A0", "\u00E0"],
+    ["\u00C3\u00A2", "\u00E2"],
+    ["\u00C3\u00B4", "\u00F4"],
+    ["\u00C3\u00BB", "\u00FB"],
+    ["\u00C3\u00AE", "\u00EE"],
+    ["\u00C3\u00B9", "\u00F9"],
+    ["\u00C3\u00A1", "\u00E1"],
+    ["\u00C3\u00B3", "\u00F3"],
+    ["\u00C3\u00BA", "\u00FA"],
+    ["\u00C3\u00B1", "\u00F1"],
+    ["\u00C3\u00BC", "\u00FC"],
+    ["\u00C3\u00A4", "\u00E4"],
+    ["\u00C3\u00B6", "\u00F6"],
+    ["\u00C3\u0178", "\u00DF"],
+    ["\u00C3\u20AC", "\u00C0"],
+    ["\u00C2\u00A1", "\u00A1"],
+    ["\u00C2\u00BF", "\u00BF"],
+    ["\u00E2\u201A\u00AC", "\u20AC"],
+    ["\u00C3\u2014", "\u00D7"],
+  ];
+  replacements.forEach(([from, to]) => {
+    output = output.split(from).join(to);
+  });
+  const decodeMojibakeOnce = (input: string) => {
+    const bytes = Uint8Array.from(Array.from(input).map((ch) => ch.charCodeAt(0) & 0xff));
+    return new TextDecoder("utf-8").decode(bytes);
+  };
+  for (let i = 0; i < 2; i += 1) {
+    if (!/[\u00C3]/.test(output)) break;
+    const decoded = decodeMojibakeOnce(output);
+    if (!decoded || decoded === output) break;
+    output = decoded;
+  }
+  return output;
+}
+
+function deepFixDisplayText<T>(value: T): T {
+  if (typeof value === "string") {
+    return fixDisplayText(value) as T;
+  }
+  if (Array.isArray(value)) {
+    return value.map((entry) => deepFixDisplayText(entry)) as T;
+  }
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as unknown as Record<string, unknown>).map(([key, entry]) => [key, deepFixDisplayText(entry)])
+    ) as T;
+  }
+  return value;
+}
+
+const UI_TEXT_CLEAN = deepFixDisplayText(UI_TEXT);
+
+function normalizeHexColor(value: unknown, fallback: string) {
+  const raw = String(value || "").trim();
+  return /^#[0-9a-fA-F]{6}$/.test(raw) ? raw : fallback;
+}
+
+function sanitizeMediaUrl(value: unknown, fallbackBucket?: string) {
+  const raw = String(value || "")
+    .replace(/[\r\n"'\\]/g, "")
+    .trim();
+  if (!raw) return "";
+  const lowered = raw.toLowerCase();
+  if (["null", "undefined", "false", "[object object]"].includes(lowered)) return "";
+  if (/^(data:|blob:)/i.test(raw)) return raw;
+  if (/^https?:\/\//i.test(raw)) return raw;
+  if (raw.startsWith("/") && !raw.startsWith("/storage/")) return raw;
+
+  const normalized = raw.replace(/\\/g, "/").replace(/^\/+/, "");
+  const storageMarker = "storage/v1/object/public/";
+  if (normalized.startsWith(storageMarker)) {
+    return `${supabaseUrl}/${normalized}`;
+  }
+  if (normalized.startsWith("object/public/")) {
+    return `${supabaseUrl}/storage/v1/${normalized}`;
+  }
+  const markerIndex = normalized.indexOf(storageMarker);
+  if (markerIndex >= 0) {
+    return `${supabaseUrl}/${normalized.slice(markerIndex)}`;
+  }
+  const knownBuckets = ["logos", "banners", "dishes-images-", "dishes-images"];
+  if (knownBuckets.some((bucket) => normalized.startsWith(`${bucket}/`))) {
+    return `${supabaseUrl}/storage/v1/object/public/${normalized}`;
+  }
+  if (fallbackBucket) {
+    return `${supabaseUrl}/storage/v1/object/public/${fallbackBucket}/${normalized}`;
+  }
+  return raw;
+}
+
+function normalizeBackgroundOpacity(value: unknown, fallback = 1) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  if (parsed > 1 && parsed <= 100) return Math.max(0, Math.min(1, parsed / 100));
+  return Math.max(0, Math.min(1, parsed));
+}
+
+function getHexContrastTextColor(backgroundHex: string) {
+  const hex = normalizeHexColor(backgroundHex, "#FFFFFF").slice(1);
+  const r = parseInt(hex.slice(0, 2), 16);
+  const g = parseInt(hex.slice(2, 4), 16);
+  const b = parseInt(hex.slice(4, 6), 16);
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return luminance < 0.55 ? "#FFFFFF" : "#111111";
+}
+
+function withAlpha(hexColor: string, alphaHex: string) {
+  return `${normalizeHexColor(hexColor, "#FFFFFF")}${alphaHex}`;
+}
+
+function alphaHexFromPercent(percent: unknown, fallback = 100) {
+  const parsed = Number(percent);
+  const clamped = Number.isFinite(parsed) ? Math.min(100, Math.max(0, Math.round(parsed))) : fallback;
+  return Math.round((clamped / 100) * 255)
+    .toString(16)
+    .padStart(2, "0")
+    .toUpperCase();
+}
+
+function t(lang: string, key: keyof (typeof UI_TEXT)["fr"]["labels"]) {
+  const uiLang = toUiLang(lang);
+  return fixDisplayText(UI_TEXT_CLEAN[uiLang].labels[key] || String(key));
+}
+
+type UiDictionary = Record<string, string>;
+type UiTranslationsByLang = Record<string, UiDictionary>;
+
+const RTL_LANGUAGE_CODES = new Set(["ar", "he", "fa", "ur"]);
+const ENABLE_RESTAURANT_PROFILE_FALLBACK = false;
+
+function parseUiTranslations(raw: unknown): UiTranslationsByLang {
+  const source = parseJsonObject(raw);
+  const parsed: UiTranslationsByLang = {};
+  Object.entries(source).forEach(([rawCode, value]) => {
+    const code = normalizeLanguageKey(rawCode);
+    if (!code || !value || typeof value !== "object") return;
+    const dict = Object.fromEntries(
+      Object.entries(value as unknown as Record<string, unknown>)
+        .map(([k, v]) => [String(k || "").trim(), String(v || "").trim()])
+        .filter(([k, v]) => k.length > 0 && v.length > 0)
+    ) as UiDictionary;
+    if (Object.keys(dict).length > 0) parsed[code] = dict;
+  });
+  return parsed;
+}
+
+function buildRuntimeUiText(
+  base: (typeof UI_TEXT)[keyof typeof UI_TEXT],
+  flatTranslations: UiDictionary
+): (typeof UI_TEXT)["fr"] {
+  const normalizeUiLabelToken = (value: string) =>
+    value
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .trim();
+
+  const translateKnownDbLabel = (rawValue: string) => {
+    const normalized = normalizeUiLabelToken(rawValue);
+    const canonicalKey =
+      normalized === "precision" || normalized === "precisions"
+        ? "precision"
+        : normalized === "supplement" || normalized === "supplements"
+        ? "supplements"
+        : normalized === "cuisson"
+        ? "cooking"
+        : normalized === "accompagnement" || normalized === "accompagnements"
+        ? "sideDish"
+        : normalized === "kcal"
+        ? "kcal"
+        : "";
+
+    if (!canonicalKey) return "";
+    const translated =
+      String(flatTranslations[canonicalKey] || "").trim() ||
+      (canonicalKey === "sideDish" ? String(flatTranslations.sidesLabel || "").trim() : "") ||
+      (canonicalKey === "supplements" ? String(flatTranslations.extrasLabel || "").trim() : "") ||
+      (canonicalKey === "precision" ? String(flatTranslations.specialRequestLabel || "").trim() : "") ||
+      (canonicalKey === "cooking" ? String(flatTranslations.cookingLabel || "").trim() : "");
+    return translated ? fixDisplayText(translated) : "";
+  };
+
+  const pick = (key: string, fallback: string) => {
+    const value = String(flatTranslations[key] || "").trim();
+    if (value) {
+      const mappedValue = translateKnownDbLabel(value);
+      return mappedValue || fixDisplayText(value);
+    }
+    const mappedFallback = translateKnownDbLabel(fallback);
+    return mappedFallback || fixDisplayText(fallback);
+  };
+  const pickAlias = (primaryKey: string, aliasKeys: string[], fallback: string) => {
+    for (const key of [primaryKey, ...aliasKeys]) {
+      const value = String(flatTranslations[key] || "").trim();
+      if (value) {
+        const mappedValue = translateKnownDbLabel(value);
+        return mappedValue || fixDisplayText(value);
+      }
+    }
+    const mappedFallback = translateKnownDbLabel(fallback);
+    return mappedFallback || fixDisplayText(fallback);
+  };
+
+  const mergedLabels = { ...base.labels } as Record<keyof typeof base.labels, string>;
+  (Object.keys(base.labels) as Array<keyof typeof base.labels>).forEach((labelKey) => {
+    mergedLabels[labelKey] = pick(`labels.${String(labelKey)}`, base.labels[labelKey]);
+  });
+
+  const merged = {
+    ...base,
+    categories: [
+      pick("categories.all", base.categories[0]),
+      pick("categories.starters", base.categories[1]),
+      pick("categories.mains", base.categories[2]),
+      pick("categories.desserts", base.categories[3]),
+      pick("categories.drinks", base.categories[4]),
+    ],
+    labels: mergedLabels,
+    addToCart: pick("addToCart", base.addToCart),
+    cart: pick("cart", base.cart),
+    total: pick("total", base.total),
+    order: pick("order", base.order),
+    backToMenu: pick("backToMenu", base.backToMenu),
+    menu: pick("menu", base.menu),
+    callServer: pick("callServer", base.callServer),
+    help: pick("help", base.help),
+    close: pick("close", base.close),
+    quantity: pickAlias("quantity", [], base.quantity),
+    kcal: pickAlias("kcal", [], "kcal"),
+    emptyCart: pick("emptyCart", base.emptyCart),
+    noDishes: pick("noDishes", base.noDishes),
+    specialRequestLabel: pickAlias("specialRequestLabel", ["precision"], base.specialRequestLabel),
+    specialRequestPlaceholder: pickAlias("specialRequestPlaceholder", ["precisionExample"], base.specialRequestPlaceholder),
+    precision: pickAlias("precision", ["specialRequestLabel"], base.specialRequestLabel),
+    precisionExample: pickAlias("precisionExample", ["specialRequestPlaceholder"], base.specialRequestPlaceholder),
+    sidesLabel: pickAlias("sidesLabel", ["sideDish"], base.sidesLabel),
+    sideDish: pickAlias("sideDish", ["sidesLabel"], base.sidesLabel),
+    allergensLabel: pickAlias("allergensLabel", ["allergens"], base.allergensLabel),
+    extraLabel: pick("extraLabel", base.extraLabel),
+    extrasLabel: pickAlias("extrasLabel", ["supplements"], base.extrasLabel),
+    supplements: pickAlias("supplements", ["extrasLabel"], base.extrasLabel),
+    table: pick("table", base.table),
+    pin: pick("pin", base.pin),
+    yourTable: pickAlias("yourTable", [], base.yourTable),
+    pinCode: pick("pinCode", base.pinCode),
+    cookingLabel: pickAlias("cookingLabel", ["cooking"], base.cookingLabel),
+    cookingText: pickAlias("cooking", ["cookingLabel"], base.cookingLabel),
+    hunger: {
+      small: pickAlias("hunger.small", ["smallHunger"], base.hunger.small),
+      medium: pickAlias("hunger.medium", ["mediumHunger"], base.hunger.medium),
+      large: pickAlias("hunger.large", ["bigHunger"], base.hunger.large),
+    },
+    cooking: {
+      blue: pick("cooking.blue", base.cooking.blue),
+      rare: pick("cooking.rare", base.cooking.rare),
+      medium: pick("cooking.medium", base.cooking.medium),
+      wellDone: pick("cooking.wellDone", base.cooking.wellDone),
+    },
+  };
+  return merged as unknown as typeof UI_TEXT["fr"];
+}
+
+interface Dish {
+  id: number;
+  name: string;
+  nom?: string;
+  name_fr?: string;
+  name_en?: string;
+  name_es?: string;
+  name_de?: string;
+  description?: string;
+  description_fr?: string;
+  description_en?: string;
+  description_es?: string;
+  description_de?: string;
+  price: number;
+  category_id?: string | number | null;
+  subcategory_id?: string | number | null;
+  selected_sides?: Array<string | number> | null;
+  image_url?: string;
+  is_available?: boolean;
+  dietary_tag?: string;
+  dietary_tags?: string[];
+  allergens?: string;
+  is_vegetarian?: boolean;
+  is_spicy?: boolean;
+  spicy_level?: string | null;
+  has_sides?: boolean;
+  max_options?: number | null;
+  has_extras?: boolean;
+  ask_cooking?: boolean;
+  calories_min?: number | null;
+  calories_max?: number | null;
+  calories?: number | string | null;
+  suggestion_message?: string | null;
+  is_featured?: boolean | null;
+  is_special?: boolean | null;
+  is_chef_suggestion?: boolean | null;
+  is_daily_special?: boolean | null;
+  is_promo?: boolean | null;
+  promo_price?: number | null;
+  is_suggestion?: boolean | null;
+  product_options?: ProductOptionItem[];
+  translations?: Record<string, unknown> | string | null;
+}
+
+interface ProductOptionItem {
+  id?: string;
+  product_id?: string | number;
+  name: string;
+  name_fr?: string | null;
+  name_en?: string | null;
+  name_es?: string | null;
+  name_de?: string | null;
+  names_i18n?: Record<string, string> | string | null;
+  price_override?: number | null;
+}
+
+interface SuggestionRule {
+  from_category_id: string;
+  to_category_id: string;
+}
+
+interface Restaurant {
+  id?: number;
+  name?: string;
+  logo_url?: string;
+  banner_image_url?: string | null;
+  banner_url?: string | null;
+  background_url?: string;
+  background_image_url?: string | null;
+  primary_color?: string | null;
+  text_color?: string | null;
+  card_bg_color?: string | null;
+  font_family?: string | null;
+  card_style?: string | null;
+  card_density?: string | null;
+  density_style?: string | null;
+  bg_opacity?: number | null;
+  menu_layout?: string | null;
+  card_layout?: string | null;
+  settings?: Record<string, unknown> | string | null;
+  table_config?: Record<string, unknown> | string | null;
+  show_calories?: boolean | string | number | null;
+  enabled_languages?: string[] | string | null;
+  priority_display?: string | null;
+}
+
+function normalizeLanguageKey(value: string) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 24);
+}
+
+function parseEnabledLanguageEntries(raw: unknown): { codes: string[]; labels: Record<string, string> } {
+  let values: string[] = [];
+  if (Array.isArray(raw)) {
+    values = raw.map((v) => String(v || "").trim()).filter(Boolean);
+  } else if (typeof raw === "string") {
+    const trimmed = raw.trim();
+    if (trimmed) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed)) {
+          values = parsed.map((v) => String(v || "").trim()).filter(Boolean);
+        } else {
+          values = trimmed.split(",").map((v) => v.trim()).filter(Boolean);
+        }
+      } catch {
+        values = trimmed.split(",").map((v) => v.trim()).filter(Boolean);
+      }
+    }
+  }
+
+  const labels: Record<string, string> = { ...DEFAULT_LANGUAGE_LABELS };
+  const orderedCodes: string[] = [];
+  const withDefaults = values.length > 0 ? values : ["fr::Fran\u00e7ais", "en::English"];
+  withDefaults.forEach((entryRaw) => {
+    const entry = String(entryRaw || "").trim();
+    if (!entry) return;
+    const sepIndex = entry.indexOf("::");
+    const rawCode = sepIndex >= 0 ? entry.slice(0, sepIndex).trim() : entry;
+    const rawLabel = sepIndex >= 0 ? entry.slice(sepIndex + 2).trim() : entry;
+    const code = normalizeLanguageKey(rawCode) || normalizeLanguageKey(rawLabel);
+    if (!code) return;
+    if (!orderedCodes.includes(code)) orderedCodes.push(code);
+    labels[code] = rawLabel || labels[code] || code.toUpperCase();
+  });
+  if (!orderedCodes.includes("fr")) orderedCodes.unshift("fr");
+  labels.fr = labels.fr || "Fran\u00e7ais";
+  return { codes: orderedCodes, labels };
+}
+
+function getLanguageFlag(code: string) {
+  return DEFAULT_LANGUAGE_FLAGS[code] || "GL";
+}
+
+function parseJsonObject(raw: unknown): Record<string, unknown> {
+  if (!raw) return {};
+  if (typeof raw === "string") {
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      return parsed && typeof parsed === "object" ? (parsed as unknown as Record<string, unknown>) : {};
+    } catch {
+      return {};
+    }
+  }
+  return raw && typeof raw === "object" ? (raw as unknown as Record<string, unknown>) : {};
+}
+
+function getNameTranslation(source: Record<string, unknown>, langCode: string) {
+  const lang = normalizeLanguageKey(langCode);
+  if (!lang || lang === "fr") return String(source.name_fr || "").trim();
+  const encodedToken = String(source.name_en || "").trim();
+  if (encodedToken.startsWith("__I18N__:")) {
+    try {
+      const parsed = JSON.parse(decodeURIComponent(encodedToken.replace("__I18N__:", ""))) as unknown as Record<string, unknown>;
+      const dynamic = String(parsed[lang] || "").trim();
+      if (dynamic) return dynamic;
+      const dynamicFr = String(parsed.fr || "").trim();
+      if (dynamicFr) return dynamicFr;
+    } catch {
+      // ignore malformed token
+    }
+  }
+  const directColumn = String(source[`name_${lang}`] || "").trim();
+  if (directColumn) {
+    if (directColumn.startsWith("__I18N__:")) {
+      try {
+        const parsed = JSON.parse(decodeURIComponent(directColumn.replace("__I18N__:", ""))) as unknown as Record<string, unknown>;
+        const dynamic = String(parsed[lang] || "").trim();
+        if (dynamic) return dynamic;
+        const fallback = String(parsed.fr || "").trim();
+        if (fallback) return fallback;
+      } catch {
+        // ignore malformed token
+      }
+    } else {
+      return directColumn;
+    }
+  }
+  const translations = parseJsonObject(source.translations);
+  const nameNode =
+    translations.name && typeof translations.name === "object"
+      ? (translations.name as unknown as Record<string, unknown>)
+      : null;
+  if (nameNode) {
+    const nested = String(nameNode[lang] || "").trim();
+    if (nested) return nested;
+  }
+  const prefixed = String(translations[`name_${lang}`] || "").trim();
+  if (prefixed) return prefixed;
+  const langNode = parseJsonObject(translations[lang]);
+  const nodeName = String(langNode.name || langNode.name_fr || "").trim();
+  if (nodeName) return nodeName;
+  const flat = String(translations[lang] || "").trim();
+  if (flat && flat !== "[object Object]") return flat;
+  return String(source.name_fr || "").trim();
+}
+
+function normalizePinValue(raw: unknown) {
+  return String(raw || "").replace(/\s+/g, "").trim();
+}
+
+function normalizeTableNumberKey(raw: unknown) {
+  const trimmed = String(raw || "").trim();
+  if (!trimmed) return "";
+  const asNumber = Number(trimmed);
+  if (Number.isFinite(asNumber) && asNumber > 0) return String(Math.trunc(asNumber));
+  return trimmed;
+}
+
+function normalizeLookupText(raw: unknown) {
+  return String(raw || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+function parseI18nToken(raw: unknown) {
+  const value = String(raw || "").trim();
+  if (!value.startsWith("__I18N__:")) return {} as Record<string, string>;
+  try {
+    const parsed = JSON.parse(decodeURIComponent(value.replace("__I18N__:", "")));
+    if (!parsed || typeof parsed !== "object") return {} as Record<string, string>;
+    return Object.fromEntries(
+      Object.entries(parsed as unknown as Record<string, unknown>).map(([k, v]) => [
+        String(k || "").toLowerCase(),
+        String(v || "").trim(),
+      ])
+    );
+  } catch {
+    return {} as Record<string, string>;
+  }
+}
+
+function buildStableExtraId(dishId: unknown, extra: ExtrasItem, index: number) {
+  const explicit = String(extra.id || "").trim();
+  if (explicit) return explicit;
+  const dishKey = String(dishId || "").trim();
+  const nameKey = normalizeLookupText(extra.name_fr || extra.name_en || extra.name_es || extra.name_de || "");
+  const priceKey = Number(extra.price || 0).toFixed(2);
+  return `extra:${dishKey}:${nameKey || "option"}:${priceKey}:${index}`;
+}
+
+function translateCookingToFrench(raw: unknown) {
+  return getCookingLabelFr(raw);
+}
+
+function parseShowCalories(raw: unknown, fallback: boolean) {
+  if (typeof raw === "boolean") return raw;
+  if (typeof raw === "string") {
+    const v = raw.trim().toLowerCase();
+    if (v === "true" || v === "1") return true;
+    if (v === "false" || v === "0") return false;
+  }
+  if (typeof raw === "number") return raw !== 0;
+  return fallback;
+}
+
+function toLoggableSupabaseError(error: unknown) {
+  if (error == null) return { message: "Unknown error" };
+  if (typeof error === "string") return { message: error };
+  if (error instanceof Error) {
+    return {
+      name: error.name,
+      message: error.message || "Unknown error",
+      stack: error.stack,
+    };
+  }
+  if (typeof error !== "object") return { message: String(error) };
+  const raw = error as unknown as Record<string, unknown>;
+  const parsed = {
+    code: typeof raw.code === "string" ? raw.code : undefined,
+    message: typeof raw.message === "string" ? raw.message : undefined,
+    hint: typeof raw.hint === "string" ? raw.hint : undefined,
+    details: typeof raw.details === "string" ? raw.details : undefined,
+  };
+  const hasUsefulFields = Object.values(parsed).some((value) => String(value || "").trim().length > 0);
+  if (hasUsefulFields) return parsed;
+  try {
+    return {
+      message: JSON.stringify(raw) || "Unknown error",
+      raw,
+    };
+  } catch {
+    return { message: String(raw) };
+  }
+}
+
+function isMissingColumnError(error: unknown, columnNames: string[]) {
+  const info = toLoggableSupabaseError(error) as unknown as Record<string, unknown>;
+  const code = String(info.code || "").trim();
+  const joined = [info.message, info.details, info.hint].map((value) => String(value || "")).join(" ").toLowerCase();
+  if (code === "42703") return true;
+  if (!joined.includes("column")) return false;
+  return columnNames.some((name) => joined.includes(String(name || "").toLowerCase()));
+}
+
+function parseDisplaySettingsFromRow(row: Record<string, unknown>) {
+  const settingsPayload = parseDisplaySettingsFromSettingsJson(row.settings);
+  const langs = parseEnabledLanguageEntries(row.enabled_languages ?? settingsPayload?.enabledLanguages);
+  const marketing = parseMarketingOptions(row.table_config || row.settings || row);
+  const tableConfig = parseJsonObject(row.table_config);
+  const settingsConfig = parseJsonObject(row.settings);
+  const uiTranslations = {
+    ...parseUiTranslations(settingsPayload?.uiTranslations),
+    ...parseUiTranslations(tableConfig.ui_translations || tableConfig.translations_ui),
+    ...parseUiTranslations(settingsConfig.ui_translations || settingsConfig.translations_ui),
+    ...parseUiTranslations(row.ui_translations || row.translations_ui),
+  };
+  const priorityRaw = String(row.priority_display || "").toLowerCase().trim();
+  const priorityDisplay = priorityRaw === "daily" ? "daily" : priorityRaw === "chef" ? "chef" : marketing.heroBadgeType;
+  const consultationMode =
+    Object.prototype.hasOwnProperty.call(row, "is_order_disabled")
+      ? parseShowCalories(row.is_order_disabled, marketing.consultationMode)
+      : marketing.consultationMode;
+  return {
+    showCalories: parseShowCalories(row.show_calories, settingsPayload?.showCalories ?? true),
+    enabledLanguages: langs.codes,
+    languageLabels: langs.labels,
+    heroEnabled: marketing.heroEnabled,
+    upsellEnabled: marketing.upsellEnabled,
+    consultationMode,
+    orderValidationCode: marketing.orderValidationCode,
+    suggestionRules: marketing.suggestionRules,
+    suggestionMessage: marketing.suggestionMessage,
+    suggestionMessagesI18n: marketing.suggestionMessagesI18n,
+    heroBadgeType: priorityDisplay,
+    uiTranslations,
+  };
+}
+
+function parseDisplaySettingsFromSettingsJson(raw: unknown) {
+  const source =
+    typeof raw === "string"
+      ? (() => {
+          try {
+            return JSON.parse(raw) as unknown as Record<string, unknown>;
+          } catch {
+            return null;
+          }
+        })()
+      : (raw as unknown as Record<string, unknown> | null);
+  if (!source || typeof source !== "object") return null;
+  const langs = parseEnabledLanguageEntries(source.enabled_languages);
+  const marketing = parseMarketingOptions(source.table_config || source.marketing_options || source.marketing || source);
+  const config = parseJsonObject(source.table_config);
+  const uiTranslations = {
+    ...parseUiTranslations(config.ui_translations || config.translations_ui),
+    ...parseUiTranslations(source.ui_translations || source.translations_ui),
+  };
+  const priorityRaw = String(source.priority_display || "").toLowerCase().trim();
+  const priorityDisplay = priorityRaw === "daily" ? "daily" : priorityRaw === "chef" ? "chef" : marketing.heroBadgeType;
+  return {
+    showCalories: parseShowCalories(source.show_calories, true),
+    enabledLanguages: langs.codes,
+    languageLabels: langs.labels,
+    heroEnabled: marketing.heroEnabled,
+    upsellEnabled: marketing.upsellEnabled,
+    consultationMode: marketing.consultationMode,
+    orderValidationCode: marketing.orderValidationCode,
+    suggestionRules: marketing.suggestionRules,
+    suggestionMessage: marketing.suggestionMessage,
+    suggestionMessagesI18n: marketing.suggestionMessagesI18n,
+    heroBadgeType: priorityDisplay,
+    uiTranslations,
+  };
+}
+
+function parseMarketingOptions(raw: unknown) {
+  const source =
+    typeof raw === "string"
+      ? (() => {
+          try {
+            return JSON.parse(raw) as unknown as Record<string, unknown>;
+          } catch {
+            return null;
+          }
+        })()
+      : (raw as unknown as Record<string, unknown> | null);
+  const marketingContainer =
+    source && typeof source === "object" && source.marketing_options && typeof source.marketing_options === "object"
+      ? (source.marketing_options as unknown as Record<string, unknown>)
+      : source && typeof source === "object" && source.marketing && typeof source.marketing === "object"
+        ? (source.marketing as unknown as Record<string, unknown>)
+        : source;
+  const rawRules =
+    marketingContainer?.suggestion_rules && Array.isArray(marketingContainer.suggestion_rules)
+      ? marketingContainer.suggestion_rules
+      : [];
+  const suggestionRules = rawRules
+    .map((item) => {
+      if (!item || typeof item !== "object") return null;
+      const row = item as unknown as Record<string, unknown>;
+      const from = String(row.from_category_id || "").trim();
+      const to = String(row.to_category_id || "").trim();
+      if (!from || !to) return null;
+      return { from_category_id: from, to_category_id: to } as SuggestionRule;
+    })
+    .filter(Boolean) as SuggestionRule[];
+  const suggestionMessage = String(marketingContainer?.suggestion_message || "").trim();
+  const rawSuggestionMessages =
+    marketingContainer?.suggestion_message_i18n && typeof marketingContainer.suggestion_message_i18n === "object"
+      ? (marketingContainer.suggestion_message_i18n as unknown as Record<string, unknown>)
+      : {};
+  const suggestionMessagesI18n = Object.fromEntries(
+    Object.entries(rawSuggestionMessages)
+      .map(([code, value]) => [normalizeLanguageKey(code), String(value || "").trim()])
+      .filter(([code, value]) => String(code || "").trim().length > 0 && String(value || "").trim().length > 0)
+  ) as Record<string, string>;
+  if (suggestionMessage && !suggestionMessagesI18n.fr) {
+    suggestionMessagesI18n.fr = suggestionMessage;
+  }
+  const orderValidationCode = String(
+    marketingContainer?.order_validation_code ||
+      marketingContainer?.validation_code ||
+      source?.order_validation_code ||
+      source?.validation_code ||
+      "1234"
+  ).trim();
+  const heroBadgeTypeRaw = String(marketingContainer?.hero_badge_type || "chef").toLowerCase();
+  const heroBadgeType = heroBadgeTypeRaw === "daily" ? "daily" : "chef";
+  return {
+    heroEnabled: parseShowCalories(marketingContainer?.hero_enabled ?? marketingContainer?.show_featured ?? source?.show_featured, true),
+    upsellEnabled: parseShowCalories(marketingContainer?.upsell_enabled, false),
+    consultationMode: parseShowCalories(
+      marketingContainer?.consultation_mode ?? marketingContainer?.is_order_disabled ?? source?.is_order_disabled,
+      false
+    ),
+    orderValidationCode: orderValidationCode || "1234",
+    suggestionRules,
+    suggestionMessage,
+    suggestionMessagesI18n,
+    heroBadgeType,
+  };
+}
+
+function toUiLang(lang: string): CoreUiLang {
+  if (lang === "en" || lang === "es" || lang === "de" || lang === "fr") return lang;
+  return "fr";
+}
+
+async function fetchPublicRestaurantConfig(restaurantId: string) {
+  const query = restaurantId ? `?restaurant_id=${encodeURIComponent(restaurantId)}` : "";
+  const response = await fetch(`/api/public/restaurant-config${query}`, {
+    method: "GET",
+    cache: "no-store",
+  });
+  if (!response.ok) return null;
+  const payload = (await response.json().catch(() => ({}))) as { restaurant?: Record<string, unknown> };
+  const row = payload.restaurant;
+  if (!row || typeof row !== "object") return null;
+  return row;
+}
+
+interface ExtrasItem {
+  id?: string;
+  name_fr: string;
+  name?: string;
+  name_en?: string;
+  name_es?: string;
+  name_de?: string;
+  names_i18n?: Record<string, string>;
+  price: number;
+}
+
+interface SideLibraryItem {
+  id: string | number;
+  name_fr: string;
+  name_en?: string | null;
+  name_es?: string | null;
+  name_de?: string | null;
+  translations?: Record<string, unknown> | string | null;
+}
+
+interface CategoryItem {
+  id: string | number;
+  name_fr: string;
+  name_en?: string | null;
+  name_es?: string | null;
+  name_de?: string | null;
+  translations?: Record<string, unknown> | string | null;
+}
+
+interface SubCategoryItem {
+  id: string | number;
+  category_id?: string | number | null;
+  name_fr: string;
+  name_en?: string | null;
+  name_es?: string | null;
+  name_de?: string | null;
+  translations?: Record<string, unknown> | string | null;
+}
+
+interface ParsedOptions {
+  baseDescription: string;
+  extrasList: ExtrasItem[];
+  sideIds: number[];
+  askCooking: boolean;
+}
+
+interface CartItem {
+  dish: Dish;
+  quantity: number;
+  selectedSides?: string[];
+  selectedSideIds?: string[];
+  selectedExtras?: ExtrasItem[];
+  selectedProductOption?: ProductOptionItem | null;
+  selectedCooking?: string;
+  specialRequest?: string;
+  fromRecommendation?: boolean;
+}
+
+function parseOptionsFromDescription(description?: string | null): ParsedOptions {
+  const result: ParsedOptions = {
+    baseDescription: "",
+    extrasList: [],
+    sideIds: [],
+    askCooking: false,
+  };
+  if (!description) return result;
+
+  const lines = description.split("\n");
+  const remaining: string[] = [];
+
+  lines.forEach((line) => {
+    const trimmed = line.trim();
+    if (trimmed.startsWith("__SIDE_IDS__:")) {
+      const raw = trimmed.replace("__SIDE_IDS__:", "").trim();
+      result.sideIds = raw
+        .split(",")
+        .map((v) => Number(v.trim()))
+        .filter((v) => Number.isFinite(v));
+      return;
+    }
+    if (trimmed.startsWith("__ASK_COOKING__:")) {
+      const raw = trimmed.replace("__ASK_COOKING__:", "").trim().toLowerCase();
+      result.askCooking = raw === "true" || raw === "1";
+      return;
+    }
+    if (trimmed.startsWith("__EXTRAS__:")) {
+      const raw = trimmed.replace("__EXTRAS__:", "").trim();
+      const list = raw
+        .split("|")
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .map((entry, index) => {
+          const [namePart, pricePart] = entry.split("=").map((p) => p.trim());
+          const price = pricePart ? Number(pricePart.replace(",", ".")) : 0;
+          return {
+            id: buildStableExtraId("legacy", { name_fr: namePart || "Supplï¿½ment", price: Number.isFinite(price) ? price : 0 }, index),
+            name_fr: namePart || "Supplï¿½ment",
+            name_en: namePart || "Supplement",
+            name_es: namePart || "Suplemento",
+            name_de: namePart || "Zusatz",
+            names_i18n: {},
+            price: Number.isFinite(price) ? price : 0,
+          };
+        });
+      result.extrasList = list;
+      return;
+    }
+    if (trimmed.startsWith("__EXTRAS_JSON__:")) {
+      const raw = trimmed.replace("__EXTRAS_JSON__:", "").trim();
+      try {
+        const parsed = JSON.parse(decodeURIComponent(raw));
+        if (Array.isArray(parsed)) {
+          result.extrasList = parsed
+            .map((row) => {
+              if (!row || typeof row !== "object") return null;
+              const item = row as unknown as Record<string, unknown>;
+              const namesObj = (item.names_i18n && typeof item.names_i18n === "object"
+                ? (item.names_i18n as unknown as Record<string, unknown>)
+                : {}) as unknown as Record<string, unknown>;
+              const names: Record<string, string> = {};
+              Object.entries(namesObj).forEach(([k, v]) => {
+                const key = String(k || "").trim().toLowerCase();
+                if (!key) return;
+                names[key] = String(v || "").trim();
+              });
+              const fr = String(item.name_fr || names.fr || "").trim() || "Supplï¿½ment";
+              const priceRaw = item.price || 0;
+              const price =
+                typeof priceRaw === "number" ? priceRaw : Number(String(priceRaw).replace(",", "."));
+              return {
+                id: String(item.id || ""),
+                name_fr: fr,
+                name_en: String(item.name_en || names.en || "").trim(),
+                name_es: String(item.name_es || names.es || "").trim(),
+                name_de: String(item.name_de || names.de || "").trim(),
+                names_i18n: names,
+                price: Number.isFinite(price) ? Number(price) : 0,
+              } as ExtrasItem;
+            })
+            .filter(Boolean) as ExtrasItem[];
+          return;
+        }
+      } catch {
+        // ignore malformed payload
+      }
+    }
+    if (trimmed.startsWith("__EXTRAS_I18N__:")) {
+      const raw = trimmed.replace("__EXTRAS_I18N__:", "").trim();
+      const list = raw
+        .split("|")
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .map((entry, index) => {
+          const [labels, pricePart] = entry.split("=").map((p) => p.trim());
+          const [fr, en, es, de] = (labels || "").split("~").map((p) => decodeURIComponent((p || "").trim()));
+          const price = pricePart ? Number(pricePart.replace(",", ".")) : 0;
+          return {
+            id: buildStableExtraId("legacy-extra", { name_fr: fr || "Supplï¿½ment", price: Number.isFinite(price) ? price : 0 }, index),
+            name_fr: fr || "Supplï¿½ment",
+            name_en: en || fr || "Supplement",
+            name_es: es || fr || "Suplemento",
+            name_de: de || fr || "Zusatz",
+            names_i18n: {
+              fr: fr || "",
+              en: en || "",
+              es: es || "",
+              de: de || "",
+            },
+            price: Number.isFinite(price) ? price : 0,
+          };
+        });
+      result.extrasList = list;
+      return;
+    }
+    remaining.push(line);
+  });
+
+  result.baseDescription = remaining.join("\n").trim();
+  return result;
+}
+
+function getDishName(dish: Dish, lang: string) {
+  const uiLang = toUiLang(lang);
+  const dishRecord = dish as unknown as Record<string, unknown>;
+  const normalizedLang = normalizeLanguageKey(lang);
+  const langColumnCandidates = [
+    `name_${normalizedLang}`,
+    `name_${uiLang}`,
+    normalizedLang === "ja" ? "name_jp" : "",
+    normalizedLang === "zh" ? "name_cn" : "",
+    normalizedLang === "ko" ? "name_kr" : "",
+    normalizedLang === "el" ? "name_gr" : "",
+    normalizedLang === "ro" ? "name_ro" : "",
+    normalizedLang === "pl" ? "name_pl" : "",
+    normalizedLang === "it" ? "name_it" : "",
+    normalizedLang === "nl" ? "name_nl" : "",
+    normalizedLang === "ar" ? "name_ar" : "",
+    normalizedLang === "ru" ? "name_ru" : "",
+  ].filter(Boolean);
+  for (const key of langColumnCandidates) {
+    const directColumnValue = String(dishRecord[key] || "").trim();
+    if (directColumnValue) return directColumnValue;
+  }
+  const fromTranslations = getNameTranslation(
+    {
+      ...dishRecord,
+      name_fr: String(dish.name_fr || dish.name || dish.nom || "").trim(),
+    },
+    lang
+  );
+  if (fromTranslations) return fromTranslations;
+
+  const meta = (dish as unknown as Record<string, unknown>).dietary_tag;
+  const parsedMeta =
+    typeof meta === "string"
+      ? (() => {
+          try {
+            return JSON.parse(meta) as unknown as Record<string, unknown>;
+          } catch {
+            return {};
+          }
+        })()
+      : (meta as unknown as Record<string, unknown> | null) || {};
+  const i18nName =
+    parsedMeta.i18n && typeof parsedMeta.i18n === "object"
+      ? ((parsedMeta.i18n as unknown as Record<string, unknown>).name as unknown as Record<string, unknown> | undefined)
+      : undefined;
+  if (i18nName && typeof i18nName === "object") {
+    const normalizedDynamicValue = i18nName[normalizedLang as keyof typeof i18nName];
+    if (typeof normalizedDynamicValue === "string" && normalizedDynamicValue.trim()) return normalizedDynamicValue.trim();
+    const uiDynamicValue = i18nName[uiLang as keyof typeof i18nName];
+    if (typeof uiDynamicValue === "string" && uiDynamicValue.trim()) return uiDynamicValue.trim();
+    const rawDynamicValue = i18nName[lang as keyof typeof i18nName];
+    if (typeof rawDynamicValue === "string" && rawDynamicValue.trim()) return rawDynamicValue.trim();
+  }
+  if (lang === "en" && dish.name_en) return dish.name_en;
+  if (lang === "es" && dish.name_es) return dish.name_es;
+  if (lang === "de" && dish.name_de) return dish.name_de;
+  const fallbackName = String(dish.name_fr || dish.name || dish.nom || "Plat").trim();
+  const normalizedFallbackName = normalizeLookupText(fallbackName);
+  if (normalizedFallbackName === "plat du jour" || normalizedFallbackName === "platdujour") {
+    return String(
+      UI_TRANSLATIONS[normalizedLang]?.platDuJour ||
+        UI_TRANSLATIONS[normalizedLang]?.featured_daily ||
+        UI_TRANSLATIONS[uiLang]?.platDuJour ||
+        UI_TRANSLATIONS[uiLang]?.featured_daily ||
+        fallbackName
+    );
+  }
+  return fallbackName;
+}
+
+function getDescription(dish: Dish, lang: string) {
+  const langCode = normalizeLanguageKey(lang);
+  const uiLang = toUiLang(lang);
+  const dishRecord = dish as unknown as Record<string, unknown>;
+  const directDescriptionColumnCandidates = [
+    `description_${langCode}`,
+    `description_${uiLang}`,
+    langCode === "ja" ? "description_jp" : "",
+    langCode === "zh" ? "description_cn" : "",
+    langCode === "ko" ? "description_kr" : "",
+    langCode === "el" ? "description_gr" : "",
+  ].filter(Boolean);
+  for (const key of directDescriptionColumnCandidates) {
+    const directValue = String(dishRecord[key] || "").trim();
+    if (directValue) return parseOptionsFromDescription(directValue).baseDescription;
+  }
+  const translations = parseJsonObject((dish as unknown as Record<string, unknown>).translations);
+  const descriptionNode =
+    translations.description && typeof translations.description === "object"
+      ? (translations.description as unknown as Record<string, unknown>)
+      : {};
+  const translatedDescription = String(descriptionNode[langCode] || "").trim();
+  if (translatedDescription) {
+    return parseOptionsFromDescription(translatedDescription).baseDescription;
+  }
+
+  const meta = (dish as unknown as Record<string, unknown>).dietary_tag;
+  const parsedMeta =
+    typeof meta === "string"
+      ? (() => {
+          try {
+            return JSON.parse(meta) as unknown as Record<string, unknown>;
+          } catch {
+            return {};
+          }
+        })()
+      : (meta as unknown as Record<string, unknown> | null) || {};
+  const i18nDescription =
+    parsedMeta.i18n && typeof parsedMeta.i18n === "object"
+      ? ((parsedMeta.i18n as unknown as Record<string, unknown>).description as unknown as Record<string, unknown> | undefined)
+      : undefined;
+  if (i18nDescription && typeof i18nDescription === "object") {
+    const normalizedDynamicValue = i18nDescription[langCode as keyof typeof i18nDescription];
+    if (typeof normalizedDynamicValue === "string" && normalizedDynamicValue.trim()) return normalizedDynamicValue.trim();
+    const uiDynamicValue = i18nDescription[toUiLang(lang) as keyof typeof i18nDescription];
+    if (typeof uiDynamicValue === "string" && uiDynamicValue.trim()) return uiDynamicValue.trim();
+    const rawDynamicValue = i18nDescription[lang as keyof typeof i18nDescription];
+    if (typeof rawDynamicValue === "string" && rawDynamicValue.trim()) return rawDynamicValue.trim();
+  }
+  const key = `description_${toUiLang(lang)}` as const;
+  const raw = (dish as Record<string, any>)[key] || dish.description_fr || dish.description || "";
+  return parseOptionsFromDescription(raw).baseDescription;
+}
+
+function getExtraLabel(extra: ExtrasItem, lang: string) {
+  const names = (extra as unknown as Record<string, unknown>).names_i18n;
+  if (names && typeof names === "object") {
+    const dynamicValue = (names as unknown as Record<string, unknown>)[lang];
+    if (typeof dynamicValue === "string" && dynamicValue.trim()) return dynamicValue.trim();
+  }
+  if (lang === "en" && extra.name_en) return extra.name_en;
+  if (lang === "es" && extra.name_es) return extra.name_es;
+  if (lang === "de" && extra.name_de) return extra.name_de;
+  return extra.name_fr || "Supplï¿½ment";
+}
+function getAllergens(dish: Dish) {
+  const parseList = (value: unknown) => {
+    if (Array.isArray(value)) return value.map((entry) => String(entry || "").trim()).filter(Boolean);
+    if (typeof value === "string") {
+      return value
+        .split(",")
+        .map((entry) => entry.trim())
+        .filter(Boolean);
+    }
+    return [] as string[];
+  };
+
+  const dietaryMeta = parseJsonObject((dish as unknown as Record<string, unknown>).dietary_tag);
+  const dietaryI18n = parseJsonObject(dietaryMeta.i18n);
+  const topLevelDietaryList = parseList(
+    dietaryMeta.allergens_selected ?? dietaryMeta.allergens_fr ?? dietaryMeta.allergens
+  );
+  const manualAllergensByName = parseJsonObject(dietaryI18n.allergens_manual);
+  const manualKeys = Object.keys(manualAllergensByName).map((value) => String(value || "").trim()).filter(Boolean);
+  const i18nAllergensByLang = parseJsonObject(dietaryI18n.allergens);
+  const i18nFrList = parseList(i18nAllergensByLang.fr ?? i18nAllergensByLang.default);
+
+  const parts = (topLevelDietaryList.length > 0 ? topLevelDietaryList : manualKeys.length > 0 ? manualKeys : i18nFrList)
+    .map((a) => a.trim())
+    .filter(Boolean);
+  const seen = new Set<string>();
+  const unique: string[] = [];
+  parts.forEach((item) => {
+    const key = item.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    if (seen.has(key)) return;
+    seen.add(key);
+    unique.push(item);
+  });
+  return unique;
+}
+
+function getLocalizedAllergens(dish: Dish, lang: string) {
+  const parseList = (value: unknown) => {
+    if (Array.isArray(value)) return value.map((entry) => String(entry || "").trim()).filter(Boolean);
+    if (typeof value === "string") {
+      return value
+        .split(",")
+        .map((entry) => entry.trim())
+        .filter(Boolean);
+    }
+    return [] as string[];
+  };
+
+  const fromField = getAllergens(dish);
+  const dietaryMeta = parseJsonObject((dish as unknown as Record<string, unknown>).dietary_tag);
+  const dietaryI18n = parseJsonObject(dietaryMeta.i18n);
+  const translations = parseJsonObject((dish as unknown as Record<string, unknown>).translations);
+  const requestedLang = normalizeLanguageKey(lang);
+  const uiLang = toUiLang(lang);
+
+  const manualAllergensByName = parseJsonObject(dietaryI18n.allergens_manual);
+  const manualKeys = Object.keys(manualAllergensByName);
+  if (manualKeys.length > 0) {
+    const baseList = fromField.length > 0 ? fromField : manualKeys;
+    const localizedFromManual = baseList
+      .map((allergenFr) => {
+        const manualNode = parseJsonObject(
+          manualAllergensByName[allergenFr] ?? manualAllergensByName[String(allergenFr || "").trim()]
+        );
+        return String(manualNode[requestedLang] ?? manualNode[uiLang] ?? manualNode.fr ?? allergenFr).trim();
+      })
+      .filter(Boolean);
+    if (localizedFromManual.length > 0) return localizedFromManual;
+  }
+
+  const dietaryAllergensNode = dietaryI18n.allergens;
+  if (dietaryAllergensNode) {
+    if (Array.isArray(dietaryAllergensNode) || typeof dietaryAllergensNode === "string") {
+      const local = parseList(dietaryAllergensNode);
+      if (local.length > 0) return local;
+    } else if (typeof dietaryAllergensNode === "object") {
+      const source = dietaryAllergensNode as Record<string, unknown>;
+      const localizedRaw = source[requestedLang] ?? source[uiLang] ?? source.fr ?? source.default;
+      const localized = parseList(localizedRaw);
+      if (localized.length > 0) return localized;
+    }
+  }
+
+  const langNode = parseJsonObject(translations[requestedLang] ?? translations[uiLang]);
+  const allergensNode = langNode.allergens ?? translations.allergens;
+  if (!allergensNode) return fromField;
+
+  if (Array.isArray(allergensNode) || typeof allergensNode === "string") {
+    const local = parseList(allergensNode);
+    return local.length > 0 ? local : fromField;
+  }
+  if (typeof allergensNode !== "object") return fromField;
+
+  const source = allergensNode as Record<string, unknown>;
+  const localizedRaw = source[requestedLang] ?? source[uiLang] ?? source.fr ?? source.default;
+  const localized = parseList(localizedRaw);
+  return localized.length > 0 ? localized : fromField;
+}
+
+function translateAllergen(allergen: string, lang: string) {
+  return translateAllergenFallback(allergen, lang);
+}
+
+function normalizeAllergenKey(value: unknown) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+function buildAllergenLibraryLookup(raw: unknown) {
+  const rows = Array.isArray(raw) ? raw : [];
+  const lookup: Record<string, Record<string, string>> = {};
+  rows.forEach((entry) => {
+    const row = parseJsonObject(entry);
+    const nameFr = String(row.name_fr || row.name || "").trim();
+    if (!nameFr) return;
+    const names = parseJsonObject(row.names_i18n);
+    const record: Record<string, string> = {};
+    Object.entries(names).forEach(([lang, label]) => {
+      const code = normalizeLanguageKey(lang);
+      const value = String(label || "").trim();
+      if (!code || !value) return;
+      record[code] = value;
+    });
+    record.fr = record.fr || nameFr;
+    lookup[normalizeAllergenKey(nameFr)] = record;
+  });
+  return lookup;
+}
+
+function getSpicyBadgeLabel(dish: Dish, lang: string) {
+  const uiLang = toUiLang(lang);
+  const requestedLang = normalizeLanguageKey(lang);
+  const translations = parseJsonObject((dish as unknown as Record<string, unknown>).translations);
+  const langNode = parseJsonObject(translations[requestedLang] ?? translations[uiLang]);
+  const spicyNode = langNode.spicy_level ?? translations.spicy_level;
+  let localized = "";
+
+  if (typeof spicyNode === "string") {
+    localized = spicyNode.trim();
+  } else if (spicyNode && typeof spicyNode === "object") {
+    const source = spicyNode as Record<string, unknown>;
+    localized = String(source[requestedLang] ?? source[uiLang] ?? source.fr ?? "").trim();
+  }
+
+  const fallback = String(localized || dish.spicy_level || "").trim();
+  if (!fallback) return dish.is_spicy ? UI_TEXT_CLEAN[uiLang].labels.spicy : "";
+
+  return translateSpicyLevelFallback(fallback, lang) || fallback;
+}
+
+function getDishStyleBadgeFlags(dish: Dish) {
+  const dietaryMeta = parseJsonObject((dish as unknown as Record<string, unknown>).dietary_tag);
+  const badges = parseJsonObject(dietaryMeta.badges);
+  const spicyFallback = Boolean(String((dish as unknown as Record<string, unknown>).spicy_level || "").trim());
+  return {
+    vegetarian: Boolean(dish.is_vegetarian ?? dietaryMeta.is_vegetarian ?? badges.vegetarian),
+    spicy: Boolean(dish.is_spicy ?? dietaryMeta.is_spicy ?? badges.spicy ?? spicyFallback),
+    isNew: Boolean(dietaryMeta.is_new ?? dietaryMeta.new_badge ?? badges.new),
+    glutenFree: Boolean(dietaryMeta.is_gluten_free ?? dietaryMeta.gluten_free ?? badges.gluten_free),
+  };
+}
+function getHungerLevel(dish: Dish, lang: string) {
+  const uiLang = toUiLang(lang);
+  const normalizedLang = normalizeLanguageKey(lang);
+  const translatedHungerLabel = (size: "small" | "medium" | "big", fallback: string) =>
+    String(
+      (size === "small"
+        ? UI_TRANSLATIONS[normalizedLang]?.smallHunger
+        : size === "medium"
+          ? UI_TRANSLATIONS[normalizedLang]?.mediumHunger
+          : UI_TRANSLATIONS[normalizedLang]?.bigHunger) ||
+        (size === "small"
+          ? UI_TRANSLATIONS[uiLang]?.smallHunger
+          : size === "medium"
+            ? UI_TRANSLATIONS[uiLang]?.mediumHunger
+            : UI_TRANSLATIONS[uiLang]?.bigHunger) ||
+        fallback
+    );
+  const directHungerRaw = String((dish as unknown as Record<string, unknown>).hunger_level || "").trim();
+  if (directHungerRaw) {
+    const normalizedHungerRaw = normalizeLookupText(directHungerRaw);
+    if (normalizedHungerRaw === "petite faim") return translatedHungerLabel("small", directHungerRaw);
+    if (normalizedHungerRaw === "moyenne faim") return translatedHungerLabel("medium", directHungerRaw);
+    if (normalizedHungerRaw === "grosse faim") return translatedHungerLabel("big", directHungerRaw);
+    if (normalizedHungerRaw === "small hunger") return translatedHungerLabel("small", directHungerRaw);
+    if (normalizedHungerRaw === "medium hunger") return translatedHungerLabel("medium", directHungerRaw);
+    if (normalizedHungerRaw === "big hunger") return translatedHungerLabel("big", directHungerRaw);
+  }
+  const translateFrenchHungerFallback = (value: string) => {
+    const normalized = normalizeLookupText(value);
+    if (normalized === "petite faim") return translatedHungerLabel("small", value);
+    if (normalized === "moyenne faim") return translatedHungerLabel("medium", value);
+    if (normalized === "grosse faim") return translatedHungerLabel("big", value);
+    return value;
+  };
+  const translations = parseJsonObject((dish as unknown as Record<string, unknown>).translations);
+  const langNode = parseJsonObject(translations[normalizedLang] ?? translations[uiLang]);
+  const cal = Number(dish.calories_max || dish.calories_min || 0);
+  if (!cal || Number.isNaN(cal)) return "";
+  const levelKey = cal >= 800 ? "large" : cal >= 500 ? "medium" : "small";
+  const hungerNodeRaw = langNode.hunger_level ?? langNode.hunger ?? translations.hunger_level ?? translations.hunger;
+  const hungerNode = parseJsonObject(hungerNodeRaw);
+  if (hungerNode && Object.keys(hungerNode).length > 0) {
+    const directValue = String(hungerNode[levelKey] || "").trim();
+    if (directValue) return translateFrenchHungerFallback(directValue);
+    const nestedLang = parseJsonObject(hungerNode[normalizedLang] ?? hungerNode[uiLang]);
+    const nestedValue = String(nestedLang[levelKey] || "").trim();
+    if (nestedValue) return translateFrenchHungerFallback(nestedValue);
+  }
+  if (cal >= 800) {
+    return normalizedLang === "fr" || normalizedLang === "en" || normalizedLang === "es" || normalizedLang === "de"
+      ? UI_TEXT_CLEAN[uiLang].hunger.large
+      : translatedHungerLabel("big", translateHungerLevelFallback("large", lang));
+  }
+  if (cal >= 500) {
+    return normalizedLang === "fr" || normalizedLang === "en" || normalizedLang === "es" || normalizedLang === "de"
+      ? UI_TEXT_CLEAN[uiLang].hunger.medium
+      : translatedHungerLabel("medium", translateHungerLevelFallback("medium", lang));
+  }
+  return normalizedLang === "fr" || normalizedLang === "en" || normalizedLang === "es" || normalizedLang === "de"
+    ? UI_TEXT_CLEAN[uiLang].hunger.small
+    : translatedHungerLabel("small", translateHungerLevelFallback("small", lang));
+}
+
+function getCaloriesLabel(dish: Dish, kcalLabel = "kcal") {
+  const unit = String(kcalLabel || "kcal").trim() || "kcal";
+  const formatValue = (value: unknown) => {
+    const cleaned = String(value ?? "")
+      .replace(/\b(kcal|åƒå¡|ÐºÐºÐ°Ð»)\b/gi, "")
+      .replace(/Ø³Ø¹Ø±Ø©(?:\s+Ø­Ø±Ø§Ø±ÙŠØ©)?/gi, "")
+      .trim();
+    return cleaned;
+  };
+
+  const min = dish.calories_min;
+  const max = dish.calories_max;
+  if (min && max) return `${min}-${max} ${unit}`;
+  if (min) return `${min} ${unit}`;
+  if (max) return `${max} ${unit}`;
+
+  const singleCalories = formatValue(dish.calories);
+  if (singleCalories) return `${singleCalories} ${unit}`;
+  return "";
+}
+
+function collapseDuplicateWords(value: string) {
+  const parts = String(value || "")
+    .split(/\s+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  const unique: string[] = [];
+  let previousKey = "";
+  parts.forEach((part) => {
+    const key = part
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "");
+    if (!key || key === previousKey) return;
+    unique.push(part);
+    previousKey = key;
+  });
+  return unique.join(" ").trim();
+}
+
+function dedupeDisplayValues(values: unknown[]) {
+  const seen = new Set<string>();
+  const output: string[] = [];
+  values.forEach((value) => {
+    const collapsed = collapseDuplicateWords(String(value || "").trim());
+    if (!collapsed) return;
+    const key = collapsed
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "");
+    if (seen.has(key)) return;
+    seen.add(key);
+    output.push(collapsed);
+  });
+  return output;
+}
+
+function getProductOptionLabel(option: ProductOptionItem | null | undefined, lang: string) {
+  if (!option) return "";
+  const normalizedLang = normalizeLanguageKey(lang);
+  const optionNames = {
+    ...parseJsonObject(option.names_i18n),
+    ...parseI18nToken(String(option.name_en || "")),
+  };
+  const fallbackFr = String(option.name_fr || option.name || "").trim();
+  if (!normalizedLang || normalizedLang === "fr") return fallbackFr;
+  const translated =
+    String(optionNames[normalizedLang] || "").trim() ||
+    String(
+      normalizedLang === "en"
+        ? option.name_en
+        : normalizedLang === "es"
+          ? option.name_es
+          : normalizedLang === "de"
+            ? option.name_de
+            : ""
+    ).trim();
+  return translated || fallbackFr;
+}
+
+function buildInstructionText(
+  lang: string,
+  selectedSides?: string[],
+  selectedExtras?: ExtrasItem[],
+  selectedProductOption?: ProductOptionItem | null,
+  selectedCooking?: string,
+  specialRequest?: string,
+  uiCopy?: (typeof UI_TEXT)["fr"]
+) {
+  const uiLang = toUiLang(lang);
+  const labels = uiCopy || UI_TEXT_CLEAN[uiLang];
+  const parts: string[] = [];
+  const uniqueSides = dedupeDisplayValues((selectedSides || []) as unknown[]);
+  if (uniqueSides.length > 0) {
+    parts.push(`${labels.sidesLabel}: ${uniqueSides.join(", ")}`);
+  }
+  const optionLabel = getProductOptionLabel(selectedProductOption, lang);
+  if (selectedProductOption && optionLabel) {
+    const optionPriceRaw = selectedProductOption.price_override;
+    const optionPrice =
+      optionPriceRaw == null || !Number.isFinite(Number(optionPriceRaw))
+        ? null
+        : Number(optionPriceRaw);
+    parts.push(optionPrice != null ? `Option: ${optionLabel} (${PRICE_FORMATTER_EUR.format(optionPrice)})` : `Option: ${optionLabel}`);
+  }
+  if (selectedCooking) parts.push(`${labels.cookingLabel}: ${selectedCooking}`);
+  if (selectedExtras && selectedExtras.length > 0) {
+    const extrasText = dedupeDisplayValues(
+      selectedExtras.map((e) => {
+        const extraName = String(e.name_fr || "Suppl\u00e9ment").trim() || "Suppl\u00e9ment";
+        const extraPrice = Number(e.price || 0);
+        return `${extraName} (+${PRICE_FORMATTER_EUR.format(Number.isFinite(extraPrice) ? extraPrice : 0)})`;
+      })
+    )
+      .join(", ");
+    if (extrasText) parts.push(`${labels.extrasLabel}: ${extrasText}`);
+  }
+  if (specialRequest && specialRequest.trim()) {
+    parts.push(`${labels.specialRequestLabel}: ${specialRequest.trim()}`);
+  }
+  return parts.join(" | ");
+}
+
+export default function MenuDigital() {
+  const params = useParams<{ id?: string; restaurant_id?: string }>();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const decodeAndTrim = (value: unknown) => {
+    const raw = String(value || "").trim();
+    if (!raw) return "";
+    try {
+      return decodeURIComponent(raw).trim();
+    } catch {
+      return raw;
+    }
+  };
+  const scopedRestaurantIdFromPath = decodeAndTrim(params?.restaurant_id || params?.id || "");
+  const scopedRestaurantIdFromQuery = decodeAndTrim(searchParams.get("restaurant_id") || "");
+  const scopedRestaurantIdFromLocation =
+    typeof window !== "undefined" ? decodeAndTrim(window.location.pathname.split("/").filter(Boolean)[0] || "") : "";
+  const scopedRestaurantId = scopedRestaurantIdFromPath || scopedRestaurantIdFromQuery || scopedRestaurantIdFromLocation;
+  const modeParam = String(searchParams.get("mode") || "").trim().toLowerCase();
+  const pathSegments = String(pathname || "")
+    .split("/")
+    .map((part) => String(part || "").trim().toLowerCase())
+    .filter(Boolean);
+  const isVitrinePath = pathSegments[0] === "vitrine";
+  const forceInteractiveMode = ["table", "commande", "order", "command"].includes(modeParam);
+  const isVitrineMode =
+    !forceInteractiveMode &&
+    (isVitrinePath || ["vitrine", "view", "consultation", "readonly", "read-only"].includes(modeParam));
+  const [lang, setLang] = useState<string>("fr");
+  const [dishes, setDishes] = useState<Dish[]>([]);
+  const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
+  const [selectedCategory, setSelectedCategory] = useState(0);
+  const [cart, setCart] = useState<CartItem[]>([]);
+  const [showLangMenu, setShowLangMenu] = useState(false);
+  const [selectedDish, setSelectedDish] = useState<Dish | null>(null);
+  const [dishModalQuantity, setDishModalQuantity] = useState(1);
+  const [serverCallMsg, setServerCallMsg] = useState("");
+  const [showCallModal, setShowCallModal] = useState(false);
+  const [isSendingCall, setIsSendingCall] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [isRestaurantOffline, setIsRestaurantOffline] = useState(false);
+  const [offlineRestaurantName, setOfflineRestaurantName] = useState("");
+  const [specialRequest, setSpecialRequest] = useState("");
+  const [selectedSides, setSelectedSides] = useState<string[]>([]);
+  const [selectedCooking, setSelectedCooking] = useState("");
+  const [selectedExtras, setSelectedExtras] = useState<ExtrasItem[]>([]);
+  const [modalProductOptions, setModalProductOptions] = useState<ProductOptionItem[]>([]);
+  const [selectedProductOptionId, setSelectedProductOptionId] = useState("");
+  const [modalSidesOptions, setModalSidesOptions] = useState<string[]>([]);
+  const [modalExtrasOptions, setModalExtrasOptions] = useState<ExtrasItem[]>([]);
+  const [modalAskCooking, setModalAskCooking] = useState(false);
+  const [isCartOpen, setIsCartOpen] = useState(false);
+  const [tableNumber, setTableNumber] = useState("");
+  const [orderValidationCodeInput, setOrderValidationCodeInput] = useState("");
+  const [, setOrderValidationCode] = useState("1234");
+  const [tablePinCodesByNumber, setTablePinCodesByNumber] = useState<Record<string, string>>({});
+  const [toastMessage, setToastMessage] = useState("");
+  const [orderSuccess, setOrderSuccess] = useState(false);
+  const [cartBump, setCartBump] = useState(false);
+  const [isStickyActionsCompact, setIsStickyActionsCompact] = useState(false);
+  const actionDockSentinelRef = useRef<HTMLDivElement | null>(null);
+  const vitrineViewTrackedRef = useRef<Record<string, boolean>>({});
+  const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [sideError, setSideError] = useState("");
+  const [categories, setCategories] = useState<CategoryItem[]>([]);
+  const [subCategoryRows, setSubCategoryRows] = useState<SubCategoryItem[]>([]);
+  const [sidesLibrary, setSidesLibrary] = useState<SideLibraryItem[]>([]);
+  const [selectedSubCategory, setSelectedSubCategory] = useState("");
+  const [showCaloriesClient, setShowCaloriesClient] = useState(true);
+  const [consultationModeClient, setConsultationModeClient] = useState(false);
+  const [heroEnabledClient, setHeroEnabledClient] = useState(true);
+  const [heroBadgeTypeClient, setHeroBadgeTypeClient] = useState<"chef" | "daily">("chef");
+  const [enabledLanguagesClient, setEnabledLanguagesClient] = useState<string[]>(["fr", "en"]);
+  const [enabledLanguageLabels, setEnabledLanguageLabels] = useState<Record<string, string>>({
+    fr: "Fran\u00e7ais",
+    en: "English",
+  });
+  const [showSalesAdviceModal, setShowSalesAdviceModal] = useState(false);
+  const [salesAdviceMessage, setSalesAdviceMessage] = useState("");
+  const [salesAdviceDishId, setSalesAdviceDishId] = useState<string>("");
+  const [recommendationSourceDishId, setRecommendationSourceDishId] = useState<string>("");
+  const [suggestionLeadByLang, setSuggestionLeadByLang] = useState<Record<string, string>>({});
+  const [uiTranslationsByLang, setUiTranslationsByLang] = useState<UiTranslationsByLang>({});
+  const [darkMode, setDarkMode] = useState(false);
+  const [headerLogoLoadError, setHeaderLogoLoadError] = useState(false);
+  const [headerLogoLoaded, setHeaderLogoLoaded] = useState(false);
+  const [headerLogoCacheBuster, setHeaderLogoCacheBuster] = useState<number>(Date.now());
+  const hideBrokenImage = (event: React.SyntheticEvent<HTMLImageElement>) => {
+    event.currentTarget.style.display = "none";
+  };
+  const uiLang = toUiLang(lang);
+  const normalizedLang = normalizeLanguageKey(lang);
+  const isRtl = RTL_LANGUAGE_CODES.has(normalizedLang);
+  const triggerHaptic = (pattern: number | number[]) => {
+    try {
+      if (typeof navigator === "undefined" || typeof navigator.vibrate !== "function") return;
+      navigator.vibrate(pattern);
+    } catch {
+      // noop on unsupported browsers/devices
+    }
+  };
+  const mergedUiDictionary = useMemo(() => {
+    const master = UI_TRANSLATIONS[normalizedLang] || UI_TRANSLATIONS[uiLang] || {};
+    return {
+      ...(uiTranslationsByLang.fr || {}),
+      ...(uiTranslationsByLang[uiLang] || {}),
+      ...(uiTranslationsByLang[normalizedLang] || {}),
+      ...master,
+    } as UiDictionary;
+  }, [uiTranslationsByLang, uiLang, normalizedLang]);
+  const dishBadgeLabels = useMemo(() => {
+    const pick = (key: string, fallback: string) =>
+      String(mergedUiDictionary[key] || UI_TRANSLATIONS[normalizedLang]?.[key] || UI_TRANSLATIONS[uiLang]?.[key] || fallback);
+    return {
+      vegetarian: pick("badge_vegetarian", "VÃ©gÃ©tarien"),
+      spicy: pick("badge_spicy", "PimentÃ©"),
+      isNew: pick("badge_new", "Nouveau"),
+      glutenFree: pick("badge_gluten_free", "Sans gluten"),
+    };
+  }, [mergedUiDictionary, normalizedLang, uiLang]);
+  const promoBadgeLabel = String(
+    mergedUiDictionary.badge_promo ||
+      UI_TRANSLATIONS[normalizedLang]?.badge_promo ||
+      UI_TRANSLATIONS[uiLang]?.badge_promo ||
+      "PROMO"
+  );
+  const chefSuggestionBadgeLabel = String(
+    mergedUiDictionary.badge_suggestion_chef ||
+      UI_TRANSLATIONS[normalizedLang]?.badge_suggestion_chef ||
+      UI_TRANSLATIONS[uiLang]?.badge_suggestion_chef ||
+      "SUGGESTION DU CHEF"
+  );
+  const footerThankYouLabel = String(
+    mergedUiDictionary.footer_thank_you ||
+      UI_TRANSLATIONS[normalizedLang]?.footer_thank_you ||
+      UI_TRANSLATIONS[uiLang]?.footer_thank_you ||
+      "Merci de votre visite"
+  );
+  const footerFollowUsLabel = String(
+    mergedUiDictionary.footer_follow_us ||
+      UI_TRANSLATIONS[normalizedLang]?.footer_follow_us ||
+      UI_TRANSLATIONS[uiLang]?.footer_follow_us ||
+      "Suivez-nous sur nos rÃ©seaux"
+  );
+  const footerPhotoShareLabel = String(
+    mergedUiDictionary.footer_photo_share_cta ||
+      UI_TRANSLATIONS[normalizedLang]?.footer_photo_share_cta ||
+      UI_TRANSLATIONS[uiLang]?.footer_photo_share_cta ||
+      "N'hÃ©sitez pas Ã  prendre vos plats en photo, Ã  les partager et Ã  nous mentionner !"
+  );
+  const getDishStyleBadges = (dish: Dish) => {
+    const flags = getDishStyleBadgeFlags(dish);
+    const badges: Array<{ key: string; label: string; dotClass: string }> = [];
+    if (flags.vegetarian) badges.push({ key: "vegetarian", label: dishBadgeLabels.vegetarian, dotClass: "bg-green-500" });
+    if (flags.spicy) badges.push({ key: "spicy", label: dishBadgeLabels.spicy, dotClass: "bg-red-500" });
+    if (flags.isNew) badges.push({ key: "new", label: dishBadgeLabels.isNew, dotClass: "bg-blue-500" });
+    if (flags.glutenFree) badges.push({ key: "gluten_free", label: dishBadgeLabels.glutenFree, dotClass: "bg-amber-500" });
+    return badges;
+  };
+  const uiText = useMemo(() => buildRuntimeUiText(UI_TEXT_CLEAN[uiLang], mergedUiDictionary), [uiLang, mergedUiDictionary]);
+  const kcalLabel = String((uiText as unknown as Record<string, unknown>).kcal || "kcal").trim() || "kcal";
+  const isOrderingDisabledClient =
+    consultationModeClient || parseShowCalories((restaurant as unknown as Record<string, unknown> | null)?.is_order_disabled, false);
+  const isInteractionDisabled = isOrderingDisabledClient || isVitrineMode;
+  const allergenLibraryLookup = useMemo(() => {
+    const tableConfig = parseJsonObject(restaurant?.table_config);
+    return buildAllergenLibraryLookup(tableConfig.allergen_library);
+  }, [restaurant]);
+  const tt = (key: keyof (typeof UI_TEXT)["fr"]["labels"]) => {
+    return uiText.labels[key] || t(lang, key);
+  };
+  const toFinitePrice = (raw: unknown) => {
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
+  const getPromoPriceForDish = (dish: Dish) => {
+    const source = dish as unknown as Record<string, unknown>;
+    if (!Boolean(source.is_promo)) return null;
+    const promo = toFinitePrice(source.promo_price);
+    if (promo == null || promo <= 0) return null;
+    return promo;
+  };
+  const getDishBasePriceWithOption = (dish: Dish, option?: ProductOptionItem | null) => {
+    const optionPrice = option ? toFinitePrice(option.price_override) : null;
+    if (optionPrice != null && optionPrice >= 0) return optionPrice;
+    return Number(dish.price || 0);
+  };
+  const getDishUnitPrice = (dish: Dish, option?: ProductOptionItem | null) => {
+    const basePrice = getDishBasePriceWithOption(dish, option);
+    const promoPrice = getPromoPriceForDish(dish);
+    if (promoPrice != null && promoPrice < basePrice) return promoPrice;
+    return basePrice;
+  };
+  const getDishSuggestionBadge = (dish: Dish) => {
+    const source = dish as unknown as Record<string, unknown>;
+    return Boolean(source.is_suggestion || source.is_chef_suggestion || source.is_featured);
+  };
+  const modalSelectedProductOption = useMemo(() => {
+    if (!modalProductOptions.length) return null;
+    return (
+      modalProductOptions.find((option) => String(option.id || "") === String(selectedProductOptionId || "")) ||
+      modalProductOptions[0]
+    );
+  }, [modalProductOptions, selectedProductOptionId]);
+  const modalUnitPrice = selectedDish ? getDishUnitPrice(selectedDish, modalSelectedProductOption) : 0;
+  const modalTotalPrice =
+    modalUnitPrice * Math.max(1, dishModalQuantity) +
+    (selectedExtras || []).reduce((sum, extra) => sum + Number(extra.price || 0), 0) * Math.max(1, dishModalQuantity);
+  const clickDetailsLabel =
+    String(
+      mergedUiDictionary.click_details ||
+        UI_TRANSLATIONS[normalizedLang]?.click_details ||
+        UI_TRANSLATIONS[uiLang]?.click_details ||
+        ""
+    ).trim() || "Cliquez pour voir les dÃ©tails";
+  const viewDetailsLabel =
+    String(
+      mergedUiDictionary.view_details ||
+        UI_TRANSLATIONS[normalizedLang]?.view_details ||
+        UI_TRANSLATIONS[uiLang]?.view_details ||
+        ""
+    ).trim() || "Voir dÃ©tails";
+  const restaurantTableConfig = parseJsonObject(restaurant?.table_config);
+  const quickAddToCartEnabled =
+    !isInteractionDisabled &&
+    parseShowCalories(
+      restaurantTableConfig.quick_add_to_cart_enabled ?? restaurantTableConfig.quick_add_enabled,
+      false
+    );
+  const cardTransparentEnabled = darkMode
+    ? false
+    : parseShowCalories(restaurantTableConfig.card_transparent ?? restaurantTableConfig.cards_transparent, false);
+  const bannerBgColor = darkMode ? "#000000" : normalizeHexColor(restaurant?.primary_color, "#FFFFFF");
+  const bannerTextColor = getHexContrastTextColor(bannerBgColor);
+  const bannerImageUrl = sanitizeMediaUrl(
+    (restaurant as Record<string, unknown> | null)?.banner_image_url ||
+      (restaurant as Record<string, unknown> | null)?.banner_url ||
+      ""
+  );
+  const hasBannerImage = bannerImageUrl.length > 0;
+  const showBannerImage = !darkMode && hasBannerImage;
+  const bannerContentTextColor = showBannerImage ? "#FFFFFF" : bannerTextColor;
+  const restaurantDisplayName = String(restaurant?.name ?? "").trim();
+  const headerLogoUrl = sanitizeMediaUrl(restaurant?.logo_url);
+  const headerLogoSrc = headerLogoUrl
+    ? `${headerLogoUrl}${headerLogoUrl.includes("?") ? "&" : "?"}t=${headerLogoCacheBuster}`
+    : "";
+  const hasHeaderLogo = headerLogoUrl.length > 0;
+  const showHeaderLogo = hasHeaderLogo && !headerLogoLoadError;
+  const cardBgColor = darkMode ? "#000000" : normalizeHexColor(restaurant?.card_bg_color, "#FFFFFF");
+  const cardBgOpacityAlpha = darkMode
+    ? "FF"
+    : alphaHexFromPercent(
+        restaurantTableConfig.card_bg_opacity,
+        cardTransparentEnabled ? 10 : 100
+      );
+  const cardSurfaceBg = darkMode ? "#000000" : withAlpha(cardBgColor, cardBgOpacityAlpha);
+  const cardImagePanelBg = darkMode ? "#000000" : withAlpha(cardBgColor, cardBgOpacityAlpha);
+  const cardTextColorValue = darkMode
+    ? getHexContrastTextColor(cardBgColor)
+    : normalizeHexColor(restaurantTableConfig.card_text_color, "#111111");
+  const cardTextIsLight = darkMode && cardTextColorValue === "#FFFFFF";
+  const globalTextColorValue = darkMode
+    ? "#F5F5F5"
+    : normalizeHexColor(
+        (restaurant as Record<string, unknown> | null)?.text_color ??
+          restaurantTableConfig.text_color ??
+          restaurantTableConfig.global_text_color,
+        getHexContrastTextColor(bannerBgColor)
+      );
+  const backgroundImageUrl = sanitizeMediaUrl(
+    (restaurant as Record<string, unknown> | null)?.background_url ||
+      (restaurant as Record<string, unknown> | null)?.background_image_url ||
+      ""
+  );
+  const backgroundOpacity = darkMode
+    ? 1
+    : normalizeBackgroundOpacity(
+        (restaurant as Record<string, unknown> | null)?.bg_opacity ??
+          restaurantTableConfig.bg_opacity,
+        1
+      );
+  const restaurantSocialLinks = parseJsonObject(restaurantTableConfig.social_links);
+  const socialFooterEntries = [
+    {
+      key: "instagram",
+      label: "Instagram",
+      url: String(restaurantSocialLinks.instagram || "").trim(),
+      iconUrl: "https://cdn.simpleicons.org/instagram/E4405F",
+      iconBg: "#ffffff",
+    },
+    {
+      key: "facebook",
+      label: "Facebook",
+      url: String(restaurantSocialLinks.facebook || "").trim(),
+      iconUrl: "https://cdn.simpleicons.org/facebook/1877F2",
+      iconBg: "#ffffff",
+    },
+    {
+      key: "x",
+      label: "X",
+      url: String(restaurantSocialLinks.x || restaurantSocialLinks.twitter || "").trim(),
+      iconUrl: "https://cdn.simpleicons.org/x/111111",
+      iconBg: "#ffffff",
+    },
+    {
+      key: "snapchat",
+      label: "Snapchat",
+      url: String(restaurantSocialLinks.snapchat || "").trim(),
+      iconUrl: "https://cdn.simpleicons.org/snapchat/111111",
+      iconBg: "#FFFC00",
+    },
+    {
+      key: "website",
+      label: "Web",
+      url: String(restaurantSocialLinks.website || restaurantSocialLinks.site || "").trim(),
+      iconUrl: "",
+      iconBg: "#ffffff",
+    },
+  ].filter((entry) => entry.url);
+  const hideCompactFloatingActions = isStickyActionsCompact && (isCartOpen || !!selectedDish || isVitrineMode);
+  const applyRealtimeDisplaySettingsRow = (rawRow: unknown) => {
+    if (!rawRow || typeof rawRow !== "object") return;
+    const row = rawRow as Record<string, unknown>;
+    if (scopedRestaurantId) {
+      const rowId = String(row.id || "").trim();
+      if (!rowId || rowId !== scopedRestaurantId) return;
+    }
+    const parsed = parseDisplaySettingsFromRow(row);
+    setShowCaloriesClient(parsed.showCalories);
+    setEnabledLanguagesClient(parsed.enabledLanguages);
+    setEnabledLanguageLabels(parsed.languageLabels);
+    setHeroEnabledClient(parsed.heroEnabled);
+    setHeroBadgeTypeClient(parsed.heroBadgeType === "daily" ? "daily" : "chef");
+    setConsultationModeClient(parsed.consultationMode);
+    setOrderValidationCode(parsed.orderValidationCode || "1234");
+    setSuggestionLeadByLang(parsed.suggestionMessagesI18n || {});
+    setUiTranslationsByLang(parsed.uiTranslations || {});
+    if (Object.prototype.hasOwnProperty.call(row, "is_active")) {
+      const isActive = typeof row.is_active === "boolean" ? row.is_active : true;
+      setIsRestaurantOffline(!isActive);
+      setOfflineRestaurantName(String(row.name || "").trim());
+    }
+    if (
+      Object.prototype.hasOwnProperty.call(row, "font_family") ||
+      Object.prototype.hasOwnProperty.call(row, "name") ||
+      Object.prototype.hasOwnProperty.call(row, "logo_url") ||
+      Object.prototype.hasOwnProperty.call(row, "banner_image_url") ||
+      Object.prototype.hasOwnProperty.call(row, "banner_url") ||
+      Object.prototype.hasOwnProperty.call(row, "background_url") ||
+      Object.prototype.hasOwnProperty.call(row, "background_image_url") ||
+      Object.prototype.hasOwnProperty.call(row, "primary_color") ||
+      Object.prototype.hasOwnProperty.call(row, "text_color") ||
+      Object.prototype.hasOwnProperty.call(row, "card_bg_color")
+    ) {
+      setRestaurant((prev) => ({
+        ...(prev || ({} as Restaurant)),
+        ...(row as Partial<Restaurant>),
+        font_family: String((row as Record<string, unknown>).font_family || (prev as any)?.font_family || "").trim() || null,
+      }) as Restaurant);
+    }
+  };
+  useEffect(() => {
+    setHeaderLogoLoadError(false);
+    setHeaderLogoLoaded(false);
+    setHeaderLogoCacheBuster(Date.now());
+  }, [headerLogoUrl]);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const updateStickyState = () => {
+      const top = actionDockSentinelRef.current?.getBoundingClientRect().top;
+      setIsStickyActionsCompact(typeof top === "number" && top <= 0);
+    };
+    updateStickyState();
+    window.addEventListener("scroll", updateStickyState, { passive: true });
+    window.addEventListener("resize", updateStickyState);
+    return () => {
+      window.removeEventListener("scroll", updateStickyState);
+      window.removeEventListener("resize", updateStickyState);
+    };
+  }, []);
+  const fetchConsultationModeState = async () => {
+    const applyRow = (row: unknown) => {
+      if (!row || typeof row !== "object") return false;
+      const parsed = parseDisplaySettingsFromRow(row as Record<string, unknown>);
+      setConsultationModeClient(parsed.consultationMode);
+      return true;
+    };
+
+    const publicRestaurantRow = await fetchPublicRestaurantConfig(scopedRestaurantId);
+    if (publicRestaurantRow && applyRow(publicRestaurantRow)) return;
+
+    const restaurantsResult = scopedRestaurantId
+      ? await supabase.from("restaurants").select("*").eq("id", scopedRestaurantId).limit(1)
+      : await supabase.from("restaurants").select("*").limit(1);
+    if (!restaurantsResult.error && Array.isArray(restaurantsResult.data) && applyRow(restaurantsResult.data[0])) return;
+  };
+  const getAllergenLabel = (allergen: string) => {
+    const key = normalizeAllergenKey(allergen);
+    const row = allergenLibraryLookup[key];
+    if (row) {
+      const requested = normalizeLanguageKey(lang);
+      const uiCode = toUiLang(lang);
+      const localized = String(row[requested] || row[uiCode] || row.fr || allergen).trim();
+      if (localized) return localized;
+    }
+    return translateAllergen(allergen, lang);
+  };
+  const getVisibleDishAllergenLabels = (dish: Dish) => {
+    const baseAllergens = getAllergens(dish);
+    const hasLibrary = Object.keys(allergenLibraryLookup).length > 0;
+    if (hasLibrary) {
+      const filteredBase = baseAllergens.filter((allergen) => {
+        const key = normalizeAllergenKey(allergen);
+        return Boolean(allergenLibraryLookup[key]);
+      });
+      if (baseAllergens.length > 0) {
+        return filteredBase.map((allergen) => getAllergenLabel(allergen)).filter(Boolean);
+      }
+    }
+    return getLocalizedAllergens(dish, lang).map((allergen) => getAllergenLabel(allergen)).filter(Boolean);
+  };
+  const currentLanguageMeta = {
+    code: lang,
+    name: enabledLanguageLabels[lang] || DEFAULT_LANGUAGE_LABELS[lang] || lang.toUpperCase(),
+    flag: getLanguageFlag(lang),
+  };
+  const smartCallUi = SMART_CALL_UI[normalizedLang] || SMART_CALL_UI[uiLang] || SMART_CALL_UI.fr;
+
+  useEffect(() => {
+    fetchData();
+  }, [scopedRestaurantId]);
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      void fetchConsultationModeState();
+    }, 10000);
+    return () => window.clearInterval(intervalId);
+  }, [scopedRestaurantId]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const stored = window.localStorage.getItem("menuqr-client-theme");
+    if (stored === "dark" || stored === "light") {
+      setDarkMode(stored === "dark");
+      return;
+    }
+    const prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+    setDarkMode(Boolean(prefersDark));
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem("menuqr-client-theme", darkMode ? "dark" : "light");
+  }, [darkMode]);
+
+  useEffect(() => {
+    const channel = supabase
+      .channel("client-dishes")
+      .on("postgres_changes", { event: "*", schema: "public", table: "dishes" }, () => {
+        fetchData();
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "categories" }, () => {
+        fetchData();
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "subcategories" }, () => {
+        fetchData();
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "sides_library" }, () => {
+        fetchData();
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "table_assignments" }, () => {
+        fetchData();
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "restaurants" }, () => {
+        fetchData();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [scopedRestaurantId]);
+
+  useEffect(() => {
+    const channel = supabase
+      .channel("client-display-settings")
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "restaurants" },
+        (payload) => {
+          applyRealtimeDisplaySettingsRow(payload.new);
+        }
+      )
+      .subscribe((status) => {
+        console.log("Realtime client display settings:", status);
+      });
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [scopedRestaurantId]);
+
+  useEffect(() => {
+    if (isCartOpen) {
+      document.body.style.overflow = "hidden";
+      return () => {
+        document.body.style.overflow = "";
+      };
+    }
+    document.body.style.overflow = "";
+    return undefined;
+  }, [isCartOpen]);
+
+  useEffect(() => {
+    if (isInteractionDisabled && isCartOpen) {
+      setIsCartOpen(false);
+      setOrderSuccess(false);
+    }
+  }, [isInteractionDisabled, isCartOpen]);
+
+  useEffect(() => {
+    if (!isVitrineMode) return;
+    const targetRestaurantId = String((restaurant as Record<string, unknown> | null)?.id || scopedRestaurantId || "").trim();
+    if (!targetRestaurantId) return;
+    if (vitrineViewTrackedRef.current[targetRestaurantId]) return;
+    vitrineViewTrackedRef.current[targetRestaurantId] = true;
+    void fetch("/api/public/vitrine-view", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ restaurant_id: targetRestaurantId }),
+      cache: "no-store",
+    }).catch(() => null);
+  }, [isVitrineMode, restaurant, scopedRestaurantId]);
+
+  useEffect(() => {
+    if (!enabledLanguagesClient.includes(lang)) {
+      setLang("fr");
+    }
+  }, [enabledLanguagesClient, lang]);
+
+  useEffect(() => {
+    setOrderValidationCodeInput("");
+  }, [tableNumber]);
+
+  const fetchData = async () => {
+    console.log("ID utilisÃ©:", scopedRestaurantId, "[client.fetchData]");
+    setLoading(true);
+    setIsRestaurantOffline(false);
+    setOfflineRestaurantName("");
+    setSuggestionLeadByLang({});
+    setTablePinCodesByNumber({});
+    let displayFound = false;
+    let restaurantFound = false;
+    const applyRestaurantRow = (baseRow: Restaurant & Record<string, unknown>) => {
+      const tableConfig = parseJsonObject(baseRow.table_config);
+      const bannerImage = sanitizeMediaUrl(baseRow.banner_image_url || baseRow.banner_url || "");
+      const backgroundImage = sanitizeMediaUrl(
+        baseRow.background_url || baseRow.background_image_url || baseRow.bg_image_url || ""
+      );
+      const restaurantRow = {
+        ...baseRow,
+        font_family: String(baseRow.font_family || "").trim() || null,
+        name: String(baseRow.name ?? "").trim(),
+        logo_url: sanitizeMediaUrl(baseRow.logo_url),
+        banner_image_url: bannerImage,
+        banner_url: bannerImage,
+        primary_color: normalizeHexColor(baseRow.primary_color, "#FFFFFF"),
+        text_color: normalizeHexColor(baseRow.text_color ?? tableConfig.text_color ?? tableConfig.global_text_color, "#111111"),
+        card_bg_color: normalizeHexColor(baseRow.card_bg_color, "#FFFFFF"),
+        card_density: String(baseRow.card_density || baseRow.density_style || tableConfig.card_density || tableConfig.density_style || "").trim() || null,
+        density_style: String(baseRow.density_style || baseRow.card_density || tableConfig.density_style || tableConfig.card_density || "").trim() || null,
+        bg_opacity: normalizeBackgroundOpacity(baseRow.bg_opacity ?? tableConfig.bg_opacity, 1),
+        background_url: backgroundImage || BACKGROUND_URL,
+        background_image_url: backgroundImage || BACKGROUND_URL,
+      } as Restaurant & Record<string, unknown>;
+      const isActive = typeof restaurantRow.is_active === "boolean" ? restaurantRow.is_active : true;
+      if (!isActive) {
+        setRestaurant(restaurantRow);
+        setIsRestaurantOffline(true);
+        setOfflineRestaurantName(String(restaurantRow.name || "").trim());
+        setDishes([]);
+        setCategories([]);
+        setSubCategoryRows([]);
+        setSidesLibrary([]);
+        return false;
+      }
+
+      setIsRestaurantOffline(false);
+      setOfflineRestaurantName("");
+      setRestaurant(restaurantRow);
+      console.log("POLICE RECUPEREE:", restaurantRow.font_family || null);
+      console.log("Etat du mode consultation recu du serveur :", (restaurantRow as Record<string, unknown>).is_order_disabled ?? null);
+      restaurantFound = true;
+      if (
+        Object.prototype.hasOwnProperty.call(restaurantRow, "show_calories") ||
+        Object.prototype.hasOwnProperty.call(restaurantRow, "enabled_languages")
+      ) {
+        const parsed = parseDisplaySettingsFromRow(restaurantRow);
+        setShowCaloriesClient(parsed.showCalories);
+        setEnabledLanguagesClient(parsed.enabledLanguages);
+        setEnabledLanguageLabels(parsed.languageLabels);
+        setHeroEnabledClient(parsed.heroEnabled);
+        setHeroBadgeTypeClient(parsed.heroBadgeType === "daily" ? "daily" : "chef");
+        setConsultationModeClient(parsed.consultationMode);
+        setOrderValidationCode(parsed.orderValidationCode || "1234");
+        setSuggestionLeadByLang(parsed.suggestionMessagesI18n || {});
+        setUiTranslationsByLang(parsed.uiTranslations || {});
+        displayFound = true;
+      } else {
+        const parsed = parseDisplaySettingsFromSettingsJson(restaurantRow.settings);
+        if (parsed) {
+          setShowCaloriesClient(parsed.showCalories);
+          setEnabledLanguagesClient(parsed.enabledLanguages);
+          setEnabledLanguageLabels(parsed.languageLabels);
+          setHeroEnabledClient(parsed.heroEnabled);
+          setHeroBadgeTypeClient(parsed.heroBadgeType === "daily" ? "daily" : "chef");
+          setConsultationModeClient(parsed.consultationMode);
+          setOrderValidationCode(parsed.orderValidationCode || "1234");
+          setSuggestionLeadByLang(parsed.suggestionMessagesI18n || {});
+          setUiTranslationsByLang(parsed.uiTranslations || {});
+          displayFound = true;
+        }
+      }
+      return true;
+    };
+
+    const publicRestaurantRow = await fetchPublicRestaurantConfig(scopedRestaurantId);
+    if (publicRestaurantRow) {
+      const shouldContinue = applyRestaurantRow(publicRestaurantRow as Restaurant & Record<string, unknown>);
+      if (!shouldContinue) {
+        setLoading(false);
+        return;
+      }
+    }
+
+    if (!restaurantFound) {
+      const restaurantsResult = scopedRestaurantId
+        ? await supabase
+            .from("restaurants")
+            .select("*")
+            .eq("id", scopedRestaurantId)
+            .limit(1)
+        : await supabase
+            .from("restaurants")
+            .select("*")
+            .limit(1);
+      const restaurantsData = restaurantsResult.data;
+      const restaurantsError = restaurantsResult.error;
+      if (!restaurantsError && Array.isArray(restaurantsData) && restaurantsData[0]) {
+        const shouldContinue = applyRestaurantRow(restaurantsData[0] as Restaurant & Record<string, unknown>);
+        if (!shouldContinue) {
+          setLoading(false);
+          return;
+        }
+      }
+    }
+
+    if (!scopedRestaurantId && !displayFound && ENABLE_RESTAURANT_PROFILE_FALLBACK) {
+      const { data: profileData, error: profileError } = await supabase
+        .from("restaurant_profile")
+        .select("*")
+        .limit(1);
+      if (!profileError && Array.isArray(profileData) && profileData[0]) {
+        const row = profileData[0] as unknown as Record<string, unknown>;
+        if (!restaurantFound) {
+          const normalizedProfileRow = {
+            ...row,
+            font_family: String(row.font_family || "").trim() || null,
+          } as Restaurant;
+          setRestaurant(normalizedProfileRow);
+          console.log("POLICE RECUPEREE:", (normalizedProfileRow as Record<string, unknown>).font_family || null);
+        }
+        if (
+          Object.prototype.hasOwnProperty.call(row, "show_calories") ||
+          Object.prototype.hasOwnProperty.call(row, "enabled_languages")
+        ) {
+    const parsed = parseDisplaySettingsFromRow(row);
+    console.log("Ã‰tat du mode consultation reÃ§u du serveur :", row.is_order_disabled ?? null, "=> parsed:", parsed.consultationMode);
+    setShowCaloriesClient(parsed.showCalories);
+          setEnabledLanguagesClient(parsed.enabledLanguages);
+          setEnabledLanguageLabels(parsed.languageLabels);
+          setHeroEnabledClient(parsed.heroEnabled);
+          setHeroBadgeTypeClient(parsed.heroBadgeType === "daily" ? "daily" : "chef");
+          setConsultationModeClient(parsed.consultationMode);
+          setOrderValidationCode(parsed.orderValidationCode || "1234");
+          setSuggestionLeadByLang(parsed.suggestionMessagesI18n || {});
+        setUiTranslationsByLang(parsed.uiTranslations || {});
+          displayFound = true;
+        } else {
+          const parsed = parseDisplaySettingsFromSettingsJson((row as { settings?: unknown }).settings);
+          if (parsed) {
+            setShowCaloriesClient(parsed.showCalories);
+            setEnabledLanguagesClient(parsed.enabledLanguages);
+            setEnabledLanguageLabels(parsed.languageLabels);
+            setHeroEnabledClient(parsed.heroEnabled);
+            setHeroBadgeTypeClient(parsed.heroBadgeType === "daily" ? "daily" : "chef");
+            setConsultationModeClient(parsed.consultationMode);
+            setOrderValidationCode(parsed.orderValidationCode || "1234");
+            setSuggestionLeadByLang(parsed.suggestionMessagesI18n || {});
+        setUiTranslationsByLang(parsed.uiTranslations || {});
+            displayFound = true;
+          }
+        }
+      }
+    }
+
+    if (!restaurantFound) {
+      try {
+        const restaurantPath = scopedRestaurantId
+          ? `${supabaseUrl}/rest/v1/restaurants?select=*&id=eq.${encodeURIComponent(scopedRestaurantId)}&limit=1`
+          : `${supabaseUrl}/rest/v1/restaurants?select=*&limit=1`;
+        const restoResponse = await fetch(restaurantPath, {
+          headers: {
+            apikey: supabaseKey,
+            Authorization: `Bearer ${supabaseKey}`,
+            "Content-Type": "application/json",
+          },
+        });
+        const restoData = await restoResponse.json();
+        if (Array.isArray(restoData) && restoData[0]) {
+          const shouldContinue = applyRestaurantRow(restoData[0] as Restaurant & Record<string, unknown>);
+          if (!shouldContinue) {
+            setLoading(false);
+            return;
+          }
+        }
+      } catch (e) {
+        console.error("Unable to fetch restaurants via REST fallback:", e);
+      }
+    }
+
+    let categoriesResult = scopedRestaurantId
+      ? await supabase
+          .from("categories")
+          .select("*")
+          .eq("restaurant_id", scopedRestaurantId)
+          .order("id", { ascending: true })
+      : await supabase
+          .from("categories")
+          .select("*")
+          .order("id", { ascending: true });
+    if (categoriesResult.error && scopedRestaurantId && String((categoriesResult.error as { code?: string })?.code || "") === "42703") {
+      categoriesResult = await supabase
+        .from("categories")
+        .select("*")
+        .eq("id_restaurant", scopedRestaurantId)
+        .order("id", { ascending: true });
+    }
+    if (categoriesResult.error && !scopedRestaurantId) {
+      categoriesResult = await supabase
+        .from("categories")
+        .select("*")
+        .order("id", { ascending: true });
+    }
+    const categoriesData = categoriesResult.data;
+    const categoriesError = categoriesResult.error;
+    if (!categoriesError) {
+      setCategories((categoriesData || []) as CategoryItem[]);
+    } else {
+      setCategories([]);
+    }
+
+    let subRowsResult = scopedRestaurantId
+      ? await supabase
+          .from("subcategories")
+          .select("*")
+          .eq("restaurant_id", scopedRestaurantId)
+          .order("id", { ascending: true })
+      : await supabase
+          .from("subcategories")
+          .select("*")
+          .order("id", { ascending: true });
+    if (subRowsResult.error && scopedRestaurantId && String((subRowsResult.error as { code?: string })?.code || "") === "42703") {
+      subRowsResult = await supabase
+        .from("subcategories")
+        .select("*")
+        .eq("id_restaurant", scopedRestaurantId)
+        .order("id", { ascending: true });
+    }
+    if (subRowsResult.error && !scopedRestaurantId) {
+      subRowsResult = await supabase
+        .from("subcategories")
+        .select("*")
+        .order("id", { ascending: true });
+    }
+    const subRows = subRowsResult.data;
+    const subRowsError = subRowsResult.error;
+    if (subRowsError) {
+      setSubCategoryRows([]);
+    } else {
+      setSubCategoryRows((subRows || []) as SubCategoryItem[]);
+    }
+
+    const buildDishesQuery = ({
+      tableName,
+      selectClause,
+      filterActive,
+      orderByCategory,
+      withScope,
+      scopeColumn,
+    }: {
+      tableName: "dishes" | "menu_items";
+      selectClause: string;
+      filterActive: boolean;
+      orderByCategory: boolean;
+      withScope: boolean;
+      scopeColumn: "restaurant_id" | "id_restaurant";
+    }) => {
+      let query = supabase.from(tableName).select(selectClause);
+      if (withScope && scopedRestaurantId) query = query.eq(scopeColumn, scopedRestaurantId);
+      if (filterActive) query = query.eq("active", true);
+      if (orderByCategory) query = query.order("category_id", { ascending: true });
+      return query.order("id", { ascending: true });
+    };
+
+    const dishesQueryAttempts: Array<{
+      label: string;
+      tableName: "dishes" | "menu_items";
+      selectClause: string;
+      filterActive: boolean;
+      orderByCategory: boolean;
+      withScope: boolean;
+      scopeColumn: "restaurant_id" | "id_restaurant";
+    }> = [
+      {
+        label: "menu_items-rich-select+active+category",
+        tableName: "menu_items",
+        selectClause:
+          "*, is_chef_suggestion, is_suggestion, is_daily_special, suggestion_message_fr, suggestion_message_en, suggestion_message_es, suggestion_message_de",
+        filterActive: true,
+        orderByCategory: true,
+        withScope: Boolean(scopedRestaurantId),
+        scopeColumn: "restaurant_id",
+      },
+      {
+        label: "menu_items-rich-select+active+category(id_restaurant)",
+        tableName: "menu_items",
+        selectClause:
+          "*, is_chef_suggestion, is_suggestion, is_daily_special, suggestion_message_fr, suggestion_message_en, suggestion_message_es, suggestion_message_de",
+        filterActive: true,
+        orderByCategory: true,
+        withScope: Boolean(scopedRestaurantId),
+        scopeColumn: "id_restaurant",
+      },
+      {
+        label: "menu_items-basic-select+active+category",
+        tableName: "menu_items",
+        selectClause: "*",
+        filterActive: true,
+        orderByCategory: true,
+        withScope: Boolean(scopedRestaurantId),
+        scopeColumn: "restaurant_id",
+      },
+      {
+        label: "menu_items-basic-select+active+category(id_restaurant)",
+        tableName: "menu_items",
+        selectClause: "*",
+        filterActive: true,
+        orderByCategory: true,
+        withScope: Boolean(scopedRestaurantId),
+        scopeColumn: "id_restaurant",
+      },
+      {
+        label: "menu_items-basic-select+category",
+        tableName: "menu_items",
+        selectClause: "*",
+        filterActive: false,
+        orderByCategory: true,
+        withScope: Boolean(scopedRestaurantId),
+        scopeColumn: "restaurant_id",
+      },
+      {
+        label: "menu_items-basic-select+category(id_restaurant)",
+        tableName: "menu_items",
+        selectClause: "*",
+        filterActive: false,
+        orderByCategory: true,
+        withScope: Boolean(scopedRestaurantId),
+        scopeColumn: "id_restaurant",
+      },
+      {
+        label: "rich-select+active+category",
+        tableName: "dishes",
+        selectClause:
+          "*, is_chef_suggestion, is_suggestion, is_daily_special, suggestion_message_fr, suggestion_message_en, suggestion_message_es, suggestion_message_de",
+        filterActive: true,
+        orderByCategory: true,
+        withScope: Boolean(scopedRestaurantId),
+        scopeColumn: "restaurant_id",
+      },
+      {
+        label: "rich-select+active+category(id_restaurant)",
+        tableName: "dishes",
+        selectClause:
+          "*, is_chef_suggestion, is_suggestion, is_daily_special, suggestion_message_fr, suggestion_message_en, suggestion_message_es, suggestion_message_de",
+        filterActive: true,
+        orderByCategory: true,
+        withScope: Boolean(scopedRestaurantId),
+        scopeColumn: "id_restaurant",
+      },
+      { label: "basic-select+active+category", tableName: "dishes", selectClause: "*", filterActive: true, orderByCategory: true, withScope: Boolean(scopedRestaurantId), scopeColumn: "restaurant_id" },
+      { label: "basic-select+active+category(id_restaurant)", tableName: "dishes", selectClause: "*", filterActive: true, orderByCategory: true, withScope: Boolean(scopedRestaurantId), scopeColumn: "id_restaurant" },
+      { label: "basic-select+category", tableName: "dishes", selectClause: "*", filterActive: false, orderByCategory: true, withScope: Boolean(scopedRestaurantId), scopeColumn: "restaurant_id" },
+      { label: "basic-select+category(id_restaurant)", tableName: "dishes", selectClause: "*", filterActive: false, orderByCategory: true, withScope: Boolean(scopedRestaurantId), scopeColumn: "id_restaurant" },
+      { label: "basic-select+id", tableName: "dishes", selectClause: "*", filterActive: false, orderByCategory: false, withScope: Boolean(scopedRestaurantId), scopeColumn: "restaurant_id" },
+      { label: "basic-select+id(id_restaurant)", tableName: "dishes", selectClause: "*", filterActive: false, orderByCategory: false, withScope: Boolean(scopedRestaurantId), scopeColumn: "id_restaurant" },
+    ];
+    if (!scopedRestaurantId) {
+      dishesQueryAttempts.push(
+        { label: "menu_items-basic-select+active+category(unscoped)", tableName: "menu_items", selectClause: "*", filterActive: true, orderByCategory: true, withScope: false, scopeColumn: "restaurant_id" },
+        { label: "menu_items-basic-select+id(unscoped)", tableName: "menu_items", selectClause: "*", filterActive: false, orderByCategory: false, withScope: false, scopeColumn: "restaurant_id" },
+        { label: "basic-select+active+category(unscoped)", tableName: "dishes", selectClause: "*", filterActive: true, orderByCategory: true, withScope: false, scopeColumn: "restaurant_id" },
+        { label: "basic-select+id(unscoped)", tableName: "dishes", selectClause: "*", filterActive: false, orderByCategory: false, withScope: false, scopeColumn: "restaurant_id" }
+      );
+    }
+
+    let dishesData: unknown[] | null = null;
+    let dishesError: unknown = null;
+    for (const attempt of dishesQueryAttempts) {
+      const result = await buildDishesQuery(attempt);
+      if (!result.error) {
+        dishesData = (result.data as unknown[] | null) || [];
+        dishesError = null;
+        break;
+      }
+      dishesError = result.error;
+      console.warn("Dishes query attempt failed:", attempt.label, toLoggableSupabaseError(result.error));
+    }
+
+    if (!dishesError && Array.isArray(dishesData)) {
+      const normalized = (dishesData as Array<Record<string, any>>)
+        .filter((dish) => {
+          if (!Object.prototype.hasOwnProperty.call(dish, "active")) return true;
+          return Boolean((dish as Record<string, unknown>).active);
+        })
+        .map((dish) => {
+        const row = dish as Dish & Record<string, any>;
+        const selectedSides = Array.isArray(row.selected_sides)
+          ? row.selected_sides
+          : (() => {
+              if (typeof row.selected_sides !== "string") return null;
+              try {
+                const parsed = JSON.parse(row.selected_sides);
+                return Array.isArray(parsed) ? parsed : null;
+              } catch {
+                return null;
+              }
+            })();
+
+          return {
+            ...row,
+            image_url: sanitizeMediaUrl(row.image_url ?? row.image ?? row.photo_url, "dishes-images-"),
+            is_chef_suggestion: Boolean(row.is_chef_suggestion ?? row.is_featured ?? row.is_suggestion ?? false),
+            is_suggestion: Boolean(row.is_suggestion ?? row.is_chef_suggestion ?? row.is_featured ?? false),
+            is_promo: Boolean(row.is_promo ?? false),
+            promo_price:
+              row.promo_price == null || String(row.promo_price).trim() === ""
+                ? null
+                : Number(String(row.promo_price).replace(",", ".")),
+            category_id: row.category_id ?? row.category ?? null,
+            subcategory_id: row.subcategory_id ?? null,
+            selected_sides: selectedSides,
+            is_available: row.active ?? true,
+            max_options: Number(row.max_options || 1),
+            ask_cooking: row.ask_cooking ?? parseOptionsFromDescription(String(row.description || "")).askCooking,
+          };
+        });
+      const optionsByDishId = new Map<string, ProductOptionItem[]>();
+      const dishIds = normalized.map((row) => String(row.id || "").trim()).filter(Boolean);
+      if (dishIds.length > 0) {
+        const primaryProductOptionsResult = await supabase
+          .from("product_options")
+          .select("*")
+          .in("product_id", dishIds as never)
+          .order("created_at", { ascending: true });
+        const useFallback =
+          primaryProductOptionsResult.error &&
+          String((primaryProductOptionsResult.error as { code?: string })?.code || "") === "42703";
+        const fallbackProductOptionsResult = useFallback
+          ? await supabase
+            .from("product_options")
+            .select("*")
+            .in("dish_id", dishIds as never)
+            .order("created_at", { ascending: true })
+          : null;
+        const finalProductOptionsData = useFallback
+          ? fallbackProductOptionsResult?.data
+          : primaryProductOptionsResult.data;
+        const finalProductOptionsError = useFallback
+          ? fallbackProductOptionsResult?.error
+          : primaryProductOptionsResult.error;
+
+        if (!finalProductOptionsError && Array.isArray(finalProductOptionsData)) {
+          (finalProductOptionsData as Array<Record<string, unknown>>).forEach((row) => {
+            const dishId = String(row.product_id ?? row.dish_id ?? "").trim();
+            const optionNames = {
+              ...parseJsonObject(row.names_i18n),
+              ...parseI18nToken(String(row.name_en || "")),
+            };
+            const optionName = String(row.name_fr || optionNames.fr || row.name || "").trim();
+            if (!dishId || !optionName) return;
+            const optionPriceRaw = row.price_override;
+            const optionPrice =
+              optionPriceRaw == null || String(optionPriceRaw).trim() === ""
+                ? null
+                : Number.parseFloat(String(optionPriceRaw).replace(",", "."));
+            const current = optionsByDishId.get(dishId) || [];
+            current.push({
+              id: String(row.id || ""),
+              product_id: dishId,
+              name: optionName,
+              name_fr: optionName,
+              name_en: String(row.name_en || optionNames.en || "").trim() || null,
+              name_es: String(row.name_es || optionNames.es || "").trim() || null,
+              name_de: String(row.name_de || optionNames.de || "").trim() || null,
+              names_i18n: {
+                fr: optionName,
+                ...Object.fromEntries(
+                  Object.entries(optionNames)
+                    .map(([lang, value]) => [normalizeLanguageKey(lang), String(value || "").trim()])
+                    .filter(([lang, value]) => Boolean(lang) && Boolean(value))
+                ),
+              },
+              price_override: Number.isFinite(optionPrice as number) ? Number(optionPrice) : null,
+            });
+            optionsByDishId.set(dishId, current);
+          });
+        } else if (finalProductOptionsError) {
+          console.warn("product_options fetch failed (menu public):", toLoggableSupabaseError(finalProductOptionsError));
+        }
+      }
+      const normalizedWithOptions = normalized.map((dish) => ({
+        ...dish,
+        product_options: optionsByDishId.get(String(dish.id || "").trim()) || [],
+      }));
+      setDishes(normalizedWithOptions as Dish[]);
+    } else {
+      console.error("Erreur Supabase dishes:", toLoggableSupabaseError(dishesError));
+      setDishes([]);
+    }
+
+    let sideRowsResult = scopedRestaurantId
+      ? await supabase
+          .from("sides_library")
+          .select("*")
+          .eq("restaurant_id", scopedRestaurantId)
+          .order("id", { ascending: true })
+      : await supabase
+          .from("sides_library")
+          .select("*")
+          .order("id", { ascending: true });
+    if (sideRowsResult.error && scopedRestaurantId && String((sideRowsResult.error as { code?: string })?.code || "") === "42703") {
+      sideRowsResult = await supabase
+        .from("sides_library")
+        .select("*")
+        .eq("id_restaurant", scopedRestaurantId)
+        .order("id", { ascending: true });
+    }
+    if (sideRowsResult.error && !scopedRestaurantId) {
+      sideRowsResult = await supabase
+        .from("sides_library")
+        .select("*")
+        .order("id", { ascending: true });
+    }
+    const sideRows = sideRowsResult.data;
+    const sideRowsError = sideRowsResult.error;
+    if (sideRowsError) {
+      setSidesLibrary([]);
+    } else {
+      setSidesLibrary((sideRows || []) as SideLibraryItem[]);
+    }
+
+    let tableAssignmentResult = scopedRestaurantId
+      ? await supabase
+          .from("table_assignments")
+          .select("table_number,pin_code")
+          .eq("restaurant_id", scopedRestaurantId)
+      : await supabase
+          .from("table_assignments")
+          .select("table_number,pin_code");
+    if (
+      tableAssignmentResult.error &&
+      scopedRestaurantId &&
+      String((tableAssignmentResult.error as { code?: string })?.code || "") === "42703"
+    ) {
+      tableAssignmentResult = await supabase
+        .from("table_assignments")
+        .select("table_number,pin_code")
+        .eq("id_restaurant", scopedRestaurantId);
+    }
+    if (tableAssignmentResult.error && !scopedRestaurantId) {
+      tableAssignmentResult = await supabase
+        .from("table_assignments")
+        .select("table_number,pin_code");
+    }
+    const tableAssignmentRows = tableAssignmentResult.data;
+    const tableAssignmentError = tableAssignmentResult.error;
+    if (tableAssignmentError) {
+      setTablePinCodesByNumber({});
+    } else {
+      const nextPinsByTable: Record<string, string> = {};
+      (tableAssignmentRows || []).forEach((row) => {
+        const source = row as { table_number?: unknown; pin_code?: unknown };
+        const tableKey = normalizeTableNumberKey(source.table_number);
+        const pinCode = normalizePinValue(source.pin_code);
+        if (!tableKey || !pinCode || pinCode === "0000") return;
+        nextPinsByTable[tableKey] = pinCode;
+      });
+      setTablePinCodesByNumber(nextPinsByTable);
+    }
+
+    setLoading(false);
+  };
+
+  const getCategoryLabel = (category: CategoryItem) => {
+    return getNameTranslation(category as unknown as unknown as Record<string, unknown>, lang) || category.name_fr;
+  };
+
+  const categoryList = useMemo(() => {
+    const allLabel = uiText.categories[0];
+    return [allLabel, ...categories.map((category) => getCategoryLabel(category))];
+  }, [lang, categories]);
+
+  const getSideLabel = (side: SideLibraryItem) => {
+    const fromTranslations = getNameTranslation(side as unknown as unknown as Record<string, unknown>, lang);
+    if (fromTranslations) return fromTranslations;
+    const raw = String(side.name_en || "");
+    if (raw.startsWith("__I18N__:")) {
+      try {
+        const parsed = JSON.parse(decodeURIComponent(raw.replace("__I18N__:", ""))) as unknown as Record<string, unknown>;
+        const dynamic = parsed?.[lang];
+        if (typeof dynamic === "string" && dynamic.trim()) return dynamic.trim();
+        const dynamicUi = parsed?.[uiLang];
+        if (typeof dynamicUi === "string" && dynamicUi.trim()) return dynamicUi.trim();
+      } catch {
+        // ignore malformed token
+      }
+    }
+    if (lang === "en" && side.name_en) return side.name_en;
+    if (lang === "es" && side.name_es) return side.name_es;
+    if (lang === "de" && side.name_de) return side.name_de;
+    return side.name_fr;
+  };
+
+  const getSubCategoryLabel = (subCategory: SubCategoryItem) => {
+    return getNameTranslation(subCategory as unknown as unknown as Record<string, unknown>, lang) || subCategory.name_fr;
+  };
+
+  const sideNameFrById = useMemo(() => {
+    const map = new Map<string, string>();
+    sidesLibrary.forEach((side) => {
+      const id = String(side.id || "").trim();
+      if (!id) return;
+      const label = String(side.name_fr || "").trim();
+      if (!label) return;
+      map.set(id, label);
+    });
+    return map;
+  }, [sidesLibrary]);
+
+  const sideIdByAlias = useMemo(() => {
+    const map = new Map<string, string>();
+    sidesLibrary.forEach((side) => {
+      const id = String(side.id || "").trim();
+      if (!id) return;
+      const aliasValues = new Set<string>();
+      [side.name_fr, side.name_en, side.name_es, side.name_de].forEach((value) => {
+        const text = String(value || "").trim();
+        if (!text) return;
+        aliasValues.add(text);
+        const tokenValues = parseI18nToken(text);
+        Object.values(tokenValues).forEach((tokenValue) => {
+          const tokenText = String(tokenValue || "").trim();
+          if (tokenText) aliasValues.add(tokenText);
+        });
+      });
+      aliasValues.forEach((alias) => {
+        const normalized = normalizeLookupText(alias);
+        if (!normalized) return;
+        map.set(normalized, id);
+      });
+    });
+    return map;
+  }, [sidesLibrary]);
+
+  const selectedCategoryId = useMemo(() => {
+    if (selectedCategory === 0) return null;
+    const category = categories[selectedCategory - 1];
+    return category?.id ?? null;
+  }, [selectedCategory, categories]);
+
+  const categoryById = useMemo(() => {
+    const map = new Map<string | number, CategoryItem>();
+    categories.forEach((category) => map.set(category.id, category));
+    return map;
+  }, [categories]);
+
+  const isDrinkCategory = (categoryId?: string | number | null) => {
+    if (!categoryId) return false;
+    const category = categoryById.get(categoryId);
+    if (!category) return false;
+    const keys = [
+      normalizeCategory(category.name_fr || ""),
+      normalizeCategory(category.name_en || ""),
+      normalizeCategory(category.name_es || ""),
+      normalizeCategory(category.name_de || ""),
+    ];
+    return keys.some(
+      (key) =>
+        key === "boisson" ||
+        key === "boissons" ||
+        key === "bar" ||
+        key === "drink" ||
+        key === "drinks" ||
+        key === "beverage" ||
+        key === "beverages" ||
+        key === "getranke"
+    );
+  };
+
+  const isDessertCategory = (categoryId?: string | number | null) => {
+    if (!categoryId) return false;
+    const category = categoryById.get(categoryId);
+    if (!category) return false;
+    const keys = [
+      normalizeCategory(category.name_fr || ""),
+      normalizeCategory(category.name_en || ""),
+      normalizeCategory(category.name_es || ""),
+      normalizeCategory(category.name_de || ""),
+    ];
+    return keys.some(
+      (key) =>
+        key.includes("dessert") ||
+        key.includes("postre") ||
+        key.includes("nachtisch") ||
+        key.includes("sweet")
+    );
+  };
+
+  const isMainDish = (dish: Dish) => {
+    if (isDrinkCategory(dish.category_id)) return false;
+    if (isDessertCategory(dish.category_id)) return false;
+    return true;
+  };
+
+  const availableSubCategories = useMemo(() => {
+    if (!selectedCategoryId) return [];
+    return subCategoryRows.filter((sub) => String(sub.category_id) === String(selectedCategoryId));
+  }, [selectedCategoryId, subCategoryRows]);
+
+  useEffect(() => {
+    if (selectedCategory === 0) {
+      setSelectedSubCategory("");
+      return;
+    }
+    if (
+      selectedSubCategory &&
+      !availableSubCategories.some(
+        (sub) => String(sub.id) === selectedSubCategory
+      )
+    ) {
+      setSelectedSubCategory("");
+    }
+  }, [selectedCategory, availableSubCategories, selectedSubCategory]);
+
+  const filteredDishes = useMemo(() => {
+    const list = (dishes || []).filter((dish) => {
+      if (dish.is_available === false) return false;
+      if (!selectedCategoryId) return true;
+      return String(dish.category_id) === String(selectedCategoryId);
+    });
+    if (!selectedSubCategory || !selectedCategoryId) return list;
+    return list.filter((dish) => String(dish.subcategory_id) === String(selectedSubCategory));
+  }, [dishes, selectedCategoryId, selectedSubCategory]);
+
+  const groupedDishes = useMemo(() => {
+    if (!selectedCategoryId) {
+      return [{ title: "", items: filteredDishes }];
+    }
+    const groups: Record<string, Dish[]> = {};
+    filteredDishes.forEach((dish) => {
+      const key = String(dish.subcategory_id || "0");
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(dish);
+    });
+    const ordered: Array<{ title: string; items: Dish[] }> = [];
+    availableSubCategories.forEach((sub) => {
+      const key = String(sub.id);
+      if (groups[key] && groups[key].length > 0) {
+        ordered.push({ title: getSubCategoryLabel(sub), items: groups[key] });
+        delete groups[key];
+      }
+    });
+    Object.entries(groups).forEach(([subId, items]) => {
+      const sub = subCategoryRows.find((row) => String(row.id) === String(subId));
+      ordered.push({ title: sub ? getSubCategoryLabel(sub) : uiText.labels.others, items });
+    });
+    return ordered;
+  }, [filteredDishes, selectedCategoryId, availableSubCategories, subCategoryRows, lang]);
+
+  const featuredHighlights = useMemo(() => {
+    const visibleDishes = dishes.filter((dish) => dish.is_available !== false);
+    const isChefSuggestion = (dish: Dish) => dish.is_chef_suggestion === true || dish.is_featured === true;
+    const isDailySpecial = (dish: Dish) => dish.is_daily_special === true || dish.is_special === true;
+
+    const dailyDish = visibleDishes.find((dish) => isDailySpecial(dish)) || null;
+    const chefDish = visibleDishes.find((dish) => isChefSuggestion(dish)) || null;
+    const preferredOrder: Array<"daily" | "chef"> =
+      heroBadgeTypeClient === "daily" ? ["daily", "chef"] : ["chef", "daily"];
+
+    if (!dailyDish && !chefDish) return [] as Array<{ key: string; dish: Dish; types: Array<"daily" | "chef"> }>;
+    if (dailyDish && chefDish && String(dailyDish.id) === String(chefDish.id)) {
+      return [
+        {
+          key: `combined-${String(dailyDish.id)}`,
+          dish: dailyDish,
+          types: preferredOrder,
+        },
+      ];
+    }
+
+    const highlights: Array<{ key: string; dish: Dish; types: Array<"daily" | "chef"> }> = [];
+    preferredOrder.forEach((type) => {
+      if (type === "daily" && dailyDish) highlights.push({ key: `daily-${String(dailyDish.id)}`, dish: dailyDish, types: ["daily"] });
+      if (type === "chef" && chefDish) highlights.push({ key: `chef-${String(chefDish.id)}`, dish: chefDish, types: ["chef"] });
+    });
+    return highlights;
+  }, [dishes, heroBadgeTypeClient]);
+
+  const getFeaturedLabel = (type: "daily" | "chef") => {
+    return type === "daily" ? tt("featured_daily") : tt("featured_chef");
+  };
+
+  const linkedSalesAdviceDish = useMemo(() => {
+    if (!salesAdviceDishId) return null;
+    return dishes.find((dish) => String(dish.id) === String(salesAdviceDishId)) || null;
+  }, [dishes, salesAdviceDishId]);
+
+  const getSuggestionLeadMessage = (langCode: string) => {
+    const normalizedLang = normalizeLanguageKey(langCode);
+    const fallbackLang = toUiLang(langCode);
+    const configured =
+      String(suggestionLeadByLang[normalizedLang] || "").trim() ||
+      String(suggestionLeadByLang[fallbackLang] || "").trim() ||
+      String(suggestionLeadByLang.fr || "").trim();
+    if (configured) return configured;
+    return DEFAULT_SUGGESTION_LEADS[fallbackLang] || DEFAULT_SUGGESTION_LEADS.fr;
+  };
+
+  const getSalesAdvice = (dish: Dish) => {
+    const dishRecord = dish as unknown as Record<string, unknown>;
+    const raw = dishRecord.dietary_tag;
+    const parsed =
+      typeof raw === "string"
+        ? (() => {
+            try {
+              return JSON.parse(raw) as unknown as Record<string, unknown>;
+            } catch {
+            return {};
+          }
+        })()
+        : (raw as unknown as Record<string, unknown> | null) || {};
+    const explicitMessage = String(dish.suggestion_message || "").trim();
+    const normalizedLang = normalizeLanguageKey(lang);
+    const suggestionColumnCandidates = [
+      `suggestion_${normalizedLang}`,
+      `suggestion_${toUiLang(lang)}`,
+      normalizedLang === "ja" ? "suggestion_jp" : "",
+      normalizedLang === "zh" ? "suggestion_cn" : "",
+      normalizedLang === "ko" ? "suggestion_kr" : "",
+      normalizedLang === "el" ? "suggestion_gr" : "",
+      `suggestion_message_${normalizedLang}`,
+      `suggestion_message_${toUiLang(lang)}`,
+      normalizedLang === "ja" ? "suggestion_message_jp" : "",
+      normalizedLang === "zh" ? "suggestion_message_cn" : "",
+      normalizedLang === "ko" ? "suggestion_message_kr" : "",
+      normalizedLang === "el" ? "suggestion_message_gr" : "",
+    ].filter(Boolean);
+    const directSuggestionByColumns =
+      suggestionColumnCandidates.map((key) => String(dishRecord[key] || "").trim()).find(Boolean) || "";
+    const explicitByColumn =
+      directSuggestionByColumns ||
+      String(
+        (lang === "en"
+          ? dishRecord.suggestion_message_en
+          : lang === "es"
+            ? dishRecord.suggestion_message_es
+            : lang === "de"
+              ? dishRecord.suggestion_message_de
+              : dishRecord.suggestion_message_fr) || ""
+      ).trim() ||
+      String(dishRecord.suggestion_message_fr || "").trim() ||
+      explicitMessage;
+    const tipI18nRaw =
+      parsed.sales_tip_i18n && typeof parsed.sales_tip_i18n === "object"
+        ? (parsed.sales_tip_i18n as unknown as Record<string, unknown>)
+        : {};
+    const tipI18n = Object.fromEntries(
+      Object.entries(tipI18nRaw).map(([code, value]) => [normalizeLanguageKey(code), String(value || "").trim()])
+    ) as Record<string, string>;
+    const currentLang = normalizedLang;
+    const fallbackUiLang = toUiLang(lang);
+    const explicitLocalizedMessage =
+      String(tipI18n[currentLang] || "").trim() ||
+      String(tipI18n[fallbackUiLang] || "").trim() ||
+      String(tipI18n.fr || "").trim() ||
+      String(tipI18n.en || "").trim() ||
+      explicitByColumn;
+    const linkedDishId =
+      typeof parsed.sales_tip_dish_id === "string"
+        ? parsed.sales_tip_dish_id.trim()
+        : typeof parsed.sales_tip_dish_id === "number"
+          ? String(parsed.sales_tip_dish_id)
+          : "";
+    if (explicitLocalizedMessage) return { message: explicitLocalizedMessage, linkedDishId };
+    if (!linkedDishId) return { message: "", linkedDishId: "" };
+    const linkedDish = dishes.find((candidate) => String(candidate.id) === linkedDishId) || null;
+    const linkedDishName = linkedDish ? getDishName(linkedDish, lang) : "";
+    const leadMessage = getSuggestionLeadMessage(lang);
+    return {
+      message: linkedDishName ? `${leadMessage} ${linkedDishName}.` : leadMessage,
+      linkedDishId,
+    };
+  };
+
+  const addToCart = (item: CartItem, options?: { skipUpsell?: boolean; fromRecommendation?: boolean }) => {
+    if (isInteractionDisabled) {
+      return;
+    }
+    if (!tableNumber) {
+      alert(tt("table_required"));
+      return;
+    }
+    if (!typedValidationCode) {
+      alert(tableValidationPromptMessage);
+      return;
+    }
+    if (!isValidationCodeValid) {
+      alert(tt("validation_code_invalid"));
+      return;
+    }
+    setCart((prev) => {
+      const idx = prev.findIndex(
+        (c) =>
+          c.dish.id === item.dish.id &&
+          String(c.selectedProductOption?.id || "") === String(item.selectedProductOption?.id || "") &&
+          JSON.stringify(c.selectedSides || []) === JSON.stringify(item.selectedSides || []) &&
+          JSON.stringify(c.selectedSideIds || []) === JSON.stringify(item.selectedSideIds || []) &&
+          JSON.stringify(c.selectedExtras || []) === JSON.stringify(item.selectedExtras || []) &&
+          (c.selectedCooking || "") === (item.selectedCooking || "") &&
+          (c.specialRequest || "") === (item.specialRequest || "")
+      );
+      if (idx !== -1) {
+        const updated = [...prev];
+        updated[idx].quantity += item.quantity;
+        if (item.fromRecommendation || options?.fromRecommendation) {
+          updated[idx].fromRecommendation = true;
+        }
+        return updated;
+      }
+      return [...prev, { ...item, fromRecommendation: item.fromRecommendation || !!options?.fromRecommendation }];
+    });
+    setOrderSuccess(false);
+    setCartBump(true);
+    setTimeout(() => setCartBump(false), 300);
+    if (toastTimeoutRef.current) {
+      clearTimeout(toastTimeoutRef.current);
+    }
+    triggerHaptic(10);
+    setToastMessage(tt("item_added"));
+    if (!options?.skipUpsell) {
+      const advice = getSalesAdvice(item.dish);
+      if (advice.message) {
+        setSalesAdviceMessage(advice.message);
+        setSalesAdviceDishId(advice.linkedDishId);
+        setShowSalesAdviceModal(true);
+      }
+    }
+    toastTimeoutRef.current = setTimeout(() => {
+      setToastMessage("");
+    }, 1200);
+  };
+
+  const removeFromCart = (idx: number) => {
+    setCart((prev) => prev.filter((_, i) => i !== idx));
+  };
+
+  const tableValidationPromptMessage = tt("validation_code_prompt");
+  const normalizedTableKey = normalizeTableNumberKey(tableNumber);
+  const tablePinCode = normalizedTableKey ? tablePinCodesByNumber[normalizedTableKey] : "";
+  const expectedValidationCode = normalizePinValue(tablePinCode);
+  const typedValidationCode = normalizePinValue(orderValidationCodeInput || "");
+  const isValidationCodeValid =
+    typedValidationCode.length > 0 && expectedValidationCode.length > 0 && typedValidationCode === expectedValidationCode;
+
+  const handleSubmitSmartCall = async (callType: SmartCallOptionKey) => {
+    setServerCallMsg("");
+    if (isVitrineMode) {
+      setServerCallMsg("Mode vitrine : appel serveur indisponible.");
+      setTimeout(() => setServerCallMsg(""), 2000);
+      return;
+    }
+    if (!tableNumber) {
+      setServerCallMsg(tt("table_required"));
+      setTimeout(() => setServerCallMsg(""), 2000);
+      return;
+    }
+    if (!typedValidationCode) {
+      setServerCallMsg(tableValidationPromptMessage);
+      setTimeout(() => setServerCallMsg(""), 2000);
+      return;
+    }
+    if (!isValidationCodeValid) {
+      setServerCallMsg(tt("validation_code_invalid"));
+      setTimeout(() => setServerCallMsg(""), 2000);
+      return;
+    }
+    try {
+      setIsSendingCall(true);
+      const tableNum = Number(String(tableNumber || "").trim());
+      if (!Number.isFinite(tableNum) || tableNum <= 0) {
+        setServerCallMsg(tt("table_invalid"));
+        setTimeout(() => setServerCallMsg(""), 2000);
+        return;
+      }
+      const tableNumText = String(tableNum);
+      const localizedMessage = smartCallUi.options[callType] || smartCallUi.options.help_question;
+      const frenchMessage = (SMART_CALL_UI.fr?.options?.[callType] || SMART_CALL_UI.fr?.options?.help_question || localizedMessage).trim();
+      const payloadBase = {
+        status: "pending",
+        created_at: new Date(),
+        type: "appel",
+        message: frenchMessage,
+        restaurant_id: restaurant?.id ?? SETTINGS_ROW_ID,
+      };
+
+      // New pipeline: persist in notifications for centralized request handling (best effort).
+      const notificationPayloads = [
+        {
+          type: "CLIENT",
+          status: "pending",
+          message: frenchMessage,
+          title: "Client request",
+          table_number: tableNumText,
+          table_id: tableNum,
+          restaurant_id: restaurant?.id ?? SETTINGS_ROW_ID,
+          payload: {
+            request_key: callType,
+            request_type: callType,
+            request_label_fr: frenchMessage,
+            request_label_client: localizedMessage,
+            client_lang: normalizedLang,
+            source: "client_menu",
+          },
+          created_at: new Date().toISOString(),
+        },
+        {
+          type: "CLIENT",
+          status: "pending",
+          message: frenchMessage,
+          table_number: tableNumText,
+          restaurant_id: restaurant?.id ?? SETTINGS_ROW_ID,
+          created_at: new Date().toISOString(),
+        },
+      ];
+      let notificationSaved = false;
+      for (const payload of notificationPayloads) {
+        const notifTry = await supabase.from("notifications").insert([payload as never]);
+        if (!notifTry.error) {
+          notificationSaved = true;
+          break;
+        }
+      }
+
+      const firstTry = await supabase
+        .from("calls")
+        .insert([{ ...payloadBase, table_number: tableNumText, table_id: tableNum }]);
+
+      if (firstTry.error) {
+        const secondTry = await supabase
+          .from("calls")
+          .insert([{ ...payloadBase, table_number: tableNumText }]);
+        if (secondTry.error) {
+          const thirdTry = await supabase
+            .from("calls")
+            .insert([{ ...payloadBase, table_id: tableNum }]);
+          if (thirdTry.error) throw thirdTry.error;
+        }
+      }
+      void notificationSaved;
+      setShowCallModal(false);
+      triggerHaptic([10, 50, 10]);
+      setServerCallMsg(smartCallUi.sent || tt("server_called_success"));
+      setTimeout(() => setServerCallMsg(""), 2000);
+    } catch (e) {
+      setServerCallMsg(tt("generic_error"));
+    } finally {
+      setIsSendingCall(false);
+    }
+  };
+
+  async function handleSubmitOrder() {
+    console.log("Tentative de commande...", cart);
+    if (isInteractionDisabled) return;
+    if (!tableNumber) {
+      alert(tt("table_required"));
+      return;
+    }
+    if (!typedValidationCode) {
+      alert(tableValidationPromptMessage);
+      return;
+    }
+    if (!isValidationCodeValid) {
+      alert(tt("validation_code_invalid"));
+      return;
+    }
+    if (cart.length === 0) {
+      alert(tt("empty_cart_error"));
+      return;
+    }
+    const missingSide = cart.find(
+      (item) => item?.dish?.has_sides && (!item.selectedSides || item.selectedSides.length === 0)
+    );
+    if (missingSide) {
+      alert(tt("side_required_error"));
+      return;
+    }
+    const missingCooking = cart.find(
+      (item) => item?.dish?.ask_cooking && !(item.selectedCooking && item.selectedCooking.trim())
+    );
+    if (missingCooking) {
+      alert(tt("cooking_required_error"));
+      return;
+    }
+    const parsedTableNumber = Number(String(tableNumber || "").trim());
+    if (!Number.isFinite(parsedTableNumber) || parsedTableNumber <= 0) {
+      alert(tt("table_invalid"));
+      return;
+    }
+
+    const orderItems = cart.map((item) => {
+      const extrasPrice = (item.selectedExtras || []).reduce(
+        (sum, extra) => sum + Number(extra.price || 0),
+        0
+      );
+      const unitPrice = getDishUnitPrice(item.dish, item.selectedProductOption);
+      const drinkItem = isDrinkCategory(item.dish.category_id);
+      const selectedSideIds = Array.isArray(item.selectedSideIds)
+        ? item.selectedSideIds.map((id) => String(id || "").trim()).filter(Boolean)
+        : [];
+      const fallbackSideIds =
+        selectedSideIds.length > 0
+          ? selectedSideIds
+          : (item.selectedSides || [])
+              .map((label) => sideIdByAlias.get(normalizeLookupText(label)) || "")
+              .filter(Boolean);
+      const selectedExtraIds = (item.selectedExtras || [])
+        .map((extra, index) => buildStableExtraId(item.dish.id, extra, index))
+        .filter(Boolean);
+      const cookingKey = normalizeCookingKey(item.selectedCooking || "");
+      const hasCookingChoice = Boolean(item?.dish?.ask_cooking);
+      const cookingLabelFr = cookingKey ? getCookingLabelFr(cookingKey) : hasCookingChoice ? "Saignant" : null;
+      const stableCookingValue = (cookingKey || "") || (cookingLabelFr || "") || "";
+      const selectedExtras = (item.selectedExtras || []).map((extra, index) => ({
+        id: buildStableExtraId(item.dish.id, extra, index),
+        label_fr: String(extra.name_fr || extra.name || "").trim() || "Supplï¿½ment",
+        price: Number(extra.price || 0),
+      }));
+        return {
+          dish_id: String(item.dish.id || "").trim(),
+          id: String(item.dish.id || "").trim(),
+          category_id: item.dish.category_id ?? null,
+          is_drink: drinkItem,
+          quantity: item.quantity,
+        price: unitPrice + extrasPrice,
+        selected_option_id: String(item.selectedProductOption?.id || "").trim() || null,
+        selected_option_name: getProductOptionLabel(item.selectedProductOption, lang) || null,
+        selected_option_price: item.selectedProductOption?.price_override ?? null,
+        selected_side_ids: fallbackSideIds,
+        selected_extra_ids: selectedExtraIds,
+        selected_extras: selectedExtras,
+        selected_cooking: stableCookingValue || null,
+        selected_cooking_key: cookingKey || null,
+        selected_cooking_label_fr: cookingLabelFr,
+        special_request: String(item.specialRequest || "").trim(),
+        from_recommendation: !!item.fromRecommendation,
+      };
+    });
+
+    const totalPrice = cart.reduce((sum, item) => {
+      const extrasPrice = (item.selectedExtras || []).reduce(
+        (acc, extra) => acc + Number(extra.price || 0),
+        0
+      );
+      return sum + (getDishUnitPrice(item.dish, item.selectedProductOption) + extrasPrice) * item.quantity;
+    }, 0);
+
+      const barItems = orderItems.filter((item) => item.is_drink === true);
+      const kitchenItems = orderItems.filter((item) => item.is_drink !== true);
+
+      if (kitchenItems.length > 0) {
+        const resolvedRestaurantId = restaurant?.id ?? SETTINGS_ROW_ID;
+        const newOrder: {
+          id?: string;
+          table_number: string;
+          items: unknown[];
+          total_price: number;
+          status: string;
+          restaurant_id: string | number;
+        } = {
+          table_number: String(parsedTableNumber),
+          items: kitchenItems,
+          total_price: kitchenItems.reduce(
+            (sum, item) => sum + Number(item.price || 0) * Number(item.quantity || 1),
+            0
+          ),
+          status: "pending",
+          restaurant_id: resolvedRestaurantId,
+        };
+        const { id: removedId, ...orderData } = newOrder;
+        void removedId;
+        console.log("Donnï¿½es envoyï¿½es", orderData);
+        const { error } = await supabase.from("orders").insert([orderData]);
+        if (error) {
+          console.log("Dï¿½tails erreur commande cuisine:", JSON.stringify(error, null, 2));
+          alert(`${tt("supabase_error_prefix")} ${error.message}`);
+          return;
+        }
+      }
+
+      if (barItems.length > 0) {
+        const resolvedRestaurantId = restaurant?.id ?? SETTINGS_ROW_ID;
+        const newOrder: {
+          id?: string;
+          table_number: string;
+          items: unknown[];
+          total_price: number;
+          status: string;
+          restaurant_id: string | number;
+        } = {
+          table_number: String(parsedTableNumber),
+          items: barItems,
+          total_price: barItems.reduce(
+            (sum, item) => sum + Number(item.price || 0) * Number(item.quantity || 1),
+            0
+          ),
+          status: "pending",
+          restaurant_id: resolvedRestaurantId,
+        };
+        const { id: removedId, ...orderData } = newOrder;
+        void removedId;
+        console.log("Donnï¿½es envoyï¿½es", orderData);
+        const { error } = await supabase.from("orders").insert([orderData]);
+        if (error) {
+          console.log("Dï¿½tails erreur commande bar:", JSON.stringify(error, null, 2));
+          alert(`${tt("supabase_error_prefix")} ${error.message}`);
+          return;
+        }
+      }
+
+      triggerHaptic([15, 40, 15, 40, 25]);
+      alert(tt("order_success"));
+      setCart([]);
+      setOrderSuccess(true);
+    }
+
+  const handleSelectDish = (dish: Dish) => {
+    const sourceDish = dishes.find((row) => String(row.id) === String(dish.id)) || dish;
+    const parsed = parseOptionsFromDescription(sourceDish.description || "");
+    const sourceDishRecord = sourceDish as unknown as Record<string, unknown>;
+    const productOptions = Array.isArray(sourceDishRecord.product_options)
+      ? ((sourceDishRecord.product_options as ProductOptionItem[]) || [])
+      : [];
+    // Source de v?rit?: selected_sides (table sides_library). Pas de fallback legacy.
+    const sideIds = Array.isArray(sourceDish.selected_sides) ? sourceDish.selected_sides : [];
+    const sideOptionsFromLibrary = sideIds
+      .map((id) => sidesLibrary.find((side) => String(side.id) === String(id)))
+      .filter(Boolean)
+      .map((side) => getSideLabel(side as SideLibraryItem));
+    setSelectedDish(sourceDish);
+    setDishModalQuantity(1);
+    setSpecialRequest("");
+    setSelectedSides([]);
+    setSelectedCooking("");
+    setSelectedExtras([]);
+    setModalProductOptions(productOptions);
+    setSelectedProductOptionId(String(productOptions[0]?.id || ""));
+    setModalSidesOptions(sideOptionsFromLibrary);
+    setModalExtrasOptions(parsed.extrasList || []);
+    setModalAskCooking(!!(sourceDish.ask_cooking || parsed.askCooking));
+    setSideError("");
+  };
+
+  const dishNeedsQuickAddModal = (dish: Dish) => {
+    const sourceDish = dishes.find((row) => String(row.id) === String(dish.id)) || dish;
+    const parsed = parseOptionsFromDescription(sourceDish.description || "");
+    const sourceDishRecord = sourceDish as unknown as Record<string, unknown>;
+    const productOptions = Array.isArray(sourceDishRecord.product_options)
+      ? ((sourceDishRecord.product_options as ProductOptionItem[]) || [])
+      : [];
+    const selectedSideIds = Array.isArray(sourceDish.selected_sides) ? sourceDish.selected_sides : [];
+    const hasRequiredSides =
+      Boolean(sourceDish.has_sides) ||
+      selectedSideIds.length > 0 ||
+      (Array.isArray(parsed.sideIds) && parsed.sideIds.length > 0);
+    const needsCooking = Boolean(sourceDish.ask_cooking || parsed.askCooking);
+    return hasRequiredSides || needsCooking || productOptions.length > 0;
+  };
+
+  const handleQuickAddFromList = (dish: Dish) => {
+    if (dishNeedsQuickAddModal(dish)) {
+      handleSelectDish(dish);
+      return;
+    }
+    addToCart({
+      dish,
+      quantity: 1,
+      selectedSides: [],
+      selectedSideIds: [],
+      selectedExtras: [],
+      selectedProductOption: null,
+      selectedCooking: "",
+      specialRequest: "",
+    });
+  };
+
+  const modalInstructionPreview = useMemo(() => {
+    return buildInstructionText(
+      lang,
+      selectedSides,
+      selectedExtras,
+      modalSelectedProductOption,
+      selectedCooking,
+      specialRequest,
+      uiText
+    );
+  }, [lang, selectedSides, selectedExtras, modalSelectedProductOption, selectedCooking, specialRequest, uiText]);
+
+  const getSideMaxOptions = (dish?: Dish | null) => {
+    if (!dish) return 1;
+    const value = Number(dish.max_options || 1);
+    return Number.isFinite(value) && value > 0 ? value : 1;
+  };
+
+  const isIceCreamDish = (dish?: Dish | null) => {
+    if (!dish) return false;
+    const category = dish.category_id ? categoryById.get(dish.category_id) : undefined;
+    const label = normalizeCategory(
+      `${category?.name_fr || ""} ${category?.name_en || ""} ${category?.name_es || ""} ${category?.name_de || ""}`
+    );
+    return label.includes("glace") || label.includes("icecream") || label.includes("helado");
+  };
+
+  const menuFontFamily = useMemo(() => {
+    const tableConfig = parseJsonObject(restaurant?.table_config);
+    const restaurantRecord = restaurant as Record<string, unknown> | null;
+    const raw = String(restaurantRecord?.font_family || tableConfig.font_family || "Montserrat").trim();
+    const allowed = new Set(MENU_FONT_OPTIONS as readonly string[]);
+    return allowed.has(raw) ? raw : "Montserrat";
+  }, [restaurant]);
+
+  const menuLayout = useMemo<"classic_grid" | "modern_list">(() => {
+    const tableConfig = parseJsonObject(restaurant?.table_config);
+    const raw = String((restaurant as Record<string, unknown> | null)?.menu_layout || tableConfig.menu_layout || "classic_grid")
+      .trim()
+      .toLowerCase();
+    return raw === "modern_list" || raw === "horizontal" ? "modern_list" : "classic_grid";
+  }, [restaurant]);
+
+  const cardLayout = useMemo<"default" | "overlay" | "bicolor">(() => {
+    const parseLayoutToken = (raw: unknown): "default" | "overlay" | "bicolor" | null => {
+      const value = String(raw || "").trim().toLowerCase();
+      if (value === "overlay" || value === "grid_overlay") return "overlay";
+      if (value === "bicolor" || value === "modern_bicolor") return "bicolor";
+      if (value === "minimalist" || value === "minimal") return "bicolor";
+      if (value === "default" || value === "classic" || value === "standard") return "default";
+      return null;
+    };
+    const tableConfig = parseJsonObject(restaurant?.table_config);
+    return (
+      parseLayoutToken((restaurant as Record<string, unknown> | null)?.card_layout) ||
+      parseLayoutToken(tableConfig.card_layout) ||
+      parseLayoutToken((restaurant as Record<string, unknown> | null)?.card_style) ||
+      parseLayoutToken(tableConfig.card_style) ||
+      "default"
+    );
+  }, [restaurant]);
+
+  const cardVisualStyle = useMemo<"rounded" | "sharp">(() => {
+    const parseVisualStyle = (raw: unknown): "rounded" | "sharp" | null => {
+      const value = String(raw || "").trim().toLowerCase();
+      if (["sharp", "pointu", "carre", "square", "angled"].includes(value)) return "sharp";
+      if (["rounded", "arrondi", "moderne"].includes(value)) return "rounded";
+      return null;
+    };
+    const tableConfig = parseJsonObject(restaurant?.table_config);
+    return (
+      parseVisualStyle(tableConfig.card_style) ||
+      parseVisualStyle((restaurant as Record<string, unknown> | null)?.card_style) ||
+      "rounded"
+    );
+  }, [restaurant]);
+  const densityStyle = useMemo<"compact" | "spacious">(() => {
+    const tableConfig = parseJsonObject(restaurant?.table_config);
+    const raw = String(
+      (restaurant as Record<string, unknown> | null)?.card_density ??
+        (restaurant as Record<string, unknown> | null)?.density_style ??
+        tableConfig.card_density ??
+        tableConfig.density_style ??
+        "spacious"
+    )
+      .trim()
+      .toLowerCase();
+    return ["compact", "compacte", "dense"].includes(raw) ? "compact" : "spacious";
+  }, [restaurant]);
+  const dishCardRadiusClass = cardVisualStyle === "sharp" ? "rounded-none" : "rounded-xl";
+  const dishMediaRadiusClass = cardVisualStyle === "sharp" ? "rounded-none" : "rounded-lg";
+
+  useEffect(() => {
+    if (!restaurant) return;
+    const row = restaurant as Record<string, unknown>;
+    console.log("Style actuel:", {
+      card_style: row.card_style ?? null,
+      card_layout: row.card_layout ?? null,
+      resolved: cardLayout,
+    });
+  }, [restaurant, cardLayout]);
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const id = "menuqr-dynamic-font-link";
+    const href = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(menuFontFamily).replace(/%20/g, "+")}:wght@400;700&display=swap`;
+    let link = document.getElementById(id) as HTMLLinkElement | null;
+    if (!link) {
+      link = document.createElement("link");
+      link.id = id;
+      link.rel = "stylesheet";
+      document.head.appendChild(link);
+    }
+    if (link.href !== href) link.href = href;
+  }, [menuFontFamily]);
+
+  useLayoutEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem("menuqr-selected-font", menuFontFamily);
+      const cssFont = `'${menuFontFamily.replace(/'/g, "\\'")}', sans-serif`;
+      const styleId = "menuqr-runtime-font-style";
+      let styleEl = document.getElementById(styleId) as HTMLStyleElement | null;
+      if (!styleEl) {
+        styleEl = document.createElement("style");
+        styleEl.id = styleId;
+        document.head.appendChild(styleEl);
+      }
+      styleEl.textContent = `.menu-client-font, .menu-client-font * { font-family: ${cssFont} !important; }`;
+    } catch {
+      // ignore font cache sync errors
+    }
+  }, [menuFontFamily]);
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+
+    const forceFont = () => {
+      try {
+        const fontName = String(menuFontFamily || "").trim();
+        if (!fontName) return;
+
+        let link = document.getElementById("dynamic-google-font") as HTMLLinkElement | null;
+        const href = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(fontName).replace(/%20/g, "+")}:wght@400;700&display=swap`;
+        if (!link) {
+          link = document.createElement("link");
+          link.id = "dynamic-google-font";
+          link.rel = "stylesheet";
+          document.head.appendChild(link);
+        }
+        if (link.href !== href) link.href = href;
+
+        let styleTag = document.getElementById("force-font-style") as HTMLStyleElement | null;
+        if (!styleTag) {
+          styleTag = document.createElement("style");
+          styleTag.id = "force-font-style";
+          document.head.appendChild(styleTag);
+        }
+        const safeFont = fontName.replace(/'/g, "\\'");
+        styleTag.innerHTML = `
+          * { font-family: '${safeFont}', sans-serif !important; }
+          body { font-family: '${safeFont}', sans-serif !important; }
+          .menu-client-font, .menu-client-font * { font-family: '${safeFont}', sans-serif !important; }
+        `;
+      } catch {
+        // no-op
+      }
+    };
+
+    forceFont();
+    const timer = window.setTimeout(forceFont, 500);
+    return () => window.clearTimeout(timer);
+  }, [menuFontFamily]);
+
+  if (isRestaurantOffline) {
+    return <RestaurantOffline restaurantName={offlineRestaurantName || String(restaurant?.name || "").trim()} />;
+  }
+
+  return (
+    <>
+      <link rel="preconnect" href="https://fonts.googleapis.com" />
+      <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+      <link
+        rel="stylesheet"
+        href={`https://fonts.googleapis.com/css2?family=${encodeURIComponent(menuFontFamily).replace(/%20/g, "+")}:wght@400;700&display=swap`}
+      />
+      <style
+        dangerouslySetInnerHTML={{
+          __html: `
+            html, body, .menu-client-font, .menu-client-font * {
+              font-family: '${menuFontFamily.replace(/'/g, "\\'")}', sans-serif !important;
+            }
+          `,
+        }}
+      />
+      <script
+        dangerouslySetInnerHTML={{
+          __html: `
+            (function () {
+              try {
+                var raw = localStorage.getItem("menuqr-selected-font") || "";
+                var font = String(raw || "").trim();
+                if (!font) return;
+                var cssFont = "'" + font.replace(/'/g, "\\\\'") + "', sans-serif";
+                var styleId = "menuqr-prehydrate-font-style";
+                var styleEl = document.getElementById(styleId);
+                if (!styleEl) {
+                  styleEl = document.createElement("style");
+                  styleEl.id = styleId;
+                  document.head.appendChild(styleEl);
+                }
+                styleEl.textContent = ".menu-client-font, .menu-client-font * { font-family: " + cssFont + " !important; }";
+                var id = "menuqr-dynamic-font-link";
+                var href = "https://fonts.googleapis.com/css2?family=" + encodeURIComponent(font).replace(/%20/g, "+") + ":wght@400;700&display=swap";
+                var link = document.getElementById(id);
+                if (!link) {
+                  link = document.createElement("link");
+                  link.id = id;
+                  link.rel = "stylesheet";
+                  document.head.appendChild(link);
+                }
+                if (link.href !== href) link.href = href;
+              } catch (_) {}
+            })();
+          `,
+        }}
+      />
+      <div
+        key={menuFontFamily}
+        dir={isRtl ? "rtl" : "ltr"}
+        className={`menu-client-public menu-client-font relative isolate min-h-screen h-full w-screen max-w-none overflow-x-hidden ${darkMode ? "menu-client-dark" : ""} ${!darkMode ? "menu-client-transparent-shell" : ""} ${cardVisualStyle === "sharp" ? "menu-sharp-mode" : ""} ${densityStyle === "compact" ? "menu-density-compact" : "menu-density-spacious"}`}
+        style={{
+          width: "100vw",
+          maxWidth: "100vw",
+          fontFamily: `'${menuFontFamily}', sans-serif`,
+          color: globalTextColorValue,
+          ["--menu-text-color" as string]: globalTextColorValue,
+        }}
+    >
+      <style>{`
+        .menu-client-bg-content {
+          background-size: cover !important;
+          background-repeat: no-repeat !important;
+          background-position: center center !important;
+          transform: none !important;
+          transition: none !important;
+        }
+        .dish-card-sharp {
+          border-radius: 0px !important;
+        }
+        .dish-card-sharp .dish-card-media,
+        .dish-card-sharp .dish-card-media img {
+          border-radius: 0px !important;
+        }
+        .promo-dish-card {
+          border-color: #ff2d00 !important;
+          border-width: 6px !important;
+          box-shadow: 0 0 0 3px rgba(255, 45, 0, 0.28), 8px 8px 0px 0px rgba(255, 45, 0, 0.5) !important;
+        }
+        .promo-badge-giant {
+          font-size: clamp(1rem, 2.2vw, 1.35rem) !important;
+          line-height: 1 !important;
+          letter-spacing: 0.05em !important;
+          padding: 0.55rem 0.95rem !important;
+          border-width: 3px !important;
+        }
+        .menu-sharp-mode [class*="rounded"] {
+          border-radius: 0px !important;
+        }
+        .menu-sharp-mode .rounded,
+        .menu-sharp-mode .rounded-full,
+        .menu-sharp-mode .rounded-lg,
+        .menu-sharp-mode .rounded-xl,
+        .menu-sharp-mode .rounded-2xl {
+          border-radius: 0px !important;
+        }
+        .menu-sharp-mode .menu-surface-shell,
+        .menu-sharp-mode .menu-surface-shell *,
+        .menu-sharp-mode .dish-card-shell,
+        .menu-sharp-mode .dish-card-shell * {
+          border-radius: 0px !important;
+        }
+        .menu-sharp-mode [class*="badge"],
+        .menu-sharp-mode [class*="card"],
+        .menu-sharp-mode [class*="surface"],
+        .menu-sharp-mode [class*="container"],
+        .menu-sharp-mode [class*="chip"] {
+          border-radius: 0px !important;
+        }
+        .menu-sharp-mode button,
+        .menu-sharp-mode [role="button"],
+        .menu-sharp-mode [role="switch"],
+        .menu-sharp-mode input,
+        .menu-sharp-mode textarea,
+        .menu-sharp-mode select {
+          border-radius: 0px !important;
+        }
+        .menu-density-compact .dish-card-shell {
+          padding: 0.65rem !important;
+        }
+        .menu-density-compact .dish-card-shell .dish-card-media:not(.absolute) {
+          max-height: 150px !important;
+          height: auto !important;
+        }
+        .menu-density-compact .menu-surface-shell {
+          gap: 0.75rem !important;
+        }
+        .menu-density-spacious .dish-card-shell .dish-card-media:not(.absolute) {
+          max-height: 260px !important;
+        }
+      `}</style>
+      <div
+        className="pointer-events-none fixed inset-0 z-[-10] menu-client-bg-content"
+        style={{
+          position: "fixed",
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          width: "100vw",
+          height: "100vh",
+          minHeight: "100dvh",
+          zIndex: -10,
+          marginTop: "calc(env(safe-area-inset-top, 0px) * -1)",
+          paddingTop: "env(safe-area-inset-top, 0px)",
+          paddingBottom: "env(safe-area-inset-bottom, 0px)",
+          backgroundImage: !darkMode && backgroundImageUrl ? `url(${backgroundImageUrl})` : "none",
+          backgroundRepeat: "no-repeat",
+          backgroundPosition: "center center",
+          backgroundSize: "cover",
+          opacity: !darkMode && backgroundImageUrl ? backgroundOpacity : 1,
+          backgroundColor: darkMode ? "#000000" : bannerBgColor,
+          transform: "none",
+          transition: "none",
+        }}
+      />
+      <div
+        className={`absolute inset-0 z-[-1] pointer-events-none ${
+          darkMode ? "bg-black/94" : "bg-transparent"
+        }`}
+      />
+      <div
+        className={`${darkMode ? "border-[#d99a2b]" : "border-black"} border-b-4 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] h-[200px] md:h-[300px] px-4 flex flex-col items-center justify-center relative z-50 overflow-visible`}
+        style={{
+          backgroundColor: withAlpha(bannerBgColor, "F2"),
+          color: bannerContentTextColor,
+          ...(showBannerImage
+            ? {
+                backgroundImage: `linear-gradient(rgba(0,0,0,0.38), rgba(0,0,0,0.38)), url(${bannerImageUrl})`,
+                backgroundSize: "cover",
+                backgroundPosition: "center",
+              }
+            : {}),
+        }}
+      >
+        <div className="w-full h-full flex items-center justify-center gap-3 flex-wrap px-4 text-center">
+          {showHeaderLogo ? (
+            <img
+              src={headerLogoSrc}
+              alt="Logo"
+              className="h-[120px] md:h-[160px] w-auto object-contain my-2 mx-2 shrink-0 drop-shadow-[2px_2px_0px_rgba(0,0,0,1)]"
+              onLoad={() => setHeaderLogoLoaded(true)}
+              onError={() => {
+                setHeaderLogoLoadError(true);
+                setHeaderLogoLoaded(false);
+              }}
+            />
+          ) : null}
+          {restaurantDisplayName ? (
+            <h1 className="text-3xl font-black text-center" style={{ color: bannerContentTextColor }}>
+              {restaurantDisplayName}
+            </h1>
+          ) : null}
+        </div>
+        <div className="absolute top-4 right-4 z-[9999]">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              aria-label={darkMode ? "Mode clair" : "Mode sombre"}
+              onClick={() => setDarkMode((prev) => !prev)}
+              className={`border-2 rounded-full px-3 py-1 ${darkMode ? "bg-black text-[#E0E0E0] border-[#d99a2b]" : "bg-white text-black border-black"}`}
+            >
+              {darkMode ? <Sun className="h-5 w-5 text-amber-400" /> : <Moon className="h-5 w-5 text-gray-800" />}
+            </button>
+            <button
+              className={`${darkMode ? "text-[#E0E0E0] bg-black border-[#d99a2b]" : "text-black bg-white border-black"} font-bold text-xl border-2 rounded-full px-3 py-1`}
+              onClick={() => setShowLangMenu((v) => !v)}
+            >
+              {currentLanguageMeta.flag}
+            </button>
+          </div>
+          {showLangMenu && (
+            <div className={`absolute right-0 mt-2 rounded-lg shadow-lg z-[9999] border-2 ${darkMode ? "bg-black border-[#d99a2b]" : "bg-white border-black"}`}>
+              {enabledLanguagesClient.map((code) => {
+                const languageName = enabledLanguageLabels[code] || DEFAULT_LANGUAGE_LABELS[code] || code.toUpperCase();
+                const languageFlag = getLanguageFlag(code);
+                return (
+                <button
+                  key={code}
+                  onClick={() => {
+                    triggerHaptic(6);
+                    setLang(code);
+                    setShowLangMenu(false);
+                  }}
+                  className={`flex items-center w-full px-4 py-2 text-left transition-colors ${darkMode ? "text-[#E0E0E0] hover:bg-[#2a2a2a]" : "text-black hover:bg-gray-100"}`}
+                >
+                  <span className="text-lg">{languageFlag}</span>
+                  <span className="ml-2 font-bold">{languageName}</span>
+                </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {!isVitrineMode ? (
+        <div
+          className={`border-4 rounded-none p-3 mx-0 my-2 relative z-30 ${
+            darkMode
+              ? "bg-black/95 border-[#d99a2b] text-[#E0E0E0]"
+              : cardTransparentEnabled
+                ? "bg-transparent border-black text-black"
+                : "bg-white/95 border-black text-black"
+          } menu-surface-shell`}
+          style={!darkMode ? { backgroundColor: "transparent" } : undefined}
+        >
+          <div className="flex flex-wrap items-end gap-3">
+            <div>
+              <label className="mb-1 block text-sm font-black text-black">{uiText.yourTable}</label>
+              <input
+                type="number"
+                placeholder={uiText.yourTable}
+                value={tableNumber}
+                onChange={(e) => setTableNumber(e.target.value)}
+                className="px-4 py-2 bg-white text-black border border-gray-300 w-28 font-bold"
+              />
+            </div>
+            <div className="min-w-[180px]">
+              <label className="mb-1 block text-sm font-black text-black">{tt("validation_code_label")}</label>
+              <input
+                type="password"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                value={orderValidationCodeInput}
+                onChange={(e) => setOrderValidationCodeInput(e.target.value)}
+                placeholder={tt("validation_code_placeholder")}
+                className="w-full px-4 py-2 bg-white text-black border border-gray-300 font-bold"
+              />
+            </div>
+          </div>
+          <div className="mt-2 text-sm font-bold">
+            {typedValidationCode.length > 0 && !isValidationCodeValid ? (
+              <p className="text-red-600">{tt("validation_code_invalid")}</p>
+            ) : null}
+          </div>
+        </div>
+      ) : (
+        <div className="border-4 rounded-none p-3 mx-0 my-2 relative z-30 bg-white/95 border-black text-black menu-surface-shell">
+          <p className="text-sm font-black">Mode vitrine actif : consultation du menu uniquement.</p>
+        </div>
+      )}
+      {darkMode ? (
+        <style>{`
+          .menu-client-dark [class*='bg-white'] { background-color: #000000 !important; color: #F5F5F5 !important; }
+          .menu-client-dark [class*='bg-gray-'] { background-color: #020617 !important; color: #F5F5F5 !important; }
+          .menu-client-dark [class*='text-black'] { color: #F5F5F5 !important; }
+          .menu-client-dark [class*='border-black'] { border-color: #3a3a3a !important; }
+          .menu-client-dark [class*='border-gray-'] { border-color: #3a3a3a !important; }
+          .menu-client-dark [class*='text-gray-'] { color: #c5c5c5 !important; }
+          .menu-client-dark button { border-color: #3a3a3a; background-color: #000000; color: #F5F5F5; }
+          .menu-client-dark input, .menu-client-dark textarea, .menu-client-dark select {
+            background: #000000 !important; color: #F5F5F5 !important; border-color: #4a4a4a !important;
+          }
+          .menu-client-dark .shadow-\\[4px_4px_0px_0px_rgba\\(0\\,0\\,0\\,1\\)\\] { box-shadow: 4px 4px 0 0 rgba(217,154,43,.45) !important; }
+        `}</style>
+      ) : null}
+      {!darkMode ? (
+        <style>{`
+          .menu-client-transparent-shell .menu-surface-shell {
+            background: transparent !important;
+            background-color: transparent !important;
+            box-shadow: none !important;
+          }
+          .menu-client-public [class*='text-black'],
+          .menu-client-public [class*='text-gray-'] {
+            color: var(--menu-text-color) !important;
+          }
+          .menu-client-public input[class*='text-'],
+          .menu-client-public textarea[class*='text-'],
+          .menu-client-public select[class*='text-'] {
+            color: #111111 !important;
+          }
+        `}</style>
+      ) : null}
+
+      <div ref={actionDockSentinelRef} aria-hidden="true" className="h-px -mt-px" />
+      <div
+        className={`menu-client-action-dock ${
+          isVitrineMode || hideCompactFloatingActions
+            ? "hidden"
+            : isStickyActionsCompact
+            ? "fixed top-2 left-1/2 -translate-x-1/2 w-auto max-w-max z-[999] rounded-full border-2 shadow-lg backdrop-blur-md justify-center pointer-events-none"
+            : "sticky top-0 left-0 w-full z-20 menu-surface-shell border-b-4"
+        } px-3 py-2 flex gap-2 ${
+          darkMode
+            ? isStickyActionsCompact
+              ? "bg-black/60 border-[#d99a2b]"
+              : "bg-black/95 border-[#d99a2b]"
+            : isStickyActionsCompact
+              ? "bg-white/70 border-black"
+              : "bg-transparent border-black"
+        }`}
+        style={
+          isStickyActionsCompact
+            ? {
+                zIndex: 999,
+                backgroundColor: darkMode ? "rgba(0,0,0,0.6)" : "rgba(255,255,255,0.45)",
+                backdropFilter: "blur(10px)",
+                WebkitBackdropFilter: "blur(10px)",
+              }
+            : !darkMode
+              ? { backgroundColor: "transparent", zIndex: 20 }
+              : { zIndex: 20 }
+        }
+      >
+        {!isVitrineMode && (
+          <button
+            className={`${isStickyActionsCompact ? "pointer-events-auto w-12 h-12 border-4 rounded-full flex items-center justify-center p-0 shrink-0" : "flex-1 border-4 rounded-xl px-4 py-2"} font-black`}
+            style={{
+              backgroundColor: darkMode ? "#000000" : "#FFFFFF",
+              color: darkMode ? "#F5F5F5" : "#111111",
+              borderColor: darkMode ? "#d99a2b" : "#000000",
+            }}
+            onClick={() => setShowCallModal(true)}
+            aria-label={uiText.callServer}
+            title={uiText.callServer}
+          >
+            {isStickyActionsCompact ? <PhoneCall className="h-5 w-5" /> : uiText.callServer}
+          </button>
+        )}
+        {!isInteractionDisabled && (
+          <button
+            className={`${isStickyActionsCompact ? "pointer-events-auto w-12 h-12 border-4 rounded-full p-0 flex items-center justify-center shrink-0" : "flex-1 border-4 rounded-xl px-4 py-2"} font-black disabled:opacity-50 ${
+              cartBump ? "cart-bounce" : ""
+            }`}
+            style={{
+              backgroundColor: darkMode ? "#000000" : "#FFFFFF",
+              color: darkMode ? "#F5F5F5" : "#111111",
+              borderColor: darkMode ? "#d99a2b" : "#000000",
+            }}
+            onClick={() => setIsCartOpen(true)}
+            disabled={cart.length === 0}
+            aria-label={uiText.cart}
+            title={uiText.cart}
+          >
+            {isStickyActionsCompact ? (
+              <span className="relative inline-flex items-center justify-center">
+                <ShoppingCart className="h-5 w-5" />
+                <span className="absolute -top-2 -right-2 min-w-5 h-5 px-1 rounded-full bg-black text-white text-[10px] leading-5 border border-white text-center">
+                  {cart.reduce((sum, item) => sum + item.quantity, 0)}
+                </span>
+              </span>
+            ) : (
+              `${uiText.cart} (${cart.reduce((sum, item) => sum + item.quantity, 0)})`
+            )}
+          </button>
+        )}
+      </div>
+      {isStickyActionsCompact && !hideCompactFloatingActions ? <div aria-hidden="true" className="h-16" /> : null}
+      {showCallModal && (
+        <div className="fixed inset-0 z-[100] bg-black/50 flex items-center justify-center p-4" onClick={() => !isSendingCall && setShowCallModal(false)}>
+          <div
+            className="w-full max-w-md bg-white border-4 border-black rounded-2xl shadow-[8px_8px_0px_0px_rgba(0,0,0,1)]"
+            onClick={(e) => e.stopPropagation()}
+            translate="no"
+          >
+            <div className="p-4 border-b-2 border-black flex items-start justify-between gap-3">
+              <div>
+                <div className="text-xl font-black text-black">{smartCallUi.title}</div>
+                <div className="text-sm font-semibold text-gray-700">{smartCallUi.subtitle}</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => !isSendingCall && setShowCallModal(false)}
+                className="w-10 h-10 bg-white text-black rounded-full border-2 border-black flex items-center justify-center"
+              >
+                <XCircle size={18} className="text-red-500" />
+              </button>
+            </div>
+            <div className="p-4 grid grid-cols-1 gap-2">
+              {SMART_CALL_OPTION_META.map(({ key, icon: Icon, colorClass }) => (
+                <button
+                  key={key}
+                  type="button"
+                  disabled={isSendingCall}
+                  onClick={() => void handleSubmitSmartCall(key)}
+                  className="w-full text-left border-2 border-black rounded-xl px-3 py-3 bg-white hover:bg-gray-50 disabled:opacity-60"
+                >
+                  <span className="flex items-center gap-3">
+                    <span className="w-9 h-9 rounded-full border-2 border-black bg-white flex items-center justify-center">
+                      <Icon className={`h-4 w-4 ${colorClass}`} />
+                    </span>
+                    <span className="font-black text-black">{smartCallUi.options[key]}</span>
+                  </span>
+                </button>
+              ))}
+            </div>
+            <div className="p-4 border-t border-gray-200 flex justify-end">
+              <button
+                type="button"
+                onClick={() => !isSendingCall && setShowCallModal(false)}
+                disabled={isSendingCall}
+                className="px-4 py-2 border-2 border-black rounded-lg font-black bg-white disabled:opacity-60"
+              >
+                {isSendingCall ? smartCallUi.sending : smartCallUi.cancel}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showSalesAdviceModal && (
+        <div className="fixed bottom-4 right-4 z-[100] w-[92vw] max-w-md border-4 border-black bg-white shadow-[8px_8px_0px_0px_rgba(0,0,0,1)]">
+          <div className="p-3 border-b-2 border-black bg-emerald-50">
+            <div className="text-lg font-black text-black">
+              {tt("sales_advice_title")}
+            </div>
+          </div>
+          <div className="p-3 text-black font-semibold leading-relaxed">
+            {salesAdviceMessage}
+          </div>
+          <div className="p-3 border-t border-gray-200 flex justify-end gap-2">
+            {linkedSalesAdviceDish && (
+              <button
+                type="button"
+                onClick={() => {
+                  setShowSalesAdviceModal(false);
+                  setSalesAdviceMessage("");
+                  setSalesAdviceDishId("");
+                  setRecommendationSourceDishId(String(linkedSalesAdviceDish.id || ""));
+                  setSelectedDish(null);
+                  requestAnimationFrame(() => {
+                    handleSelectDish(linkedSalesAdviceDish);
+                  });
+                }}
+                className="px-3 py-1 border-2 border-black rounded font-black"
+                style={{ backgroundColor: bannerBgColor, color: bannerContentTextColor }}
+              >
+                {tt("sales_advice_view_item")}
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                setShowSalesAdviceModal(false);
+                setSalesAdviceMessage("");
+                setSalesAdviceDishId("");
+              }}
+              className="px-3 py-1 bg-emerald-600 text-white border-2 border-black rounded font-black"
+            >
+              OK
+            </button>
+          </div>
+        </div>
+      )}
+
+      {heroEnabledClient && featuredHighlights.length > 0 && (
+        <div className="mx-0 my-2 space-y-3">
+          {featuredHighlights.map((highlight) => {
+            const featuredDish = highlight.dish;
+            const primaryType = highlight.types[0] || "daily";
+            const featuredOverlay = cardLayout === "overlay" && Boolean(featuredDish.image_url);
+            const primaryBackground = cardSurfaceBg;
+            return (
+              <section
+                key={highlight.key}
+                className={`border-4 ${darkMode ? "border-[#d99a2b]" : "border-black"} shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] ${
+                  consultationModeClient ? "cursor-pointer" : "cursor-pointer"
+                }`}
+                style={featuredOverlay ? undefined : { backgroundColor: primaryBackground }}
+                onClick={() => handleSelectDish(featuredDish)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    handleSelectDish(featuredDish);
+                  }
+                }}
+                role="button"
+                tabIndex={0}
+              >
+                <div className="p-3 sm:p-4">
+                  <h2
+                    className={`text-2xl font-black mb-3 ${darkMode ? "text-[#F5F5F5]" : ""}`}
+                    style={!featuredOverlay ? { color: cardTextColorValue } : undefined}
+                  >
+                    {getFeaturedLabel(primaryType)}
+                  </h2>
+                  <div className={`grid grid-cols-1 md:grid-cols-2 gap-4 items-stretch`}>
+                    {
+                    <div
+                      className={`relative overflow-hidden rounded-lg border-2 border-black ${featuredOverlay ? "min-h-[280px]" : ""}`}
+                      style={{ backgroundColor: cardImagePanelBg }}
+                    >
+                      {featuredDish.image_url ? (
+                        <img
+                          src={featuredDish.image_url}
+                          alt={getDishName(featuredDish, lang)}
+                          className="w-full h-64 md:h-full object-cover"
+                          onError={hideBrokenImage}
+                        />
+                      ) : (
+                        <div className="w-full h-64 md:h-full bg-gray-100" />
+                      )}
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/15 to-transparent pointer-events-none" />
+                      <div className="absolute top-3 left-3 flex flex-wrap gap-2">
+                        {highlight.types.map((badgeType) => (
+                          <span
+                            key={`${highlight.key}-${badgeType}`}
+                            className={`text-xs md:text-sm font-black px-3 py-1 rounded-full border-2 border-white ${
+                              badgeType === "daily" ? "bg-green-700 text-white" : "bg-amber-500 text-black"
+                            }`}
+                          >
+                            {getFeaturedLabel(badgeType)}
+                          </span>
+                        ))}
+                        {getPromoPriceForDish(featuredDish) != null && (
+                          <span className="promo-badge-giant font-black rounded-full border-2 border-white bg-[#ff2d00] text-white">
+                            {promoBadgeLabel}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    }
+                    <div className="flex flex-col justify-between">
+                      <div
+                        className={`rounded-lg p-4 border-2 border-black ${darkMode ? "bg-black text-white" : "bg-white text-black"}`}
+                      >
+                        <div className="mb-2">
+                          <h3 className="text-3xl md:text-4xl font-black" style={!darkMode ? { color: cardTextColorValue } : undefined}>
+                            {getDishName(featuredDish, lang)}
+                          </h3>
+                          {getDishStyleBadges(featuredDish).length > 0 ? (
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              {getDishStyleBadges(featuredDish).map((badge) => (
+                                <span
+                                  key={`featured-${featuredDish.id}-${badge.key}`}
+                                  className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-bold border ${darkMode ? "border-white/30 bg-black text-white" : "border-black bg-white text-black"}`}
+                                >
+                                  <span className={`inline-block w-2 h-2 rounded-full ${badge.dotClass}`} />
+                                  {badge.label}
+                                </span>
+                              ))}
+                            </div>
+                          ) : null}
+                        </div>
+                        <p
+                          className={`text-base md:text-lg leading-relaxed mb-4 ${darkMode ? "text-gray-200" : "text-gray-700"}`}
+                          style={!darkMode ? { color: cardTextColorValue } : undefined}
+                        >
+                          {getDescription(featuredDish, lang)}
+                        </p>
+                        {(getHungerLevel(featuredDish, lang) || (showCaloriesClient && getCaloriesLabel(featuredDish, kcalLabel))) && (
+                          <div className="flex flex-wrap gap-2 mb-2">
+                            {getHungerLevel(featuredDish, lang) && (
+                              <span className="inline-flex items-center gap-2 bg-white/95 text-black border border-black rounded-full px-3 py-1.5 text-sm md:text-base font-bold">
+                                <span className="inline-block w-2.5 h-2.5 rounded-full bg-red-500" />
+                                {getHungerLevel(featuredDish, lang)}
+                              </span>
+                            )}
+                            {showCaloriesClient && getCaloriesLabel(featuredDish, kcalLabel) && (
+                              <span className="inline-flex items-center gap-2 bg-white/95 text-black border border-black rounded-full px-3 py-1.5 text-sm md:text-base font-bold">
+                                <span className="inline-block w-2.5 h-2.5 rounded-full bg-orange-500" />
+                                {getCaloriesLabel(featuredDish, kcalLabel)}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                      <div className="mt-2 grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_auto] items-center gap-3">
+                        {getPromoPriceForDish(featuredDish) != null ? (
+                          <div
+                            className="inline-flex items-center gap-2"
+                            style={{ color: featuredOverlay ? "#FFFFFF" : darkMode ? "#FFFFFF" : cardTextColorValue }}
+                          >
+                            <span className="text-xl font-bold line-through opacity-70 inline-flex items-center gap-1">
+                              {Number(getDishBasePriceWithOption(featuredDish, null) || 0).toFixed(2)}
+                              <Euro size={16} />
+                            </span>
+                            <span className="text-5xl font-black inline-flex items-center gap-1 text-[#ff2d00]">
+                              {Number(getPromoPriceForDish(featuredDish) || 0).toFixed(2)}
+                              <Euro size={28} />
+                            </span>
+                          </div>
+                        ) : (
+                          <span
+                            className="text-4xl font-black inline-flex items-center gap-1"
+                            style={{ color: featuredOverlay ? "#FFFFFF" : darkMode ? "#FFFFFF" : cardTextColorValue }}
+                          >
+                            {Number(getDishBasePriceWithOption(featuredDish, null) || 0).toFixed(2)}
+                            <Euro size={24} />
+                          </span>
+                        )}
+                        {!isInteractionDisabled && (
+                          <div className="flex flex-wrap items-center justify-end gap-2 sm:flex-nowrap">
+                            {quickAddToCartEnabled ? (
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  handleQuickAddFromList(featuredDish);
+                                }}
+                                className="text-sm md:text-base font-black px-4 py-2.5 rounded-lg border-2 border-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] whitespace-nowrap shrink-0"
+                                style={{ backgroundColor: bannerBgColor, color: bannerContentTextColor }}
+                              >
+                                {uiText.addToCart}
+                              </button>
+                            ) : null}
+                            <span
+                              className="text-sm md:text-base font-black px-4 py-2 rounded-lg border-2 whitespace-nowrap"
+                              style={{
+                                borderColor: featuredOverlay ? "rgba(255,255,255,0.9)" : "#000000",
+                                color: featuredOverlay ? "#FFFFFF" : darkMode ? "#FFFFFF" : "#111111",
+                                backgroundColor: featuredOverlay ? "rgba(0,0,0,0.25)" : "rgba(255,255,255,0.65)",
+                              }}
+                            >
+                              {clickDetailsLabel}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            );
+          })}
+        </div>
+      )}
+
+      <div
+        className={`menu-surface-shell border-4 border-black rounded-none p-3 mx-0 my-2 ${!darkMode ? "bg-transparent" : "bg-white/95"}`}
+        style={!darkMode ? { backgroundColor: "transparent" } : undefined}
+      >
+        <div className="flex flex-nowrap gap-2 overflow-x-auto">
+          {categoryList.map((category, index) => (
+            <button
+              key={category}
+              onClick={() => {
+                setSelectedCategory(index);
+                if (index === 0) setSelectedSubCategory("");
+              }}
+              className={`px-4 py-2 rounded-lg font-black text-lg border-2 border-black text-black whitespace-nowrap ${
+                selectedCategory === index ? "bg-black text-white" : "bg-white"
+              }`}
+              style={
+                selectedCategory === index
+                  ? { backgroundColor: bannerBgColor, color: bannerContentTextColor, borderColor: darkMode ? "#d99a2b" : "#000000" }
+                  : undefined
+              }
+            >
+              {category}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {selectedCategory !== 0 && availableSubCategories.length > 0 && (
+        <div
+          className={`menu-surface-shell border-4 border-black rounded-none p-3 mx-0 mb-2 ${!darkMode ? "bg-transparent" : "bg-white/95"}`}
+          style={!darkMode ? { backgroundColor: "transparent" } : undefined}
+        >
+          <div className="flex flex-nowrap gap-2 overflow-x-auto">
+            <button
+              onClick={() => setSelectedSubCategory("")}
+              className={`px-3 py-1 rounded-full font-black text-sm border-2 border-black text-black whitespace-nowrap ${
+                !selectedSubCategory ? "bg-black text-white" : "bg-white"
+              }`}
+              style={
+                !selectedSubCategory
+                  ? { backgroundColor: bannerBgColor, color: bannerContentTextColor, borderColor: darkMode ? "#d99a2b" : "#000000" }
+                  : undefined
+              }
+            >
+              {uiText.labels.all}
+            </button>
+            {availableSubCategories.map((sub) => (
+              <button
+                key={sub.id}
+                onClick={() => setSelectedSubCategory(String(sub.id))}
+                className={`px-3 py-1 rounded-full font-black text-sm border-2 border-black text-black whitespace-nowrap ${
+                  selectedSubCategory === String(sub.id)
+                    ? "bg-black text-white"
+                    : "bg-white"
+                }`}
+                style={
+                  selectedSubCategory === String(sub.id)
+                    ? { backgroundColor: bannerBgColor, color: bannerContentTextColor, borderColor: darkMode ? "#d99a2b" : "#000000" }
+                    : undefined
+                }
+              >
+                {getSubCategoryLabel(sub)}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div
+        className="menu-surface-shell w-full min-w-0 p-3 sm:p-4 grid grid-cols-1 gap-4"
+        style={!darkMode ? { backgroundColor: "transparent" } : undefined}
+      >
+        {loading ? (
+          <div className="text-black text-center font-bold py-8">{tt("loading")}</div>
+        ) : filteredDishes.length === 0 ? (
+          <div className="text-black text-center font-bold py-8">{uiText.noDishes}</div>
+        ) : (
+          groupedDishes.map((group) => (
+            <div key={group.title || "default"} className="flex flex-col gap-4">
+              {selectedCategory !== 0 && group.title && (
+                <h3 className="text-xl font-black text-black mt-2">
+                  {group.title}
+                </h3>
+              )}
+              {group.items.map((dish) => {
+                const isOverlayCard = cardLayout === "overlay" && Boolean(dish.image_url);
+                const isBicolorCard = cardLayout === "bicolor";
+                const isPromoDish = getPromoPriceForDish(dish) != null;
+                const cardTextColor = isOverlayCard ? "text-white" : cardTextIsLight ? "text-white" : "text-black";
+                const badgeBaseClass = isOverlayCard
+                  ? "bg-black/50 border-white/70 text-white backdrop-blur-[1px]"
+                  : cardTextIsLight
+                    ? "bg-white/10 border-white/40 text-white"
+                    : "bg-gray-100 border-gray-300 text-black";
+                return (
+                  <div
+                    key={dish.id}
+                    className={`dish-card-shell ${cardVisualStyle === "sharp" ? "dish-card-sharp" : ""} ${isPromoDish ? "promo-dish-card" : ""} border-4 border-black ${dishCardRadiusClass} shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] cursor-pointer relative overflow-hidden ${
+                      isOverlayCard
+                        ? "p-0 flex items-end"
+                        : isBicolorCard
+                          ? "p-0 flex flex-row items-stretch"
+                          : `p-4 ${menuLayout === "modern_list" ? "flex flex-row gap-3 items-start" : "flex flex-col"}`
+                    } w-full min-w-0`}
+                    style={!isOverlayCard ? { backgroundColor: cardSurfaceBg, color: cardTextColorValue } : undefined}
+                    onClick={() => handleSelectDish(dish)}
+                  >
+                    {isOverlayCard ? (
+                      <>
+                        <img
+                          src={dish.image_url}
+                          alt={getDishName(dish, lang)}
+                          className="dish-card-media absolute inset-0 h-full w-full object-cover"
+                          style={{ aspectRatio: "4 / 3" }}
+                          onError={hideBrokenImage}
+                        />
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/35 to-transparent" />
+                      </>
+                    ) : null}
+                    {!isOverlayCard && !isBicolorCard && dish.image_url ? (
+                      <img
+                        src={dish.image_url}
+                        alt={getDishName(dish, lang)}
+                        className={`dish-card-media object-cover ${dishMediaRadiusClass} ${
+                          menuLayout === "modern_list"
+                            ? "w-24 h-24 sm:w-28 sm:h-28 shrink-0"
+                            : "w-full h-44 md:h-52 mb-3"
+                        }`}
+                        style={{ aspectRatio: menuLayout === "modern_list" ? "1 / 1" : "4 / 3" }}
+                        onError={hideBrokenImage}
+                      />
+                    ) : null}
+                    {!isOverlayCard && isBicolorCard ? (
+                      dish.image_url ? (
+                        <img
+                          src={dish.image_url}
+                          alt={getDishName(dish, lang)}
+                          className="dish-card-media w-1/2 h-auto aspect-square object-cover"
+                          style={{ aspectRatio: "1 / 1" }}
+                          onError={hideBrokenImage}
+                        />
+                      ) : (
+                        <div className="dish-card-media w-1/2 aspect-square bg-gray-100 border-r-2 border-black" />
+                      )
+                    ) : null}
+                    <div
+                      className={`relative z-10 ${
+                        isOverlayCard
+                          ? "w-full p-4"
+                          : isBicolorCard
+                            ? "w-1/2 min-w-0 p-4 border-l-2 border-black flex flex-col justify-between"
+                            : menuLayout === "modern_list"
+                              ? "flex-1 min-w-0"
+                              : ""
+                      } ${cardTextColor}`}
+                      style={
+                        !isOverlayCard && isBicolorCard
+                          ? { backgroundColor: cardSurfaceBg, color: cardTextColorValue }
+                          : undefined
+                      }
+                    >
+                      <div className="mb-1">
+                        <h4
+                          className={`text-lg font-bold ${
+                            menuLayout === "modern_list" && !isOverlayCard && !isBicolorCard ? "truncate" : ""
+                          } ${isBicolorCard ? "text-xl tracking-wide" : ""}`}
+                          title={getDishName(dish, lang)}
+                          style={!isOverlayCard ? { color: cardTextColorValue } : undefined}
+                        >
+                          {getDishName(dish, lang)}
+                        </h4>
+                        {getPromoPriceForDish(dish) != null || getDishSuggestionBadge(dish) || getDishStyleBadges(dish).length > 0 ? (
+                          <div className="mt-1 flex flex-wrap gap-1.5">
+                            {getPromoPriceForDish(dish) != null && (
+                              <span
+                                className={`promo-badge-giant inline-flex items-center gap-1 rounded-full font-black border-2 ${
+                                  isOverlayCard
+                                    ? "bg-[#ff2d00] border-white text-white"
+                                    : darkMode
+                                      ? "bg-[#ff2d00] border-white text-white"
+                                      : "bg-[#ffede7] border-[#ff2d00] text-[#c21807]"
+                                }`}
+                              >
+                                {promoBadgeLabel}
+                              </span>
+                            )}
+                            {getDishSuggestionBadge(dish) && (
+                              <span
+                                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold border ${
+                                  isOverlayCard
+                                    ? "bg-black/70 border-white text-white"
+                                    : darkMode
+                                      ? "bg-black border-white/20 text-white"
+                                      : "bg-gray-100 border-black text-black"
+                                }`}
+                              >
+                                {chefSuggestionBadgeLabel}
+                              </span>
+                            )}
+                            {getDishStyleBadges(dish).map((badge) => (
+                              <span
+                                key={`${dish.id}-${badge.key}`}
+                                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold border ${
+                                  isOverlayCard
+                                    ? "bg-black/45 border-white/60 text-white"
+                                    : darkMode
+                                      ? "bg-black border-white/20 text-white"
+                                      : "bg-white border-black text-black"
+                                }`}
+                              >
+                                <span className={`inline-block w-1.5 h-1.5 rounded-full ${badge.dotClass}`} />
+                                {badge.label}
+                              </span>
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
+                      <p
+                        className={`text-sm mb-2 ${
+                          isBicolorCard
+                            ? `max-w-xl ${cardTextIsLight ? "text-white/85" : "text-gray-700"}`
+                            : menuLayout === "modern_list" && !isOverlayCard
+                              ? "break-words line-clamp-3"
+                              : ""
+                        } ${isOverlayCard ? "text-white/90 line-clamp-3" : ""} ${!darkMode && !isOverlayCard ? "text-black" : ""}`}
+                        style={!isOverlayCard ? { color: cardTextColorValue } : undefined}
+                      >
+                        {getDescription(dish, lang)}
+                      </p>
+                      {(getHungerLevel(dish, lang) || (showCaloriesClient && getCaloriesLabel(dish, kcalLabel))) && (
+                        <div className={`flex flex-wrap gap-3 text-xs font-bold mb-2 ${isBicolorCard ? "" : ""} ${cardTextColor}`}>
+                          {getHungerLevel(dish, lang) && (
+                            <span className={`inline-flex items-center gap-1 rounded-full px-2 py-1 border ${badgeBaseClass}`}>
+                              <span className="inline-block w-2 h-2 rounded-full bg-red-500" />
+                              {getHungerLevel(dish, lang)}
+                            </span>
+                          )}
+                          {showCaloriesClient && getCaloriesLabel(dish, kcalLabel) && (
+                            <span className={`inline-flex items-center gap-1 rounded-full px-2 py-1 border ${badgeBaseClass}`}>
+                              <span className="inline-block w-2 h-2 rounded-full bg-orange-500" />
+                              {getCaloriesLabel(dish, kcalLabel)}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                      <div className={`flex gap-2 mb-2 flex-wrap ${isBicolorCard ? "" : ""}`}>
+                        {dish.is_vegetarian && (
+                          <span className={`px-2 py-1 rounded font-bold text-xs border-2 ${isOverlayCard ? "bg-green-700/80 border-white text-white" : "bg-green-200 border-black text-black"}`}>
+                            {tt("vegetarian")}
+                          </span>
+                        )}
+                        {getSpicyBadgeLabel(dish, lang) && (
+                          <span className={`px-2 py-1 rounded font-bold text-xs border-2 ${isOverlayCard ? "bg-red-700/80 border-white text-white" : "bg-red-200 border-black text-black"}`}>
+                            {getSpicyBadgeLabel(dish, lang)}
+                          </span>
+                        )}
+                        {getVisibleDishAllergenLabels(dish).map((a, i) => (
+                          <span
+                            key={i}
+                            className={`px-2 py-1 rounded font-bold text-xs border-2 ${
+                              isOverlayCard
+                                ? "bg-black/45 border-yellow-300 text-yellow-200"
+                                : darkMode
+                                  ? "bg-transparent border-yellow-400 text-yellow-300"
+                                  : "bg-yellow-200 border-black text-black"
+                            }`}
+                          >
+                            {a}
+                          </span>
+                        ))}
+                      </div>
+                      <div className="mt-1 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+                        {getPromoPriceForDish(dish) != null ? (
+                          <div
+                            className={`inline-flex items-center gap-2 ${isOverlayCard ? "text-white" : ""}`}
+                            style={!isOverlayCard ? { color: cardTextColorValue } : undefined}
+                          >
+                            <span className="text-sm font-bold line-through opacity-70 inline-flex items-center gap-1">
+                              {Number(getDishBasePriceWithOption(dish, null) || 0).toFixed(2)}
+                              <Euro size={14} />
+                            </span>
+                            <span className="text-3xl md:text-4xl font-black inline-flex items-center gap-1 text-[#ff2d00]">
+                              {Number(getPromoPriceForDish(dish) || 0).toFixed(2)}
+                              <Euro size={20} />
+                            </span>
+                          </div>
+                        ) : (
+                          <span
+                            className={`text-2xl md:text-3xl font-black inline-flex items-center gap-1 ${isOverlayCard ? "text-white" : ""}`}
+                            style={!isOverlayCard ? { color: cardTextColorValue } : undefined}
+                          >
+                            {Number(getDishBasePriceWithOption(dish, null) || 0).toFixed(2)}
+                            <Euro size={18} />
+                          </span>
+                        )}
+                        {!isInteractionDisabled && (
+                          <div className="w-full sm:w-auto sm:ml-auto flex flex-wrap items-center gap-2 sm:justify-end">
+                            {quickAddToCartEnabled ? (
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  handleQuickAddFromList(dish);
+                                }}
+                                className={`h-11 px-3.5 py-2 rounded-lg inline-flex items-center justify-center text-sm sm:text-base font-black border-2 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] whitespace-nowrap ${
+                                  isOverlayCard ? "border-white" : "border-black"
+                                }`}
+                                style={{
+                                  backgroundColor: isOverlayCard ? "#FFFFFF" : bannerBgColor,
+                                  color: isOverlayCard ? "#111111" : bannerContentTextColor,
+                                }}
+                                aria-label={uiText.addToCart}
+                                title={uiText.addToCart}
+                              >
+                                {uiText.addToCart}
+                              </button>
+                            ) : null}
+                            <span
+                              className={`h-11 px-3.5 py-2 rounded-lg inline-flex items-center justify-center text-sm sm:text-base font-black border-2 whitespace-nowrap ${
+                                isOverlayCard ? "border-white" : "border-black"
+                              }`}
+                              style={{
+                                backgroundColor: isOverlayCard
+                                  ? "rgba(0,0,0,0.25)"
+                                  : darkMode
+                                    ? "#000000"
+                                    : "rgba(255,255,255,0.65)",
+                                color: darkMode ? "#FFFFFF" : isOverlayCard ? "#FFFFFF" : "#111111",
+                              }}
+                            >
+                              {viewDetailsLabel}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ))
+        )}
+      </div>
+
+      {selectedDish && (
+        <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center">
+          <div className={`${darkMode ? "bg-black border-[#d99a2b] text-[#F5F5F5]" : "bg-white border-black"} border-4 rounded-xl w-full max-w-md max-h-[92vh] shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] relative flex flex-col overflow-hidden`}>
+            <button
+              type="button"
+              aria-label={uiText.close}
+              title={uiText.close}
+              onClick={() => {
+                setSelectedDish(null);
+                setModalProductOptions([]);
+                setSelectedProductOptionId("");
+                setRecommendationSourceDishId("");
+              }}
+              className={`absolute top-3 right-3 w-10 h-10 rounded-full font-bold flex items-center justify-center border-4 ${
+                darkMode ? "bg-black text-[#F5F5F5] border-[#d99a2b]" : "bg-white text-black border-black"
+              }`}
+            >
+              <XCircle size={18} className={darkMode ? "text-red-300" : "text-red-500"} />
+            </button>
+            <div className="overflow-y-auto p-6 pt-14">
+            {selectedDish.image_url && (
+              <img
+                src={selectedDish.image_url}
+                alt={getDishName(selectedDish, lang)}
+                className="w-full h-40 object-cover rounded-lg mb-3"
+                onError={hideBrokenImage}
+              />
+            )}
+            <h2 className="text-2xl font-black text-black mb-2">
+              {getDishName(selectedDish, lang)}
+            </h2>
+            <p className="text-black mb-2">{getDescription(selectedDish, lang)}</p>
+            {(getHungerLevel(selectedDish, lang) || (showCaloriesClient && getCaloriesLabel(selectedDish, kcalLabel))) && (
+              <div className="flex flex-wrap gap-3 text-xs font-bold text-black mb-3">
+                {getHungerLevel(selectedDish, lang) && (
+                  <span className="inline-flex items-center gap-1 bg-gray-100 border border-gray-300 rounded-full px-2 py-1">
+                    <span className="inline-block w-2 h-2 rounded-full bg-red-500" />
+                    {getHungerLevel(selectedDish, lang)}
+                  </span>
+                )}
+                {showCaloriesClient && getCaloriesLabel(selectedDish, kcalLabel) && (
+                  <span className="inline-flex items-center gap-1 bg-gray-100 border border-gray-300 rounded-full px-2 py-1">
+                    <span className="inline-block w-2 h-2 rounded-full bg-orange-500" />
+                    {getCaloriesLabel(selectedDish, kcalLabel)}
+                  </span>
+                )}
+              </div>
+            )}
+            {getVisibleDishAllergenLabels(selectedDish).length > 0 && (
+              <div className="mb-3">
+                <label className="font-bold text-black mb-1 block">{uiText.allergensLabel} :</label>
+                <div className="flex flex-wrap gap-2">
+                  {getVisibleDishAllergenLabels(selectedDish).map((a, i) => (
+                    <span
+                      key={`${a}-${i}`}
+                      className={`px-2 py-1 rounded font-bold text-xs border-2 ${
+                        darkMode ? "bg-transparent border-yellow-400 text-yellow-300" : "bg-yellow-200 border-black text-black"
+                      }`}
+                    >
+                      {a}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {(selectedDish.has_sides || modalSidesOptions.length > 0) && (
+              <div className="mb-3">
+                <span className="font-bold text-black">{uiText.sidesLabel} :</span>
+                {getSideMaxOptions(selectedDish) > 1 && (
+                  <div className="text-sm text-black/70 mt-1">
+                    {(isIceCreamDish(selectedDish) ? tt("select_sides_up_to_icecream") : tt("select_sides_up_to")).replace(
+                      "{max}",
+                      String(getSideMaxOptions(selectedDish))
+                    )}
+                  </div>
+                )}
+                {modalSidesOptions.length > 0 && (
+                  <div className="flex flex-col gap-2 mt-2">
+                    {modalSidesOptions.map((side) => {
+                      const maxOptions = getSideMaxOptions(selectedDish);
+                      const checked = selectedSides.includes(side);
+                      const limitReached = selectedSides.length >= maxOptions && !checked;
+                      if (maxOptions === 1) {
+                        return (
+                          <label key={side} className="flex items-center gap-2 text-black font-bold">
+                            <input
+                              type="radio"
+                              name="side"
+                              checked={checked}
+                              onChange={() => setSelectedSides([side])}
+                            />
+                            {side}
+                          </label>
+                        );
+                      }
+                      return (
+                        <label key={side} className={`flex items-center gap-2 font-bold ${limitReached ? "text-gray-400" : "text-black"}`}>
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            disabled={limitReached}
+                            onChange={(e) => {
+                              const max = Math.max(1, Number(selectedDish.max_options || 1));
+                              if (e.target.checked) {
+                                if (selectedSides.length >= max) {
+                                  alert(tt("max_options_error").replace("{max}", String(max)));
+                                  return;
+                                }
+                                setSelectedSides((prev) => [...prev, side]);
+                              } else {
+                                setSelectedSides((prev) => prev.filter((s) => s !== side));
+                              }
+                            }}
+                          />
+                          {side}
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
+                {modalSidesOptions.length === 0 && (
+                  <div className="mt-2 text-sm font-bold text-red-600">
+                    {tt("no_side_configured")}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {modalProductOptions.length > 0 && (
+              <div className="mb-3">
+                <label className="font-bold text-black mb-1 block">Options / Variantes :</label>
+                <div className="flex flex-col gap-2">
+                  {modalProductOptions.map((option, optionIndex) => {
+                    const optionId = String(option.id || `option-${optionIndex}`);
+                    const checked =
+                      (selectedProductOptionId && selectedProductOptionId === optionId) ||
+                      (!selectedProductOptionId && optionIndex === 0);
+                    const optionPrice = toFinitePrice(option.price_override);
+                    const optionLabel = getProductOptionLabel(option, lang);
+                    return (
+                      <label key={optionId} className="flex items-center gap-2 text-black font-bold">
+                        <input
+                          type="radio"
+                          name="product-option"
+                          checked={checked}
+                          onChange={() => setSelectedProductOptionId(optionId)}
+                        />
+                        <span>
+                          {optionLabel}
+                          {optionPrice != null ? ` (+${optionPrice.toFixed(2)} \u20AC)` : ""}
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {selectedDish.has_extras && modalExtrasOptions.length > 0 && (
+              <div className="mb-3">
+                <label className="font-bold text-black mb-1 block">{uiText.extrasLabel} :</label>
+                <div className="flex flex-col gap-2">
+                  {modalExtrasOptions.map((extra) => {
+                    const extraKey = `${extra.name_fr}-${Number(extra.price || 0)}`;
+                    const checked = selectedExtras.some(
+                      (e) => `${e.name_fr}-${Number(e.price || 0)}` === extraKey
+                    );
+                    return (
+                      <label key={extraKey} className="flex items-center gap-2 text-black font-bold">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedExtras([...selectedExtras, extra]);
+                            } else {
+                              setSelectedExtras(
+                                selectedExtras.filter(
+                                  (x) => `${x.name_fr}-${Number(x.price || 0)}` !== extraKey
+                                )
+                              );
+                            }
+                          }}
+                        />
+                        {uiText.extraLabel}: {getExtraLabel(extra, lang)} (+{Number(extra.price || 0).toFixed(2)} <Euro size={14} className="inline-block" />)
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {modalAskCooking && (
+              <div className="mb-3">
+                <label className="font-bold text-black mb-1 block">{uiText.cookingLabel} :</label>
+                <div className="flex flex-col gap-2">
+                  {[
+                    uiText.cooking.blue,
+                    uiText.cooking.rare,
+                    uiText.cooking.medium,
+                    uiText.cooking.wellDone,
+                  ].map((cooking) => (
+                    <label key={cooking} className="flex items-center gap-2 text-black font-bold">
+                      <input
+                        type="radio"
+                        name="cooking"
+                        checked={selectedCooking === cooking}
+                        onChange={() => setSelectedCooking(cooking)}
+                      />
+                      {cooking}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {!isVitrineMode && (
+              <div className="flex items-center gap-2 mb-2">
+                <span className="font-bold text-black">{uiText.quantity}:</span>
+                <button
+                  onClick={() => setDishModalQuantity((q) => Math.max(1, q - 1))}
+                  className="px-3 py-1 border-2 border-black rounded bg-white text-black font-black"
+                >
+                  -
+                </button>
+                <span className="font-black text-lg text-black">{dishModalQuantity}</span>
+                <button
+                  onClick={() => setDishModalQuantity((q) => q + 1)}
+                  className="px-3 py-1 border-2 border-black rounded bg-white text-black font-black"
+                >
+                  +
+                </button>
+              </div>
+            )}
+
+            <div className="mb-3">
+              <label className="font-bold text-black mb-1 block">{uiText.specialRequestLabel} :</label>
+              <textarea
+                value={specialRequest}
+                onChange={(e) => setSpecialRequest(e.target.value)}
+                className="w-full px-3 py-2 bg-white text-black border border-gray-300"
+                rows={2}
+                placeholder={uiText.specialRequestPlaceholder}
+              />
+            </div>
+            <div className="text-sm font-bold text-black mb-2">
+              Total article: {modalTotalPrice.toFixed(2)} â‚¬
+            </div>
+
+            {sideError && (
+              <div className="text-sm font-bold text-red-600 mb-2">
+                {sideError}
+              </div>
+            )}
+            {modalInstructionPreview && (
+              <div className="text-sm font-bold text-black mb-2">
+                {modalInstructionPreview}
+              </div>
+            )}
+            </div>
+            {!isInteractionDisabled && (
+              <div className="p-4 border-t-2 border-black bg-white sticky bottom-0">
+                <button
+                  disabled={
+                    (((!!selectedDish?.has_sides) || modalSidesOptions.length > 0) && selectedSides.length === 0) ||
+                    (modalAskCooking && !selectedCooking)
+                  }
+                  className="w-full py-3 bg-black text-white rounded-xl font-black border-4 border-black disabled:opacity-50 disabled:cursor-not-allowed"
+                  onClick={() => {
+                    if ((selectedDish.has_sides || modalSidesOptions.length > 0) && selectedSides.length === 0) {
+                      setSideError(tt("side_required_error"));
+                      return;
+                    }
+                    if (modalAskCooking && !selectedCooking) {
+                      setSideError(tt("cooking_required_error"));
+                      return;
+                    }
+
+                    addToCart({
+                      dish: selectedDish,
+                      quantity: dishModalQuantity,
+                      selectedSides: selectedSides,
+                      selectedSideIds: selectedSides
+                        .map((sideLabel) => sideIdByAlias.get(normalizeLookupText(sideLabel)) || "")
+                        .filter(Boolean),
+                      selectedExtras: selectedExtras,
+                      selectedProductOption: modalSelectedProductOption,
+                      selectedCooking: selectedCooking,
+                      specialRequest,
+                      fromRecommendation: String(selectedDish.id || "") === recommendationSourceDishId,
+                    });
+                    setSelectedDish(null);
+                    setModalProductOptions([]);
+                    setSelectedProductOptionId("");
+                    setRecommendationSourceDishId("");
+                    setSideError("");
+                  }}
+                >
+                  {`${uiText.addToCart} (${modalTotalPrice.toFixed(2)} â‚¬)`}
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {serverCallMsg && (
+        <div className="fixed bottom-20 left-1/2 -translate-x-1/2 bg-green-200 border-2 border-black px-4 py-2 rounded-xl font-black text-black z-50">
+          {serverCallMsg}
+        </div>
+      )}
+      {toastMessage && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 bg-black text-white px-4 py-2 rounded-full font-bold z-50 animate-pulse">
+          {toastMessage}
+        </div>
+      )}
+
+      {isCartOpen && !isInteractionDisabled && (
+        <div className="fixed inset-0 z-[100] bg-white flex flex-col">
+          <div className="w-full h-[100dvh] min-h-[100dvh] bg-white flex flex-col">
+          <div className="p-4 border-b-4 border-black relative shrink-0">
+            <button
+              type="button"
+              aria-label={uiText.close}
+              title={uiText.close}
+              className="absolute top-4 right-4 w-10 h-10 bg-white text-black rounded-full font-bold flex items-center justify-center border-4 border-black"
+              onClick={() => {
+                setIsCartOpen(false);
+                setOrderSuccess(false);
+              }}
+            >
+              <XCircle size={20} className="text-red-500" />
+            </button>
+            <h2 className="text-2xl font-black text-black text-center">
+              {uiText.cart}
+            </h2>
+          </div>
+          <div className="flex-1 min-h-0 px-4 py-4 flex flex-col">
+            {orderSuccess ? (
+              <div className="flex-1 flex items-center justify-center text-center">
+                <div className="bg-white border-4 border-black rounded-2xl px-6 py-5 shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] text-black max-w-xs w-full">
+                  <div className="mx-auto mb-3 w-12 h-12 rounded-full bg-green-200 border-4 border-black flex items-center justify-center text-2xl"><CheckCircle2 size={24} className="text-green-700" /></div>
+                  <div className="text-lg font-black">{tt("order_success")}</div>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div
+                  className="max-h-[70vh] overflow-y-auto pr-2 custom-scrollbar"
+                  style={{ WebkitOverflowScrolling: "touch" }}
+                >
+                  {cart.length === 0 ? (
+                    <div className="text-black text-center py-4">{uiText.emptyCart}</div>
+                  ) : (
+                    <div className="flex flex-col gap-4 mb-4">
+                      {cart.map((item, idx) => {
+                        const instructions = buildInstructionText(
+                          lang,
+                          item.selectedSides,
+                          item.selectedExtras,
+                          item.selectedProductOption,
+                          item.selectedCooking,
+                          item.specialRequest,
+                          uiText
+                        );
+                        const extrasPrice = (item.selectedExtras || []).reduce(
+                          (sum, extra) => sum + Number(extra.price || 0),
+                          0
+                        );
+                        const itemUnitPrice = getDishUnitPrice(item.dish, item.selectedProductOption);
+                        return (
+                          <div
+                            key={idx}
+                            className="bg-white border-2 border-black rounded-xl p-4 flex flex-col text-black"
+                          >
+                            <div className="flex justify-between items-center mb-2">
+                              <h3 className="text-lg font-bold">{getDishName(item.dish, lang)}</h3>
+                              <button
+                                onClick={() => removeFromCart(idx)}
+                                className="text-red-500 hover:text-red-700 transition-colors"
+                              ><XCircle size={18} className="text-red-500" /></button>
+                            </div>
+                            <p className="text-sm mb-2">{getDescription(item.dish, lang)}</p>
+                            <p className="text-sm font-bold text-black">
+                              {instructions || `${tt("details_label")}: ${tt("details_none")}`}
+                            </p>
+                            <div className="flex justify-between items-center mt-2">
+                              <span className="text-xl font-black inline-flex items-center gap-1">{(itemUnitPrice + extrasPrice).toFixed(2)}<Euro size={16} /></span>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={() => {
+                                    if (item.quantity > 1) {
+                                      setCart((prev) =>
+                                        prev.map((c, i) =>
+                                          i === idx ? { ...c, quantity: c.quantity - 1 } : c
+                                        )
+                                      );
+                                    } else {
+                                      removeFromCart(idx);
+                                    }
+                                  }}
+                                  className="px-3 py-1 border-2 border-black rounded bg-white text-black font-black"
+                                >
+                                  -
+                                </button>
+                                <span className="font-black text-lg text-black">{item.quantity}</span>
+                                <button
+                                  onClick={() =>
+                                    setCart((prev) =>
+                                      prev.map((c, i) =>
+                                        i === idx ? { ...c, quantity: c.quantity + 1 } : c
+                                      )
+                                    )
+                                  }
+                                  className="px-3 py-1 border-2 border-black rounded bg-white text-black font-black"
+                                >
+                                  +
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+                <div className="mt-auto sticky bottom-0 bg-white pt-4 pb-2 shadow-[0_-10px_20px_rgba(255,255,255,0.8)]">
+                  <div className="flex justify-between font-bold text-black mb-3 px-4">
+                    <span>{uiText.total}:</span>
+                    <span>
+                      {cart
+                        .reduce((sum, item) => {
+                          const extrasPrice = (item.selectedExtras || []).reduce(
+                            (acc, extra) => acc + Number(extra.price || 0),
+                            0
+                          );
+                          return sum + (getDishUnitPrice(item.dish, item.selectedProductOption) + extrasPrice) * item.quantity;
+                        }, 0)
+                        .toFixed(2)} <Euro size={16} className="inline-block align-text-bottom" />
+                    </span>
+                  </div>
+                  <div className="px-4 pb-2">
+                    <button
+                      className="w-full py-3 bg-black text-white rounded-xl font-black border-4 border-black disabled:opacity-50 disabled:cursor-not-allowed"
+                      onClick={handleSubmitOrder}
+                      disabled={!tableNumber}
+                    >
+                      {uiText.order}
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+          </div>
+        </div>
+      )}
+
+      {socialFooterEntries.length > 0 && (
+        <div
+          className={`menu-surface-shell mt-3 border-t-4 ${darkMode ? "border-[#d99a2b] text-white" : "border-black text-black"} px-4 py-5 text-center`}
+          style={!darkMode ? { backgroundColor: "transparent" } : undefined}
+        >
+          <div className={`font-black text-lg ${darkMode ? "text-white" : "text-black"}`}>{footerThankYouLabel}</div>
+          <div className={`mt-1 text-sm font-semibold ${darkMode ? "text-gray-200" : "text-gray-700"}`}>{footerFollowUsLabel}</div>
+          <div className={`mt-2 text-sm ${darkMode ? "text-gray-300" : "text-gray-700"} max-w-2xl mx-auto`}>
+            {footerPhotoShareLabel}
+          </div>
+          <div className="mt-3 flex flex-wrap items-center justify-center gap-3">
+            {socialFooterEntries.map((entry) => (
+              <a
+                key={`footer-social-${entry.key}`}
+                href={entry.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={`inline-flex items-center justify-center w-12 h-12 rounded-full border-2 ${darkMode ? "border-white/30 bg-black" : "border-black bg-white"} shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]`}
+                title={entry.label}
+                aria-label={entry.label}
+              >
+                {entry.key === "website" ? (
+                  <Globe className={`h-5 w-5 ${darkMode ? "text-white" : "text-blue-600"}`} />
+                ) : (
+                  <span
+                    className="w-7 h-7 rounded-full flex items-center justify-center"
+                    style={{ backgroundColor: entry.iconBg }}
+                  >
+                    <img src={entry.iconUrl} alt="" aria-hidden="true" className="w-4 h-4 object-contain" onError={hideBrokenImage} />
+                  </span>
+                )}
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
+
+    </div>
+    </>
+  );
+}
+
+

@@ -1,0 +1,18 @@
+# CONTEXTE DU PROJET : MENU DIGITAL SAAS
+Tu es un expert Next.js 14, Tailwind CSS et Supabase.
+Le projet est un menu digital pour restaurants avec 3 vues : Client, Serveur, Manager.
+
+# DESIGN & STYLE (NEUBRUTALISME)
+- Couleurs : Fond noir pur (#000000), accents Orange (#FF6B00), texte Blanc.
+- Bordures : Noires ou blanches épaisses (border-4).
+- Ombres : Portées nettes et marquées.
+
+# STRUCTURE SUPABASE (TABLES)
+- dishes: (name, price, catégorie, description, image_url, name_en/es/de, dietary_tag, is_available)
+- restaurants: (name, logo_url, background_url, primary_color)
+- notification: (type, table_number, status, message)
+
+# RÈGLES DE CODE
+- Utilise Lucide React pour les icônes. Toujours vérifier les imports.
+- Gestion multi-langue via les colonnes _en, _es, _de.
+- Toutes les pages utilisent "use client".

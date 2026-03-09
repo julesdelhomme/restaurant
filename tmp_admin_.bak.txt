@@ -1,0 +1,1792 @@
+"use client";
+
+import { useEffect, useMemo, useRef, useState } from "react";
+import { supabase } from "../lib/supabase";
+import { getCookingLabelFr, normalizeCookingKey } from "../lib/ui-translations";
+
+const SETTINGS_ROW_ID = "c9012859-d0af-469d-8dbb-af9dee733aaa";
+const MAX_TOTAL_TABLES = 200;
+const COOKING_CHOICES = ["Bleu", "Saignant", "À point", "Bien cuit"];
+const CLIENT_ORDERING_DISABLED_KEY = "menuqr_disable_client_ordering_tmp";
+
+function readLocalClientOrderingDisabled() {
+  if (typeof window === "undefined") return false;
+  return window.localStorage.getItem(CLIENT_ORDERING_DISABLED_KEY) === "1";
+}
+
+function resolveClientOrderingDisabled(row: Record<string, unknown>) {
+  if (typeof row.is_active === "boolean") return !row.is_active;
+  const status = String(row.status ?? "").trim().toLowerCase();
+  if (status === "consultation" || status === "menu_only" || status === "disabled") return true;
+  return readLocalClientOrderingDisabled();
+}
+
+function parseJsonObject(raw: unknown): Record<string, unknown> | null {
+  if (!raw) return null;
+  if (typeof raw === "string") {
+    try {
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : null;
+    } catch {
+      return null;
+    }
+  }
+  if (typeof raw === "object") return raw as Record<string, unknown>;
+  return null;
+}
+
+function resolveTotalTables(value: unknown): number | null {
+  const readNumber = (entry: unknown): number | null => {
+    const numeric = Number(entry);
+    if (!Number.isFinite(numeric)) return null;
+    const whole = Math.trunc(numeric);
+    return whole > 0 ? whole : null;
+  };
+
+  const walk = (entry: unknown, depth = 0): number | null => {
+    if (depth > 3 || entry == null) return null;
+    const direct = readNumber(entry);
+    if (direct != null) return direct;
+    const source = parseJsonObject(entry);
+    if (!source) return null;
+    return (
+      readNumber(source.table_count) ??
+      walk(source.table_config, depth + 1) ??
+      walk(source.settings, depth + 1) ??
+      walk(source.marketing_options, depth + 1)
+    );
+  };
+
+  const resolved = walk(value);
+  if (resolved == null) return null;
+  return Math.min(MAX_TOTAL_TABLES, Math.max(1, resolved));
+}
+
+const FAST_ORDER_I18N = {
+  fr: {
+    tableInvalid: "Numéro de table invalide.",
+    addItem: "Ajoutez au moins un article.",
+    noValidItem: "Aucun article valide à envoyer.",
+    sendError: "Erreur lors de l'envoi.",
+    sent: "Commande envoyée en cuisine.",
+  },
+  en: {
+    tableInvalid: "Invalid table number.",
+    addItem: "Add at least one item.",
+    noValidItem: "No valid item to send.",
+    sendError: "Error while sending the order.",
+    sent: "Order sent to kitchen.",
+  },
+  es: {
+    tableInvalid: "Número de mesa inválido.",
+    addItem: "Añada al menos un artículo.",
+    noValidItem: "Ningún artículo válido para enviar.",
+    sendError: "Error al enviar el pedido.",
+    sent: "Pedido enviado a cocina.",
+  },
+  de: {
+    tableInvalid: "Ungültige Tischnummer.",
+    addItem: "Fügen Sie mindestens einen Artikel hinzu.",
+    noValidItem: "Kein gültiger Artikel zum Senden.",
+    sendError: "Fehler beim Senden der Bestellung.",
+    sent: "Bestellung an die Küche gesendet.",
+  },
+} as const;
+
+type Item = {
+  id?: string | number;
+  dish_id?: string | number;
+  name?: string;
+  quantity?: number;
+  category?: string;
+  categorie?: string;
+  instructions?: string;
+  price?: number;
+  selected_side_ids?: string[];
+  selected_extra_ids?: string[];
+  selected_extras?: Array<{ id: string; label_fr: string; price: number }>;
+  selected_cooking_key?: string | null;
+  selected_cooking_label_fr?: string | null;
+  special_request?: string;
+  selectedSides?: string[];
+  selectedExtras?: Array<{ name: string; price: number }>;
+  is_drink?: boolean;
+  from_recommendation?: boolean;
+};
+
+type Order = {
+  id: string;
+  table_number: number;
+  items: unknown;
+  status: string;
+  created_at: string;
+};
+
+type Call = {
+  id: string;
+  table_number?: number | null;
+  table_id?: number | null;
+  status?: string | null;
+  created_at?: string | null;
+};
+
+type TableAssignment = {
+  id?: number;
+  table_number: number;
+  pin_code?: string | null;
+  status?: string | null;
+  payment_status?: string | null;
+  occupied?: boolean | null;
+};
+
+type CategoryItem = {
+  id: string | number;
+  name_fr?: string | null;
+  name_en?: string | null;
+  name_es?: string | null;
+  name_de?: string | null;
+};
+
+type DishItem = {
+  id: string | number;
+  name?: string | null;
+  nom?: string | null;
+  description?: string | null;
+  description_fr?: string | null;
+  description_en?: string | null;
+  description_es?: string | null;
+  description_de?: string | null;
+  name_fr?: string | null;
+  category_id?: string | number | null;
+  category?: string | null;
+  categorie?: string | null;
+  price?: number | string | null;
+  active?: boolean | null;
+  selected_sides?: unknown;
+  sides?: unknown;
+  ask_cooking?: boolean | null;
+  extras?: unknown;
+};
+
+type SideLibraryItem = {
+  id: string | number;
+  name_fr?: string | null;
+  name_en?: string | null;
+  name_es?: string | null;
+  name_de?: string | null;
+};
+
+type ExtraChoice = {
+  name: string;
+  price: number;
+};
+
+type FastOrderLine = {
+  lineId: string;
+  dishId: string;
+  dishName: string;
+  category: string;
+  categoryId: string | number | null;
+  quantity: number;
+  unitPrice: number;
+  selectedSides: string[];
+  selectedExtras: ExtraChoice[];
+  selectedCooking: string;
+  specialRequest: string;
+  isDrink: boolean;
+};
+
+interface ParsedDishOptions {
+  sideIds: Array<string | number>;
+  extrasList: ExtraChoice[];
+  askCooking: boolean;
+}
+
+function parseItems(items: unknown): Item[] {
+  if (Array.isArray(items)) return items as Item[];
+  if (typeof items === "string") {
+    try {
+      const parsed = JSON.parse(items);
+      return Array.isArray(parsed) ? (parsed as Item[]) : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+function getCategory(item: Item) {
+  return String(item?.category || item?.categorie || "").toLowerCase().trim();
+}
+
+function isDrink(item: Item) {
+  if (item?.is_drink === true) return true;
+  const c = getCategory(item);
+  return c === "boisson" || c === "boissons" || c === "bar" || c === "drink" || c === "drinks";
+}
+
+function makeLineId() {
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function normalizeLookupText(raw: unknown) {
+  return String(raw || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+function buildStableExtraId(dishId: unknown, name: unknown, price: unknown, index = 0) {
+  const dishKey = String(dishId || "").trim();
+  const nameKey = normalizeLookupText(name || "");
+  const amount = Number(price || 0);
+  const safeAmount = Number.isFinite(amount) ? amount.toFixed(2) : "0.00";
+  return `extra:${dishKey}:${nameKey || "option"}:${safeAmount}:${index}`;
+}
+
+function parseDescriptionOptions(description?: string | null): ParsedDishOptions {
+  const raw = String(description || "").trim();
+  if (!raw) return { sideIds: [], extrasList: [], askCooking: false };
+
+  const askCooking = /__ASK_COOKING__:\s*true/i.test(raw);
+  const sidesMatch = raw.match(/__SIDE_IDS__:\s*([^\n\r]+)/);
+  const sideIds = sidesMatch
+    ? sidesMatch[1]
+        .split(",")
+        .map((id) => id.trim())
+        .filter(Boolean)
+    : [];
+
+  const extrasMatch = raw.match(/__EXTRAS_I18N__:\s*([^\n\r]+)/) || raw.match(/__EXTRAS__:\s*([^\n\r]+)/);
+  const extrasList = extrasMatch
+    ? extrasMatch[1]
+        .split("|")
+        .map((item) => {
+          const [namePart, pricePart] = item.split("=");
+          const nameFr = String(namePart || "")
+            .split("~")[0]
+            .trim();
+          let decodedName = nameFr;
+          try {
+            decodedName = decodeURIComponent(nameFr);
+          } catch {
+            decodedName = nameFr;
+          }
+          const price = Number.parseFloat(String(pricePart || "0").replace(",", "."));
+          return { name: decodedName || "Supplément", price: Number.isFinite(price) ? price : 0 };
+        })
+        .filter((extra) => extra.name.trim().length > 0)
+    : [];
+
+  return { sideIds, extrasList, askCooking };
+}
+
+export default function AdminPage() {
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [calls, setCalls] = useState<Call[]>([]);
+  const [activeTables, setActiveTables] = useState<TableAssignment[]>([]);
+  const [activeDishNames, setActiveDishNames] = useState<Set<string>>(new Set());
+  const [activeTab, setActiveTab] = useState<"orders" | "calls" | "sessions" | "new-order">("orders");
+
+  const [tableNumberInput, setTableNumberInput] = useState("");
+  const [pinInput, setPinInput] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState("");
+
+  const [settings, setSettings] = useState<Record<string, unknown> | null>(null);
+  const [disableClientOrderingEnabled, setDisableClientOrderingEnabled] = useState(false);
+  const [totalTables, setTotalTables] = useState(0);
+  const [restaurantSettingsError, setRestaurantSettingsError] = useState("");
+  const [restaurantId, setRestaurantId] = useState<string | number | null>(null);
+
+  const [categories, setCategories] = useState<CategoryItem[]>([]);
+  const [dishes, setDishes] = useState<DishItem[]>([]);
+  const [sidesLibrary, setSidesLibrary] = useState<SideLibraryItem[]>([]);
+  const [tableNumbers, setTableNumbers] = useState<number[]>([]);
+  const [selectedCategory, setSelectedCategory] = useState("");
+  const [selectedFastTableNumber, setSelectedFastTableNumber] = useState("");
+  const [fastQtyByDish, setFastQtyByDish] = useState<Record<string, number>>({});
+  const [baseLineComments, setBaseLineComments] = useState<Record<string, string>>({});
+  const [fastOptionLines, setFastOptionLines] = useState<FastOrderLine[]>([]);
+  const [fastLoading, setFastLoading] = useState(false);
+  const [fastMessage, setFastMessage] = useState("");
+
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalDish, setModalDish] = useState<DishItem | null>(null);
+  const [modalQty, setModalQty] = useState(1);
+  const [modalSideChoices, setModalSideChoices] = useState<string[]>([]);
+  const [modalSelectedSides, setModalSelectedSides] = useState<string[]>([]);
+  const [modalExtraChoices, setModalExtraChoices] = useState<ExtraChoice[]>([]);
+  const [modalSelectedExtras, setModalSelectedExtras] = useState<ExtraChoice[]>([]);
+  const [modalCooking, setModalCooking] = useState("");
+  const [modalKitchenComment, setModalKitchenComment] = useState("");
+  const fastEntryInitializedRef = useRef(false);
+  const selectedCategoryInitializedRef = useRef(false);
+
+  const applyDisableClientOrdering = (enabled: boolean) => {
+    setDisableClientOrderingEnabled(enabled);
+    setActiveTab((current) => {
+      if (current === "new-order") return "new-order";
+      return current;
+    });
+  };
+
+  const showNewOrderTab = true;
+  const adminUiLang = useMemo<"fr" | "en" | "es" | "de">(() => {
+    if (typeof window === "undefined") return "fr";
+    const lang = String(window.navigator.language || "").toLowerCase();
+    if (lang.startsWith("de")) return "de";
+    if (lang.startsWith("es")) return "es";
+    if (lang.startsWith("en")) return "en";
+    return "fr";
+  }, []);
+  const fastOrderText = FAST_ORDER_I18N[adminUiLang];
+
+  const getCallTableNumber = (row: Record<string, unknown>) => {
+    const direct = row.table_number ?? row.table_id;
+    if (typeof direct === "number" && Number.isFinite(direct)) return direct;
+    if (typeof direct === "string" && direct.trim()) {
+      const parsed = Number(direct.trim());
+      if (Number.isFinite(parsed)) return parsed;
+    }
+    const message = String(row.message ?? "");
+    const match = message.match(/table\s*([0-9]+)/i);
+    return match ? Number(match[1]) : null;
+  };
+
+  const toErrorInfo = (error: unknown) => {
+    if (!error || typeof error !== "object") {
+      return { code: null, status: null, message: String(error || "unknown"), details: null, hint: null };
+    }
+    const raw = error as Record<string, unknown>;
+    return {
+      code: raw.code ?? null,
+      status: raw.status ?? null,
+      message: raw.message ?? null,
+      details: raw.details ?? null,
+      hint: raw.hint ?? null,
+    };
+  };
+
+  const hasUsefulError = (info: ReturnType<typeof toErrorInfo>) =>
+    ["code", "status", "message", "details", "hint"].some((key) => {
+      const value = info[key as keyof typeof info];
+      if (value == null) return false;
+      const text = String(value).trim().toLowerCase();
+      return text !== "" && text !== "{}" && text !== "unknown" && text !== "null" && text !== "[object object]";
+    });
+
+  const logFetchOrdersError = (label: string, error: unknown) => {
+    console.error("DEBUG_SQL_TOTAL:", error);
+    console.error(label, error);
+  };
+
+  const fetchOrders = async () => {
+    try {
+      const currentRestaurantId = String(restaurantId ?? "").trim();
+      if (!currentRestaurantId) {
+        setOrders([]);
+        return;
+      }
+
+      const scopedQuery = await supabase
+        .from("orders")
+        .select("*")
+        .eq("restaurant_id", currentRestaurantId)
+        .order("created_at", { ascending: false });
+
+      if (scopedQuery.error) {
+        const hasMissingColumnError =
+          String((scopedQuery.error as { code?: string }).code || "").trim() === "42703" ||
+          String((scopedQuery.error as { message?: string }).message || "").toLowerCase().includes("column");
+        if (!hasMissingColumnError) {
+          logFetchOrdersError("Erreur fetchOrders (restaurant_id):", scopedQuery.error);
+          return;
+        }
+        const fallbackQuery = await supabase
+          .from("orders")
+          .select("*")
+          .order("created_at", { ascending: false });
+        if (fallbackQuery.error) {
+          logFetchOrdersError("Erreur fetchOrders (fallback):", fallbackQuery.error);
+          return;
+        }
+        const fallbackRows = (fallbackQuery.data || []) as Order[];
+        const visibleRows = fallbackRows.filter((row) => {
+          const status = String(row.status || "").toLowerCase().trim();
+          if (status === "paid" || status === "archived") return false;
+          return String((row as Record<string, unknown>).restaurant_id ?? "").trim() === currentRestaurantId;
+        });
+        setOrders(visibleRows);
+        return;
+      }
+
+      const rows = (scopedQuery.data || []) as Order[];
+      const visibleRows = rows.filter((row) => {
+        const status = String(row.status || "").toLowerCase().trim();
+        return status !== "paid" && status !== "archived";
+      });
+      setOrders(visibleRows);
+    } catch (error) {
+      logFetchOrdersError("Erreur fetchOrders inattendue:", error);
+    }
+  };
+
+  const fetchCalls = async () => {
+    const { data, error } = await supabase
+      .from("calls")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      // Fallback silencieux si la table/les policies ne sont pas encore prêtes.
+      setCalls([]);
+      return;
+    }
+
+    const normalized = ((data || []) as Array<Record<string, unknown>>).map((row) => ({
+      id: String(row.id ?? ""),
+      table_number: getCallTableNumber(row),
+      table_id: typeof row.table_id === "number" ? row.table_id : null,
+      status: row.status != null ? String(row.status) : null,
+      created_at: row.created_at != null ? String(row.created_at) : null,
+    }));
+
+    setCalls(normalized);
+  };
+
+  const fetchActiveTables = async () => {
+    const { data, error } = await supabase
+      .from("table_assignments")
+      .select("*")
+      .order("table_number", { ascending: true });
+
+    if (error) {
+      console.error("Erreur fetchActiveTables:", error);
+      setActiveTables([]);
+      return;
+    }
+
+    setActiveTables((data || []) as TableAssignment[]);
+  };
+
+  const fetchActiveDishes = async () => {
+    const { data, error } = await supabase
+      .from("dishes")
+      .select("name")
+      .eq("active", true);
+    if (error) {
+      setActiveDishNames(new Set());
+      return;
+    }
+    const names = new Set<string>(
+      (data || [])
+        .map((dish) => String((dish as { name?: unknown })?.name || "").trim().toLowerCase())
+        .filter(Boolean)
+    );
+    setActiveDishNames(names);
+  };
+
+  const fetchRestaurantSettings = async () => {
+    try {
+      const restaurantByIdQuery = await supabase.from("restaurants").select("*").eq("id", SETTINGS_ROW_ID).single();
+
+      if (!restaurantByIdQuery.error && restaurantByIdQuery.data) {
+        const restaurantRow = restaurantByIdQuery.data as Record<string, unknown>;
+        const showOrderTab = resolveClientOrderingDisabled(restaurantRow);
+        const nextSettings = { ...restaurantRow };
+        setSettings(nextSettings);
+        setTotalTables(resolveTotalTables(restaurantRow) ?? 0);
+        setRestaurantId((restaurantRow.id as string | number | undefined) ?? SETTINGS_ROW_ID);
+        setRestaurantSettingsError("");
+        applyDisableClientOrdering(showOrderTab);
+        console.log("RESTAURANT SETTINGS RÉCUPÉRÉS :", nextSettings);
+      } else {
+        const message =
+          (restaurantByIdQuery.error as { message?: string } | null)?.message ||
+          "Configuration restaurants introuvable pour cet ID.";
+        console.error("Erreur fetch restaurants (admin):", message);
+        setSettings(null);
+        setTotalTables(0);
+        setRestaurantId(null);
+        setRestaurantSettingsError(message);
+      }
+    } catch (error) {
+      console.error("DEBUG_SQL_TOTAL:", error);
+      const message = "Impossible de contacter restaurants.";
+      console.error("fetchRestaurantSettings restaurants échoue:", message);
+      setSettings(null);
+      setTotalTables(0);
+      setRestaurantId(null);
+      setRestaurantSettingsError(message);
+    }
+  };
+
+  const activeTableByNumber = useMemo(() => {
+    const map = new Map<number, TableAssignment>();
+    activeTables.forEach((row) => {
+      const tableNumber = Number(row.table_number);
+      if (!Number.isFinite(tableNumber)) return;
+      map.set(tableNumber, row);
+    });
+    return map;
+  }, [activeTables]);
+  const configuredTotalTables = useMemo(() => {
+    const fromSettings = resolveTotalTables(settings?.table_count ?? settings);
+    if (fromSettings != null) return fromSettings;
+    return totalTables > 0 ? totalTables : 0;
+  }, [settings, totalTables]);
+
+  const isActiveTableSession = (row: TableAssignment | null | undefined) => {
+    if (!row) return false;
+    const pin = String(row.pin_code || "").trim();
+    const status = String(row.status || "").toLowerCase().trim();
+    const paymentStatus = String(row.payment_status || "").toLowerCase().trim();
+    const occupiedFlag = row.occupied;
+    if (occupiedFlag === false) return false;
+    if (status && ["free", "libre", "available", "disponible", "closed", "paid", "archived"].includes(status)) return false;
+    if (paymentStatus && ["paid", "paye", "payee"].includes(paymentStatus)) return false;
+    if (!pin || pin === "0000") return false;
+    return true;
+  };
+
+  const tableSlots = useMemo(
+    () =>
+      Array.from({ length: configuredTotalTables }, (_, index) => index + 1).map((tableNumber) => {
+        const row = activeTableByNumber.get(tableNumber);
+        return {
+          tableNumber,
+          isOccupied: isActiveTableSession(row),
+          row: row || null,
+        };
+      }),
+    [activeTableByNumber, configuredTotalTables]
+  );
+
+  const categoryById = useMemo(() => {
+    const map = new Map<string, CategoryItem>();
+    categories.forEach((category) => map.set(String(category.id), category));
+    return map;
+  }, [categories]);
+
+  const getCategoryLabel = (category: CategoryItem) => {
+    return (
+      String(category.name_fr || "").trim() ||
+      String(category.name_en || "").trim() ||
+      String(category.name_es || "").trim() ||
+      String(category.name_de || "").trim() ||
+      `Catégorie ${category.id}`
+    );
+  };
+
+  const getDishName = (dish: DishItem) => {
+    return String(dish.name || "").trim() || "[Plat sans nom]";
+  };
+
+  const getDishPrice = (dish: DishItem) => {
+    const value = Number(dish.price || 0);
+    return Number.isFinite(value) ? value : 0;
+  };
+
+  const getDishRawDescription = (dish: DishItem) =>
+    String(dish.description_fr || dish.description || dish.description_en || dish.description_es || dish.description_de || "").trim();
+
+  const getDishOptionsSource = (dish: DishItem) => {
+    const values = [
+      dish.description_fr,
+      dish.description,
+      dish.description_en,
+      dish.description_es,
+      dish.description_de,
+    ]
+      .map((value) => String(value || "").trim())
+      .filter(Boolean);
+    return [...new Set(values)].join("\n");
+  };
+
+  const getDishCleanDescription = (dish: DishItem) => getDishRawDescription(dish).split("__")[0]?.trim() || "";
+
+  const getDishCategoryLabel = (dish: DishItem) => {
+    const fromId = dish.category_id != null ? categoryById.get(String(dish.category_id)) : undefined;
+    if (fromId) return getCategoryLabel(fromId);
+    const fallbackText = String(dish.category || dish.categorie || "").trim();
+    if (fallbackText) return fallbackText;
+    if (dish.category_id != null) return `Catégorie ${dish.category_id}`;
+    return "Autres";
+  };
+  const normalizeCategoryKey = (value: unknown) =>
+    (() => {
+      const normalized = String(value || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .trim();
+      if (normalized.length > 3 && normalized.endsWith("s")) {
+        return normalized.slice(0, -1);
+      }
+      return normalized;
+    })();
+
+  const parseDishExtras = (dish: DishItem): ExtraChoice[] => {
+    const fromDescription = parseDescriptionOptions(getDishOptionsSource(dish)).extrasList;
+    if (fromDescription.length > 0) return fromDescription;
+
+    const normalizeArray = (raw: unknown) => {
+      if (!Array.isArray(raw)) return [] as ExtraChoice[];
+      return raw
+        .map((entry) => {
+          if (typeof entry === "string") {
+            const cleaned = entry.trim();
+            if (!cleaned) return null;
+            const [namePart, pricePart] = cleaned.split("=").map((part) => part.trim());
+            const fallbackPrice = Number((pricePart || "0").replace(",", "."));
+            return { name: namePart || cleaned, price: Number.isFinite(fallbackPrice) ? fallbackPrice : 0 };
+          }
+          if (!entry || typeof entry !== "object") return null;
+          const row = entry as Record<string, unknown>;
+          const name = String(row.name_fr || row.name || "").trim();
+          if (!name) return null;
+          const price = Number(row.price || 0);
+          return { name, price: Number.isFinite(price) ? price : 0 };
+        })
+        .filter(Boolean) as ExtraChoice[];
+    };
+    const normalizeObject = (raw: unknown) => {
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return [] as ExtraChoice[];
+      const source = raw as Record<string, unknown>;
+      return Object.entries(source)
+        .map(([name, value]) => {
+          const label = String(name || "").trim();
+          if (!label) return null;
+          const amount = Number(value || 0);
+          return { name: label, price: Number.isFinite(amount) ? amount : 0 };
+        })
+        .filter(Boolean) as ExtraChoice[];
+    };
+
+    const direct = normalizeArray(dish.extras);
+    if (direct.length > 0) return direct;
+    const directMap = normalizeObject(dish.extras);
+    if (directMap.length > 0) return directMap;
+    if (typeof dish.extras === "string") {
+      try {
+        const parsed = JSON.parse(dish.extras);
+        const arrayParsed = normalizeArray(parsed);
+        if (arrayParsed.length > 0) return arrayParsed;
+        const objectParsed = normalizeObject(parsed);
+        if (objectParsed.length > 0) return objectParsed;
+        return [];
+      } catch {
+        return dish.extras
+          .split(",")
+          .map((entry) => entry.trim())
+          .filter(Boolean)
+          .map((name) => ({ name, price: 0 }));
+      }
+    }
+    return parseDescriptionOptions(getDishOptionsSource(dish)).extrasList;
+  };
+
+  const parseSideSource = (raw: unknown): Array<string | number> => {
+    if (Array.isArray(raw)) {
+      return raw
+        .map((entry) => {
+          if (typeof entry === "string" || typeof entry === "number") return entry;
+          if (!entry || typeof entry !== "object") return null;
+          const row = entry as Record<string, unknown>;
+          return (
+            row.id ??
+            row.side_id ??
+            row.value ??
+            row.name_fr ??
+            row.name ??
+            row.label ??
+            null
+          );
+        })
+        .filter((value): value is string | number => value != null && String(value).trim() !== "");
+    }
+
+    if (raw && typeof raw === "object") {
+      const source = raw as Record<string, unknown>;
+      if (Array.isArray(source.sides)) return parseSideSource(source.sides);
+      if (Array.isArray(source.options)) return parseSideSource(source.options);
+      if (Array.isArray(source.items)) return parseSideSource(source.items);
+      return Object.entries(source)
+        .map(([key, value]) => {
+          const label = String(key || "").trim();
+          if (!label) return null;
+          if (value == null || value === false) return null;
+          return label;
+        })
+        .filter((value): value is string => value != null && value.trim() !== "");
+    }
+
+    if (typeof raw === "string") {
+      const trimmed = raw.trim();
+      if (!trimmed) return [];
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed)) return parseSideSource(parsed);
+      } catch {
+        return trimmed
+          .split(",")
+          .map((part) => part.trim())
+          .filter(Boolean);
+      }
+    }
+
+    return [];
+  };
+
+  const parseDishSideIds = (dish: DishItem): Array<string | number> => {
+    const fromDescription = parseDescriptionOptions(getDishOptionsSource(dish)).sideIds;
+    if (fromDescription.length > 0) return fromDescription;
+
+    const selectedSides = parseSideSource(dish.selected_sides);
+    if (selectedSides.length > 0) return selectedSides;
+    const sides = parseSideSource(dish.sides);
+    if (sides.length > 0) return sides;
+    return parseDescriptionOptions(getDishOptionsSource(dish)).sideIds;
+  };
+
+  const dishNeedsCooking = (dish: DishItem) => parseDescriptionOptions(getDishOptionsSource(dish)).askCooking;
+
+  const buildLineInstructions = (line: FastOrderLine) => {
+    const parts: string[] = [];
+    if (line.selectedSides.length > 0) {
+      parts.push(`Accompagnements: ${line.selectedSides.join(", ")}`);
+    }
+    if (line.selectedExtras.length > 0) {
+      parts.push(
+        `Suppléments: ${line.selectedExtras
+          .map((extra) => `${extra.name} (+${extra.price.toFixed(2)}€)`)
+          .join(", ")}`
+      );
+    }
+    if (line.selectedCooking.trim()) parts.push(`Cuisson: ${line.selectedCooking.trim()}`);
+    if (line.specialRequest.trim()) parts.push(`Commentaire cuisine: ${line.specialRequest.trim()}`);
+    return parts.join(" | ");
+  };
+
+  const fetchFastEntryResources = async () => {
+    const [categoriesQuery, primaryDishesQuery, sidesQuery, tablesQuery] = await Promise.all([
+      supabase.from("categories").select("*").order("id", { ascending: true }),
+      supabase
+        .from("dishes")
+        .select("id,name,price,category_id,extras,sides,description,description_fr,description_en,description_es,description_de")
+        .order("id", { ascending: true }),
+      supabase.from("sides_library").select("*").order("id", { ascending: true }),
+      supabase.from("table_assignments").select("table_number").order("table_number", { ascending: true }),
+    ]);
+
+    const nextCategories = !categoriesQuery.error ? ((categoriesQuery.data || []) as CategoryItem[]) : [];
+    let nextDishes = !primaryDishesQuery.error ? ((primaryDishesQuery.data || []) as DishItem[]) : [];
+    let dishesError = primaryDishesQuery.error;
+
+    if (dishesError) {
+      const fallbackDishesQuery = await supabase
+        .from("dishes")
+        .select("id,name,price,category_id,description,description_fr,description_en,description_es,description_de")
+        .order("id", { ascending: true });
+      if (!fallbackDishesQuery.error) {
+        nextDishes = (fallbackDishesQuery.data || []) as DishItem[];
+        dishesError = null;
+      } else {
+        const ultraFallbackDishesQuery = await supabase
+          .from("dishes")
+          .select("id,name,price")
+          .order("id", { ascending: true });
+        if (!ultraFallbackDishesQuery.error) {
+          nextDishes = (ultraFallbackDishesQuery.data || []) as DishItem[];
+          dishesError = null;
+        } else {
+          dishesError = ultraFallbackDishesQuery.error;
+        }
+      }
+    }
+
+    if (!categoriesQuery.error) setCategories(nextCategories);
+    if (!dishesError) {
+      nextDishes = nextDishes.map((dish) => {
+        const fallbackCategory = dish.category_id != null ? `cat_${dish.category_id}` : "autres";
+        return {
+          ...dish,
+          category: String(dish.category || dish.categorie || fallbackCategory),
+          categorie: String(dish.categorie || dish.category || fallbackCategory),
+        };
+      });
+      setDishes(nextDishes);
+      console.log("DATA DISHES:", nextDishes);
+      console.log("STRUCTURE DISHES:", nextDishes[0] ?? null);
+    } else {
+      console.error("DEBUG_SQL_TOTAL:", dishesError);
+      const message = (dishesError as { message?: string } | null)?.message || "Erreur fetch dishes (admin)";
+      console.error("Erreur fetch dishes (admin):", message);
+    }
+    if (!sidesQuery.error) setSidesLibrary((sidesQuery.data || []) as SideLibraryItem[]);
+    if (!tablesQuery.error) {
+      const values = (tablesQuery.data || [])
+        .map((entry) => Number((entry as { table_number?: unknown }).table_number))
+        .filter((value) => Number.isFinite(value) && value > 0);
+      const unique = Array.from(new Set(values)).sort((a, b) => a - b);
+      setTableNumbers(unique);
+      if (!fastEntryInitializedRef.current && unique[0]) {
+        setSelectedFastTableNumber((current) => (current.trim() ? current : String(unique[0])));
+      }
+    }
+    if (!selectedCategoryInitializedRef.current && !selectedCategory.trim()) {
+      const firstCategory = nextCategories[0]
+        ? normalizeCategoryKey(getCategoryLabel(nextCategories[0]))
+        : "";
+      const fallbackCategory = nextDishes[0]
+        ? normalizeCategoryKey(getDishCategoryLabel(nextDishes[0]))
+        : "";
+      const initialCategory = firstCategory || fallbackCategory;
+      if (initialCategory) {
+        setSelectedCategory(initialCategory);
+        selectedCategoryInitializedRef.current = true;
+      }
+    }
+    if (!fastEntryInitializedRef.current) fastEntryInitializedRef.current = true;
+  };
+
+  useEffect(() => {
+    fetchRestaurantSettings();
+    fetchActiveTables();
+    fetchActiveDishes();
+    fetchFastEntryResources();
+
+    const channel = supabase
+      .channel("admin-orders-and-tables")
+      .on("postgres_changes", { event: "*", schema: "public", table: "table_assignments" }, fetchActiveTables)
+      .on("postgres_changes", { event: "*", schema: "public", table: "dishes" }, fetchActiveDishes)
+      .on("postgres_changes", { event: "*", schema: "public", table: "categories" }, fetchFastEntryResources)
+      .on("postgres_changes", { event: "*", schema: "public", table: "dishes" }, fetchFastEntryResources)
+      .on("postgres_changes", { event: "*", schema: "public", table: "table_assignments" }, fetchFastEntryResources)
+      .on("postgres_changes", { event: "*", schema: "public", table: "restaurants" }, fetchRestaurantSettings)
+      .on("postgres_changes", { event: "*", schema: "public", table: "restaurant_profile" }, fetchRestaurantSettings)
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!String(restaurantId ?? "").trim()) return;
+    void fetchOrders();
+
+    const ordersChannel = supabase
+      .channel(`admin-orders-${String(restaurantId)}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, () => {
+        void fetchOrders();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(ordersChannel);
+    };
+  }, [restaurantId]);
+
+  useEffect(() => {
+    console.log("SETTINGS RÉCUPÉRÉS :", settings);
+  }, [settings]);
+
+  useEffect(() => {
+    fetchCalls();
+
+    const channel = supabase
+      .channel("admin-calls")
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "calls" }, (payload) => {
+        const tableNumber = payload?.new?.table_number ?? payload?.new?.table_id ?? "?";
+        alert(`🚨 APPEL TABLE ${tableNumber}`);
+        fetchCalls();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  const handleSaveTable = async () => {
+    const tableNumber = Number(tableNumberInput);
+    const pin = pinInput.trim();
+
+    if (!tableNumber || !pin) {
+      setMessage("Veuillez saisir le numéro de table et le PIN.");
+      return;
+    }
+
+    setSaving(true);
+    setMessage("");
+
+    const insertResult = await supabase
+      .from("table_assignments")
+      .insert({ table_number: tableNumber, pin_code: pin });
+
+    if (insertResult.error) {
+      const code = String((insertResult.error as { code?: string })?.code || "");
+      const message = String(insertResult.error.message || "").toLowerCase();
+      const duplicate =
+        code === "23505" ||
+        message.includes("duplicate key") ||
+        message.includes("unique");
+
+      if (!duplicate) {
+        setMessage("Erreur enregistrement: " + insertResult.error.message);
+        setSaving(false);
+        return;
+      }
+
+      const updateResult = await supabase
+        .from("table_assignments")
+        .update({ pin_code: pin })
+        .eq("table_number", tableNumber);
+
+      if (updateResult.error) {
+        setMessage("Erreur enregistrement: " + updateResult.error.message);
+        setSaving(false);
+        return;
+      }
+    }
+
+    setMessage("Table enregistrée.");
+    setPinInput("");
+    setSaving(false);
+    fetchActiveTables();
+  };
+
+  const handleDeleteTable = async (row: TableAssignment) => {
+    const tableNumber = Number(row.table_number);
+    const deleteResult = await supabase
+      .from("table_assignments")
+      .delete()
+      .eq("table_number", tableNumber);
+    if (deleteResult.error) {
+      setMessage("Erreur fermeture table: " + String(deleteResult.error.message || ""));
+      return;
+    }
+
+    setMessage("Table fermée.");
+    fetchActiveTables();
+  };
+
+  const fillFormForEdit = (row: TableAssignment) => {
+    setTableNumberInput(String(row.table_number));
+    setPinInput(String(row.pin_code ?? ""));
+    setMessage("");
+  };
+
+  const handleServed = async (orderId: string) => {
+    setOrders((prev) => prev.filter((o) => o.id !== orderId));
+
+    const { error } = await supabase
+      .from("orders")
+      .update({ status: "served" })
+      .eq("id", orderId);
+
+    if (error) {
+      console.error("Erreur service:", error);
+      fetchOrders();
+    }
+  };
+
+  const resolveCall = async (callId: string) => {
+    const { error } = await supabase.from("calls").delete().eq("id", callId);
+    if (error) {
+      console.error("Erreur suppression appel:", error);
+      return;
+    }
+    fetchCalls();
+  };
+
+  const categoriesForFastEntry =
+    categories.length > 0
+      ? categories.map((category) => {
+          const label = getCategoryLabel(category);
+          return { key: normalizeCategoryKey(label), label };
+        })
+      : (() => {
+          const unique = new Map<string, string>();
+          dishes.forEach((dish) => {
+            const label = getDishCategoryLabel(dish);
+            const key = normalizeCategoryKey(label);
+            if (!unique.has(key)) unique.set(key, label);
+          });
+          return [...unique.entries()].map(([key, label]) => ({ key, label }));
+        })();
+
+  const availableFastCategoryKeys = new Set(categoriesForFastEntry.map((category) => category.key));
+  const effectiveSelectedFastCategoryKey = availableFastCategoryKeys.has(selectedCategory)
+    ? selectedCategory
+    : categoriesForFastEntry[0]?.key || "";
+
+  const fastEntryDishes =
+    !effectiveSelectedFastCategoryKey
+      ? dishes
+      : dishes.filter(
+          (dish) => normalizeCategoryKey(getDishCategoryLabel(dish)) === effectiveSelectedFastCategoryKey
+        );
+  const visibleFastEntryDishes = fastEntryDishes.length > 0 ? fastEntryDishes : dishes;
+
+  const fastBaseLines = (() => {
+    const lines: FastOrderLine[] = [];
+    const dishById = new Map<string, DishItem>();
+    dishes.forEach((dish) => dishById.set(String(dish.id), dish));
+
+    Object.entries(fastQtyByDish).forEach(([dishId, quantity]) => {
+      if (!quantity || quantity <= 0) return;
+      const dish = dishById.get(dishId);
+      if (!dish) return;
+      const category = getDishCategoryLabel(dish);
+      lines.push({
+        lineId: `base-${dishId}`,
+        dishId,
+        dishName: getDishName(dish),
+        category,
+        categoryId: dish.category_id ?? null,
+        quantity,
+        unitPrice: getDishPrice(dish),
+        selectedSides: [],
+        selectedExtras: [],
+        selectedCooking: "",
+        specialRequest: String(baseLineComments[dishId] || ""),
+        isDrink: isDrink({ category }),
+      });
+    });
+
+    return lines;
+  })();
+
+  const fastLines = [...fastBaseLines, ...fastOptionLines];
+
+  const fastTotal = fastLines.reduce((sum, line) => sum + line.unitPrice * line.quantity, 0);
+  const fastItemCount = fastLines.reduce((sum, line) => sum + line.quantity, 0);
+  const tableSelectOptions = Array.from(
+    new Set([
+      ...Array.from({ length: configuredTotalTables }, (_, index) => index + 1),
+      ...tableNumbers,
+    ])
+  ).sort((a, b) => a - b);
+
+  const loadDishOptionsFromDishes = async (dish: DishItem) => {
+    const dishId = String(dish.id || "").trim();
+    if (dishId) {
+      const byIdPrimary = await supabase
+        .from("dishes")
+        .select("id,name,price,category_id,extras,sides,description,description_fr,description_en,description_es,description_de")
+        .eq("id", dish.id)
+        .limit(1);
+      let byIdData = Array.isArray(byIdPrimary.data) ? (byIdPrimary.data[0] as DishItem | undefined) : undefined;
+
+      if (byIdPrimary.error) {
+        const byIdFallback = await supabase
+          .from("dishes")
+          .select("id,name,price,category_id,description,description_fr,description_en,description_es,description_de")
+          .eq("id", dish.id)
+          .limit(1);
+        byIdData = Array.isArray(byIdFallback.data) ? (byIdFallback.data[0] as DishItem | undefined) : undefined;
+        if (byIdFallback.error) {
+          const byIdUltraFallback = await supabase.from("dishes").select("id,name,price").eq("id", dish.id).limit(1);
+          byIdData = Array.isArray(byIdUltraFallback.data)
+            ? (byIdUltraFallback.data[0] as DishItem | undefined)
+            : undefined;
+        }
+      }
+      if (byIdData) {
+        return { ...(dish as Record<string, unknown>), ...(byIdData as Record<string, unknown>) } as DishItem;
+      }
+    }
+
+    const dishName = String(dish.name || "").trim();
+    if (dishName) {
+      const byNamePrimary = await supabase
+        .from("dishes")
+        .select("id,name,price,category_id,extras,sides,description,description_fr,description_en,description_es,description_de")
+        .eq("name", dishName)
+        .limit(1);
+      let byNameData = Array.isArray(byNamePrimary.data) ? (byNamePrimary.data[0] as DishItem | undefined) : undefined;
+
+      if (byNamePrimary.error) {
+        const byNameFallback = await supabase
+          .from("dishes")
+          .select("id,name,price,category_id,description,description_fr,description_en,description_es,description_de")
+          .eq("name", dishName)
+          .limit(1);
+        byNameData = Array.isArray(byNameFallback.data) ? (byNameFallback.data[0] as DishItem | undefined) : undefined;
+        if (byNameFallback.error) {
+          const byNameUltraFallback = await supabase.from("dishes").select("id,name,price").eq("name", dishName).limit(1);
+          byNameData = Array.isArray(byNameUltraFallback.data)
+            ? (byNameUltraFallback.data[0] as DishItem | undefined)
+            : undefined;
+        }
+      }
+      if (byNameData) {
+        return { ...(dish as Record<string, unknown>), ...(byNameData as Record<string, unknown>) } as DishItem;
+      }
+    }
+
+    return dish;
+  };
+
+  const openOptionsModal = async (dish: DishItem) => {
+    const sourceDish = await loadDishOptionsFromDishes(dish);
+    console.log("STRUCTURE RÉELLE DU PLAT:", sourceDish);
+    const sideIds = parseDishSideIds(sourceDish);
+    const sideMap = new Map<string, string>();
+    sidesLibrary.forEach((side) => {
+      const label =
+        String(side.name_fr || "").trim() ||
+        String(side.name_en || "").trim() ||
+        String(side.name_es || "").trim() ||
+        String(side.name_de || "").trim() ||
+        String(side.id);
+      sideMap.set(String(side.id), label);
+    });
+
+    setModalDish(sourceDish);
+    setModalQty(1);
+    setModalSideChoices(sideIds.map((id) => sideMap.get(String(id)) || String(id)));
+    setModalSelectedSides([]);
+    setModalExtraChoices(parseDishExtras(sourceDish));
+    setModalSelectedExtras([]);
+    setModalCooking("");
+    setModalKitchenComment("");
+    setModalOpen(true);
+  };
+
+  const handleAddOptionLine = () => {
+    if (!modalDish) return;
+    if (modalSideChoices.length > 0 && modalSelectedSides.length === 0) {
+      alert("Veuillez choisir au moins un accompagnement.");
+      return;
+    }
+    if (dishNeedsCooking(modalDish) && !modalCooking.trim()) {
+      alert("Veuillez choisir une cuisson.");
+      return;
+    }
+    const category = getDishCategoryLabel(modalDish);
+    const extrasUnit = modalSelectedExtras.reduce((sum, extra) => sum + Number(extra.price || 0), 0);
+    const line: FastOrderLine = {
+      lineId: makeLineId(),
+      dishId: String(modalDish.id),
+      dishName: getDishName(modalDish),
+      category,
+      categoryId: modalDish.category_id ?? null,
+      quantity: modalQty,
+      unitPrice: getDishPrice(modalDish) + extrasUnit,
+      selectedSides: modalSelectedSides,
+      selectedExtras: modalSelectedExtras,
+      selectedCooking: modalCooking,
+      specialRequest: modalKitchenComment,
+      isDrink: isDrink({ category }),
+    };
+    setFastOptionLines((prev) => [...prev, line]);
+    setModalOpen(false);
+    setModalDish(null);
+  };
+
+  const removeFastLine = (lineId: string) => {
+    if (lineId.startsWith("base-")) {
+      const dishId = lineId.replace("base-", "");
+      setFastQtyByDish((prev) => {
+        const next = { ...prev };
+        delete next[dishId];
+        return next;
+      });
+      setBaseLineComments((prev) => {
+        const next = { ...prev };
+        delete next[dishId];
+        return next;
+      });
+      return;
+    }
+    setFastOptionLines((prev) => prev.filter((line) => line.lineId !== lineId));
+  };
+
+  const updateLineKitchenComment = (lineId: string, comment: string) => {
+    if (lineId.startsWith("base-")) {
+      const dishId = lineId.replace("base-", "");
+      setBaseLineComments((prev) => ({ ...prev, [dishId]: comment }));
+      return;
+    }
+    setFastOptionLines((prev) =>
+      prev.map((line) => (line.lineId === lineId ? { ...line, specialRequest: comment } : line))
+    );
+  };
+
+  const ensureTableIsOrderableForServer = async (tableNumber: number) => {
+    const selectPrimary = await supabase
+      .from("table_assignments")
+      .select("table_number,pin_code")
+      .eq("table_number", tableNumber)
+      .limit(1);
+
+    if (selectPrimary.error) return selectPrimary.error;
+
+    const row =
+      Array.isArray(selectPrimary.data) && selectPrimary.data[0]
+        ? (selectPrimary.data[0] as { pin_code?: unknown })
+        : null;
+    const currentPin = String(row?.pin_code || "").trim();
+
+    if (!row) {
+      const inserted = await supabase
+        .from("table_assignments")
+        .upsert([{ table_number: tableNumber, pin_code: "SERVEUR" }], { onConflict: "table_number" });
+      if (inserted.error) return inserted.error;
+      return null;
+    }
+
+    if (!currentPin || currentPin === "0000") {
+      const updated = await supabase
+        .from("table_assignments")
+        .update({ pin_code: "SERVEUR" })
+        .eq("table_number", tableNumber);
+      if (updated.error) return updated.error;
+    }
+
+    return null;
+  };
+
+  const handleSubmitFastOrder = async () => {
+    setFastMessage("");
+    const resetFastEntryForm = () => {
+      setFastQtyByDish({});
+      setBaseLineComments({});
+      setFastOptionLines([]);
+      setModalOpen(false);
+      setModalDish(null);
+      setModalQty(1);
+      setModalSideChoices([]);
+      setModalSelectedSides([]);
+      setModalExtraChoices([]);
+      setModalSelectedExtras([]);
+      setModalCooking("");
+      setModalKitchenComment("");
+    };
+
+    const tableNumber = Number(String(selectedFastTableNumber || "").trim());
+    if (!Number.isFinite(tableNumber) || tableNumber <= 0) {
+      setFastMessage(fastOrderText.tableInvalid);
+      return;
+    }
+    if (fastLines.length === 0) {
+      setFastMessage(fastOrderText.addItem);
+      return;
+    }
+
+    const items: Item[] = fastLines
+      .map((line) => {
+        const quantity = Number(line.quantity || 0);
+        const unitPrice = Number(line.unitPrice || 0);
+        if (!line.dishId || !line.dishName || !Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(unitPrice)) {
+          return null;
+        }
+        return {
+          id: line.dishId,
+          name: line.dishName,
+          quantity,
+          category: line.category,
+          categorie: line.category,
+          price: Number(unitPrice.toFixed(2)),
+          selectedSides: line.selectedSides,
+          selectedExtras: line.selectedExtras.map((extra) => ({ name: extra.name, price: extra.price })),
+          is_drink: line.isDrink,
+          instructions: buildLineInstructions(line),
+          from_recommendation: false,
+        } as Item;
+      })
+      .filter(Boolean) as Item[];
+
+    if (items.length === 0) {
+      setFastMessage(fastOrderText.noValidItem);
+      return;
+    }
+
+    const totalPrice = Number(fastTotal.toFixed(2));
+    const resolvedRestaurantId = restaurantId ?? SETTINGS_ROW_ID;
+    const payload = {
+      restaurant_id: resolvedRestaurantId,
+      table_number: tableNumber,
+      items: items,
+      total_price: totalPrice,
+      status: "pending",
+    };
+    const payloadWithoutId = [{
+      restaurant_id: payload.restaurant_id,
+      table_number: payload.table_number,
+      items: items,
+      total_price: payload.total_price,
+      status: "pending",
+    }];
+    const forcedOrderId = crypto.randomUUID();
+
+    setFastLoading(true);
+    console.log("Données envoyées à Supabase:", payload);
+    console.log("CONTENU EXACT DU PAYLOAD ENVOYÉ:", payloadWithoutId);
+    const { error: insertError } = await supabase
+      .from("orders")
+      .insert([{
+        id: forcedOrderId,
+        restaurant_id: payload.restaurant_id,
+        table_number: payload.table_number,
+        items: payload.items,
+        total_price: payload.total_price,
+        status: "pending",
+      }]);
+    setFastLoading(false);
+
+    if (insertError) {
+      console.error("DÉTAIL ERREUR SQL:", insertError.message, {
+        code: insertError.code,
+        details: insertError.details,
+        hint: insertError.hint,
+        restaurant_id: restaurantId,
+        table_number: payload.table_number,
+        items_count: items.length,
+        total_price: payload.total_price,
+        status: payload.status,
+      });
+      setFastMessage(fastOrderText.sendError);
+      resetFastEntryForm();
+      return;
+    }
+
+    const activationError = await ensureTableIsOrderableForServer(tableNumber);
+    if (activationError) {
+      console.warn("Activation table serveur impossible après envoi commande:", activationError);
+    }
+
+    resetFastEntryForm();
+    setFastMessage(fastOrderText.sent);
+    fetchOrders();
+    fetchActiveTables();
+  };
+
+  const prepDrinks = useMemo(
+    () =>
+      orders.filter(
+        (o) =>
+          ["pending", "preparing", "to_prepare", "to_prepare_bar", "en_preparation", "en_attente"].includes(String(o.status || "")) &&
+          parseItems(o.items).some(isDrink)
+      ),
+    [orders]
+  );
+
+  const prepFoods = useMemo(
+    () =>
+      orders.filter(
+        (o) =>
+          ["pending", "preparing", "to_prepare", "to_prepare_kitchen", "en_preparation", "en_attente"].includes(String(o.status || "")) &&
+          parseItems(o.items).some((i) => !isDrink(i))
+      ),
+    [orders]
+  );
+
+  const openCalls = useMemo(
+    () => calls.filter((c) => !c.status || c.status === "pending" || c.status === "new"),
+    [calls]
+  );
+  const resolvedActiveTab: "orders" | "calls" | "sessions" | "new-order" =
+    !showNewOrderTab && activeTab === "new-order" ? "orders" : activeTab;
+
+  const renderOrderCard = (order: Order, drinksOnly: boolean, canServe: boolean) => {
+    const items = parseItems(order.items)
+      .filter((i) => (drinksOnly ? isDrink(i) : !isDrink(i)))
+      .filter((i) => {
+        if (activeDishNames.size === 0) return true;
+        return activeDishNames.has(String(i?.name || "").trim().toLowerCase());
+      });
+    if (items.length === 0) return null;
+
+    return (
+      <div key={`${order.id}-${drinksOnly ? "drink" : "food"}`} className="border border-black rounded-lg p-3 bg-white">
+        <div className="flex items-start justify-between mb-2">
+          <div className="font-bold text-black">Table {order.table_number ?? "?"}</div>
+          <div className="text-sm font-semibold text-black">{new Date(order.created_at).toLocaleTimeString("fr-FR")}</div>
+        </div>
+        <div className="space-y-1 text-sm text-black">
+          {items.map((item, idx) => (
+            <div key={idx}>
+              {Number(item.quantity) || 1}x {item.name || "Plat inconnu"}
+              {item.instructions ? <div className="text-red-700 font-bold">{item.instructions}</div> : null}
+            </div>
+          ))}
+        </div>
+        {canServe ? (
+          <button onClick={() => handleServed(order.id)} className="mt-3 w-full bg-green-700 text-white py-2 rounded font-bold">
+            SERVI
+          </button>
+        ) : null}
+      </div>
+    );
+  };
+
+  return (
+    <div className="min-h-screen bg-gray-100 text-black p-4" data-disable-client-ordering={disableClientOrderingEnabled ? "1" : "0"}>
+      <h1 className="text-2xl font-bold mb-4">Serveur</h1>
+      {restaurantSettingsError ? (
+        <div className="mb-4 rounded border-2 border-red-700 bg-red-50 px-3 py-2 text-sm font-semibold text-red-800">
+          {restaurantSettingsError}
+        </div>
+      ) : null}
+
+      <div className="mb-4 w-full overflow-x-auto whitespace-nowrap">
+        <div className="inline-flex gap-2">
+          {showNewOrderTab ? (
+            <button onClick={() => setActiveTab("new-order")} className={`px-4 py-2 rounded font-bold border-2 border-black ${resolvedActiveTab === "new-order" ? "bg-black text-white" : "bg-white text-black"}`}>
+              Prendre une commande
+            </button>
+          ) : null}
+          <button onClick={() => setActiveTab("orders")} className={`px-4 py-2 rounded font-bold border-2 border-black ${resolvedActiveTab === "orders" ? "bg-black text-white" : "bg-white text-black"}`}>
+            Commandes
+          </button>
+          <button onClick={() => setActiveTab("calls")} className={`px-4 py-2 rounded font-bold border-2 border-black ${resolvedActiveTab === "calls" ? "bg-black text-white" : "bg-white text-black"}`}>
+            Appels {openCalls.length > 0 ? `(${openCalls.length})` : ""}
+          </button>
+          <button onClick={() => setActiveTab("sessions")} className={`px-4 py-2 rounded font-bold border-2 border-black ${resolvedActiveTab === "sessions" ? "bg-black text-white" : "bg-white text-black"}`}>
+            Ouvrir une table
+          </button>
+        </div>
+      </div>
+
+      {resolvedActiveTab === "new-order" ? (
+        <section className="bg-white border-2 border-black rounded-lg p-4">
+          <h2 className="text-lg font-bold mb-3">Nouvelle Commande (Saisie rapide)</h2>
+
+          <div className="mb-4 flex flex-wrap items-end gap-4">
+            <div>
+              <label className="block text-sm font-bold mb-1">Numéro de table</label>
+              <select
+                value={selectedFastTableNumber}
+                onChange={(e) => setSelectedFastTableNumber(e.target.value)}
+                className="h-12 w-40 border-2 border-black px-3 text-lg font-bold bg-white"
+              >
+                <option value="">Choisir</option>
+                {tableSelectOptions.map((table) => (
+                  <option key={table} value={table}>
+                    Table {table}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="text-sm font-bold">Articles: {fastItemCount}</div>
+            <div className="text-sm font-bold">Total: {fastTotal.toFixed(2)}€</div>
+          </div>
+
+          <div className="mb-4 flex flex-wrap gap-2">
+            {categoriesForFastEntry.map((category) => (
+              <button
+                key={category.key}
+                type="button"
+                onClick={() => setSelectedCategory(category.key)}
+                className={`px-4 py-2 border-2 border-black font-bold ${
+                  effectiveSelectedFastCategoryKey === category.key ? "bg-black text-white" : "bg-white text-black"
+                }`}
+              >
+                {category.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="border-2 border-black rounded overflow-hidden">
+            <div className="grid grid-cols-[1fr_auto_auto] bg-gray-100 border-b-2 border-black px-3 py-2 font-bold text-sm">
+              <div>Produit</div>
+              <div className="pr-4">Prix</div>
+              <div className="text-center">Action</div>
+            </div>
+            {visibleFastEntryDishes.length === 0 ? <div className="px-3 py-3 text-sm">Aucun article.</div> : null}
+            {visibleFastEntryDishes.map((dish) => {
+              const dishId = String(dish.id);
+              const hasOptions =
+                dishNeedsCooking(dish) ||
+                parseDishExtras(dish).length > 0 ||
+                parseDishSideIds(dish).length > 0;
+              const cleanDescription = getDishCleanDescription(dish);
+              return (
+                <div key={dishId} className="grid grid-cols-[1fr_auto_auto] items-center px-3 py-2 border-t border-gray-200">
+                  <div>
+                    <div className="font-bold">{getDishName(dish)}</div>
+                    {cleanDescription ? <div className="text-xs text-gray-600">{cleanDescription}</div> : null}
+                  </div>
+                  <div className="pr-4 text-sm">{getDishPrice(dish).toFixed(2)}€</div>
+                  <div className="text-center">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void openOptionsModal(dish);
+                      }}
+                      className={`h-10 px-3 border-2 border-black text-xs font-bold ${hasOptions ? "bg-white" : "bg-gray-100"}`}
+                    >
+                      {hasOptions ? "Configurer" : "Ajouter"}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="mt-4 rounded border-2 border-black p-3 max-h-56 overflow-y-auto">
+            <h3 className="font-bold mb-2">Récapitulatif commande</h3>
+            {fastLines.length === 0 ? <p className="text-sm text-gray-600">Aucune ligne.</p> : null}
+            <div className="space-y-2">
+              {fastLines.map((line) => (
+                <div key={line.lineId} className="border border-gray-300 rounded p-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-semibold">
+                      {line.quantity}x {line.dishName}
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold">{(line.unitPrice * line.quantity).toFixed(2)}€</span>
+                      <button
+                        type="button"
+                        onClick={() => removeFastLine(line.lineId)}
+                        className="px-2 py-1 text-xs font-bold border border-black bg-white"
+                      >
+                        Retirer
+                      </button>
+                    </div>
+                  </div>
+                  {buildLineInstructions(line) ? (
+                    <div className="mt-1 text-xs text-gray-700">{buildLineInstructions(line)}</div>
+                  ) : null}
+                  <div className="mt-2">
+                    <label className="block text-xs font-bold mb-1">Commentaire cuisine</label>
+                    <textarea
+                      value={line.specialRequest}
+                      onChange={(event) => updateLineKitchenComment(line.lineId, event.target.value)}
+                      placeholder="Ex: sans oignons"
+                      className="w-full border border-black px-2 py-1 text-xs"
+                      rows={2}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleSubmitFastOrder}
+            disabled={fastLoading || fastLines.length === 0 || !selectedFastTableNumber.trim()}
+            className="mt-4 w-full h-14 bg-green-700 text-white text-xl font-bold border-2 border-black disabled:bg-gray-400 disabled:cursor-not-allowed"
+          >
+            {fastLoading ? "ENVOI..." : "Valider la commande"}
+          </button>
+          {fastMessage ? <p className="mt-2 text-sm font-semibold">{fastMessage}</p> : null}
+        </section>
+      ) : null}
+
+      {resolvedActiveTab === "sessions" ? (
+        <section className="bg-white border-2 border-black rounded-lg p-4">
+          <h2 className="text-lg font-bold mb-3">Ouvrir une table</h2>
+          <div className="grid grid-cols-1 gap-3 max-w-md">
+            <input type="number" placeholder="Numéro de table" value={tableNumberInput} onChange={(e) => setTableNumberInput(e.target.value)} className="px-3 py-2 border-2 border-black rounded bg-white text-black" />
+            <input type="text" placeholder="Code PIN" value={pinInput} onChange={(e) => setPinInput(e.target.value)} className="px-3 py-2 border-2 border-black rounded bg-white text-black" />
+            <button onClick={handleSaveTable} disabled={saving} className="bg-green-700 text-white py-2 rounded font-bold disabled:opacity-60">
+              {saving ? "Enregistrement..." : "Valider"}
+            </button>
+            {message ? <p className="text-sm font-semibold">{message}</p> : null}
+          </div>
+
+          <div className="mt-6">
+            <h3 className="text-base font-bold mb-2">État des tables (1 à {configuredTotalTables})</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {tableSlots.map((slot) => (
+                <div
+                  key={`table-slot-${slot.tableNumber}`}
+                  className={`border border-black rounded p-2 flex items-center justify-between gap-2 ${
+                    slot.isOccupied ? "bg-red-100" : "bg-green-100"
+                  }`}
+                >
+                  <div className="font-bold">
+                    Table {slot.tableNumber} | {slot.isOccupied ? "Occupée" : "Libre"}
+                    {slot.isOccupied ? ` | PIN: ${String(slot.row?.pin_code ?? "")}` : ""}
+                  </div>
+                  {slot.isOccupied && slot.row ? (
+                    <div className="flex items-center gap-2">
+                      <button onClick={() => fillFormForEdit(slot.row as TableAssignment)} className="px-3 py-1 rounded border border-black bg-white font-bold">
+                        Modifier
+                      </button>
+                      <button onClick={() => handleDeleteTable(slot.row as TableAssignment)} className="px-3 py-1 rounded bg-red-700 text-white font-bold">
+                        Fermer la Table
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+      ) : null}
+
+      {resolvedActiveTab === "calls" ? (
+        <section className="bg-white border-2 border-black rounded-lg p-4">
+          <h2 className="text-lg font-bold mb-3">Appels</h2>
+          {openCalls.length === 0 ? <p className="text-gray-500 italic">Aucun appel.</p> : null}
+          <div className="space-y-2">
+            {openCalls.map((call) => (
+              <div key={call.id} className="flex items-center justify-between border border-black rounded p-2">
+                <div>
+                  <div className="font-bold">Table {call.table_number ?? "?"}</div>
+                  <div className="text-sm text-gray-600">{call.created_at ? new Date(call.created_at).toLocaleTimeString("fr-FR") : "-"}</div>
+                </div>
+                <button onClick={() => resolveCall(call.id)} className="bg-black text-white px-3 py-2 rounded font-bold">OK</button>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      {resolvedActiveTab === "orders" ? (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <section className="bg-white border-2 border-black rounded-lg p-4">
+            <h2 className="text-lg font-bold mb-3">En Préparation</h2>
+            <div className="border-b border-black pb-3 mb-3">
+              <h3 className="font-bold mb-2">Boissons</h3>
+              <div className="space-y-2">
+                {prepDrinks.length === 0 ? <p className="text-sm text-gray-500 italic">Aucune boisson en préparation.</p> : prepDrinks.map((o) => renderOrderCard(o, true, false))}
+              </div>
+            </div>
+            <div>
+              <h3 className="font-bold mb-2">Plats</h3>
+              <div className="space-y-2">
+                {prepFoods.length === 0 ? <p className="text-sm text-gray-500 italic">Aucun plat en préparation.</p> : prepFoods.map((o) => renderOrderCard(o, false, false))}
+              </div>
+            </div>
+          </section>
+
+          <section className="bg-white border-2 border-black rounded-lg p-4">
+            <h2 className="text-lg font-bold mb-3">À Servir</h2>
+            <div className="space-y-2">
+              {orders.filter((o) => ["ready", "ready_bar"].includes(String(o.status || ""))).length === 0 ? (
+                <p className="text-sm text-gray-500 italic">Aucune commande prête à servir.</p>
+              ) : (
+                orders
+                  .filter((o) => ["ready", "ready_bar"].includes(String(o.status || "")))
+                  .map((o) => renderOrderCard(o, parseItems(o.items).some(isDrink), true))
+              )}
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      {modalOpen && modalDish ? (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+          <div className="w-full max-w-lg bg-white border-2 border-black rounded-lg p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-lg font-black">Options - {getDishName(modalDish)}</h3>
+              <button type="button" onClick={() => setModalOpen(false)} className="h-9 w-9 border-2 border-black font-black">×</button>
+            </div>
+            {getDishCleanDescription(modalDish) ? (
+              <p className="mb-3 text-sm text-gray-700">{getDishCleanDescription(modalDish)}</p>
+            ) : null}
+
+            <div className="flex items-center gap-2 mb-3">
+              <span className="font-black">Quantité</span>
+              <button type="button" onClick={() => setModalQty((prev) => Math.max(1, prev - 1))} className="h-9 w-9 border-2 border-black font-black">-</button>
+              <span className="min-w-8 text-center font-black text-lg">{modalQty}</span>
+              <button type="button" onClick={() => setModalQty((prev) => prev + 1)} className="h-9 w-9 border-2 border-black font-black">+</button>
+            </div>
+
+            {modalSideChoices.length > 0 ? (
+              <div className="mb-3">
+                <div className="font-black mb-1">Accompagnements</div>
+                <div className="space-y-1">
+                  {modalSideChoices.map((side) => {
+                    const checked = modalSelectedSides.includes(side);
+                    return (
+                      <label key={side} className="flex items-center gap-2 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={(event) => {
+                            if (event.target.checked) {
+                              setModalSelectedSides((prev) => [...prev, side]);
+                            } else {
+                              setModalSelectedSides((prev) => prev.filter((value) => value !== side));
+                            }
+                          }}
+                        />
+                        <span>{side}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null}
+
+            {modalExtraChoices.length > 0 ? (
+              <div className="mb-3">
+                <div className="font-black mb-1">Suppléments</div>
+                <div className="space-y-1">
+                  {modalExtraChoices.map((extra) => {
+                    const key = `${extra.name}-${extra.price}`;
+                    const checked = modalSelectedExtras.some((value) => `${value.name}-${value.price}` === key);
+                    return (
+                      <label key={key} className="flex items-center gap-2 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={(event) => {
+                            if (event.target.checked) {
+                              setModalSelectedExtras((prev) => [...prev, extra]);
+                            } else {
+                              setModalSelectedExtras((prev) =>
+                                prev.filter((value) => `${value.name}-${value.price}` !== key)
+                              );
+                            }
+                          }}
+                        />
+                        <span>{extra.name} (+{extra.price.toFixed(2)}€)</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null}
+
+            <div className="mb-3">
+              {modalDish && dishNeedsCooking(modalDish) ? (
+                <>
+                  <label className="block font-black mb-1">Cuisson</label>
+                  <div className="grid grid-cols-2 gap-2 mb-2">
+                    {COOKING_CHOICES.map((choice) => (
+                      <button
+                        key={choice}
+                        type="button"
+                        onClick={() => setModalCooking(choice)}
+                        className={`border-2 border-black px-2 py-2 text-sm font-bold ${
+                          modalCooking === choice ? "bg-black text-white" : "bg-white text-black"
+                        }`}
+                      >
+                        {choice}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              ) : null}
+              <label className="block font-black mb-1">Commentaire cuisine</label>
+              <textarea
+                value={modalKitchenComment}
+                onChange={(event) => setModalKitchenComment(event.target.value)}
+                placeholder="Ex: sans oignons"
+                className="w-full border-2 border-black px-3 py-2"
+                rows={3}
+              />
+            </div>
+
+            <button type="button" onClick={handleAddOptionLine} className="w-full h-12 bg-black text-white border-2 border-black font-black">
+              Ajouter avec options
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
