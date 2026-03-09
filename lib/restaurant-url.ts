@@ -1,5 +1,6 @@
 export function getAppBaseUrl() {
   const fromEnvRaw =
+    process.env.NEXT_PUBLIC_BASE_URL ||
     process.env.NEXT_PUBLIC_APP_URL ||
     process.env.NEXT_PUBLIC_SITE_URL ||
     process.env.NEXT_PUBLIC_VERCEL_URL ||
@@ -11,9 +12,9 @@ export function getAppBaseUrl() {
     return `https://${fromEnv.replace(/\/+$/, "")}`;
   }
   if (typeof window !== "undefined" && window.location?.origin) {
-    return String(window.location.origin || "http://localhost:3000").replace(/\/+$/, "");
+    return String(window.location.origin || "").replace(/\/+$/, "");
   }
-  return "http://localhost:3000";
+  return "https://restaurant-7e47fyry2-jules-delhommes-projects.vercel.app";
 }
 
 export function buildRestaurantPublicUrl(restaurantId: string) {
