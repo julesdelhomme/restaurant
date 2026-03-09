@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { ReactNode, useEffect, useMemo, useState } from "react";
+import { ReactNode, Suspense, useEffect, useMemo, useState } from "react";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "../lib/supabase";
 import { type AccessContext, type RequiredRole } from "@/lib/auth/types";
@@ -37,7 +37,7 @@ function buildLoginUrl(requiredRole: RequiredRole, restaurantId: string, current
   return `/login?next=${next}`;
 }
 
-export default function ProAccessGuard({ children, requiredRole, allowSuperAdmin = true }: ProAccessGuardProps) {
+function ProAccessGuardContent({ children, requiredRole, allowSuperAdmin = true }: ProAccessGuardProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -158,5 +158,13 @@ export default function ProAccessGuard({ children, requiredRole, allowSuperAdmin
   }
 
   return <>{children}</>;
+}
+
+export default function ProAccessGuard(props: ProAccessGuardProps) {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center bg-gray-100 text-black">Chargement...</div>}>
+      <ProAccessGuardContent {...props} />
+    </Suspense>
+  );
 }
 
