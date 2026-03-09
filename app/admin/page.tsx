@@ -6,6 +6,8 @@ import { supabase } from "../lib/supabase";
 import { getCookingLabelFr, normalizeCookingKey } from "../lib/ui-translations";
 import { Check, Euro, X } from "lucide-react";
 
+export const dynamic = "force-dynamic";
+
 const MAX_TOTAL_TABLES = 200;
 const COOKING_CHOICES = ["Bleu", "Saignant", "À point", "Bien cuit"];
 
@@ -3076,4 +3078,3 @@ export default function AdminPage() {
     </Suspense>
   );
 }
-
