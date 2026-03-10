@@ -2,7 +2,7 @@
 "use client";
 
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { useParams, usePathname, useSearchParams } from "next/navigation";
+import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "../lib/supabase";
 import { AlertTriangle, CheckCircle2, CircleHelp, Droplets, Euro, Globe, Moon, PhoneCall, Receipt, ShoppingCart, Sun, Trash2, XCircle } from "lucide-react";
 import RestaurantOffline from "./components/RestaurantOffline";
@@ -1900,6 +1900,7 @@ function buildInstructionText(
 }
 
 export default function MenuDigital() {
+  const router = useRouter();
   const params = useParams<{ id?: string; restaurant_id?: string }>();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -1927,6 +1928,12 @@ export default function MenuDigital() {
   const isVitrineMode =
     !forceInteractiveMode &&
     (isVitrinePath || ["vitrine", "view", "consultation", "readonly", "read-only"].includes(modeParam));
+
+  useEffect(() => {
+    if (scopedRestaurantId) return;
+    if (pathSegments.length > 0) return;
+    router.replace("/admin");
+  }, [scopedRestaurantId, pathSegments.length, router]);
   const [lang, setLang] = useState<string>("fr");
   const [dishes, setDishes] = useState<Dish[]>([]);
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
@@ -5102,7 +5109,13 @@ export default function MenuDigital() {
                         />
                         <span>
                           {optionLabel}
-                          {optionPrice != null ? ` (+${optionPrice.toFixed(2)} \u20AC)` : ""}
+                          {optionPrice != null ? (
+                            <>
+                              {" "}(+{optionPrice.toFixed(2)}&euro;)
+                            </>
+                          ) : (
+                            ""
+                          )}
                         </span>
                       </label>
                     );
@@ -5251,7 +5264,7 @@ export default function MenuDigital() {
                     setSideError("");
                   }}
                 >
-                  {`${uiText.addToCart} (${modalTotalPrice.toFixed(2)} \u20AC)`}
+                  {uiText.addToCart} ({modalTotalPrice.toFixed(2)}&euro;)
                 </button>
               </div>
             )}

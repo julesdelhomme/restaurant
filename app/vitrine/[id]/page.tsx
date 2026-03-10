@@ -1,6 +1,11 @@
 import MenuPage from "../../page";
 
-export default function VitrinePublicPage() {
-  return <MenuPage />;
-}
+type VitrinePublicPageProps = {
+  params: {
+    id: string;
+  };
+};
 
+export default function VitrinePublicPage({ params }: VitrinePublicPageProps) {
+  return <MenuPage key={params.id} />;
+}

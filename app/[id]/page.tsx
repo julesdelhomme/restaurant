@@ -1,5 +1,11 @@
 import ClientMenuPage from "../page";
 
-export default function RestaurantRootPage() {
-  return <ClientMenuPage />;
+type RestaurantRootPageProps = {
+  params: {
+    id: string;
+  };
+};
+
+export default function RestaurantRootPage({ params }: RestaurantRootPageProps) {
+  return <ClientMenuPage key={params.id} />;
 }
