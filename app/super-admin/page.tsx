@@ -5,6 +5,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import ProAccessGuard from "../components/ProAccessGuard";
 import RestaurantQrCard from "../components/RestaurantQrCard";
 import { supabase } from "../lib/supabase";
+import { buildRestaurantPublicUrl, buildRestaurantVitrineUrl } from "@/lib/restaurant-url";
 
 type RestaurantItem = {
   id: string;
@@ -327,8 +328,11 @@ export default function SuperAdminPage() {
             {error ? <p className="font-bold text-red-700">{error}</p> : null}
             {!loading && !error ? (
               <div className="space-y-3">
-                {items.map((item) => (
-                  <div key={item.id} className="rounded-lg border border-gray-300 p-3">
+                {items.map((item) => {
+                  const publicUrl = buildRestaurantPublicUrl(item.id);
+                  const vitrineUrl = buildRestaurantVitrineUrl(item.id);
+                  return (
+                    <div key={item.id} className="rounded-lg border border-gray-300 p-3">
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div>
                         <div className="text-base font-black">{item.name || "-"}</div>
@@ -363,6 +367,22 @@ export default function SuperAdminPage() {
                         >
                           Gérer ce restaurant
                         </Link>
+                        <a
+                          href={publicUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="px-3 py-1 border border-gray-300 rounded font-bold text-black hover:bg-gray-100"
+                        >
+                          Voir la carte
+                        </a>
+                        <a
+                          href={vitrineUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="px-3 py-1 border border-gray-300 rounded font-bold text-black hover:bg-gray-100"
+                        >
+                          Lien Vitrine
+                        </a>
                       </div>
                     </div>
                     <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-2">
@@ -383,10 +403,11 @@ export default function SuperAdminPage() {
                       />
                     </div>
                     <p className="mt-2 text-xs text-gray-600">
-                      Le QR vitrine pointe vers `/vitrine/{item.id}` pour l&apos;affichage extérieur.
+                      Le QR vitrine pointe vers {vitrineUrl} pour l&apos;affichage extérieur.
                     </p>
-                  </div>
-                ))}
+                    </div>
+                  );
+                })}
               </div>
             ) : null}
           </section>

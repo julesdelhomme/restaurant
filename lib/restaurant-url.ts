@@ -1,4 +1,7 @@
 export function getAppBaseUrl() {
+  if (typeof window !== "undefined" && window.location?.origin) {
+    return String(window.location.origin || "").replace(/\/+$/, "");
+  }
   const fromEnvRaw =
     process.env.NEXT_PUBLIC_BASE_URL ||
     process.env.NEXT_PUBLIC_APP_URL ||
@@ -11,10 +14,7 @@ export function getAppBaseUrl() {
     if (/^https?:\/\//i.test(fromEnv)) return fromEnv.replace(/\/+$/, "");
     return `https://${fromEnv.replace(/\/+$/, "")}`;
   }
-  if (typeof window !== "undefined" && window.location?.origin) {
-    return String(window.location.origin || "").replace(/\/+$/, "");
-  }
-  return "https://restaurant-7e47fyry2-jules-delhommes-projects.vercel.app";
+  return "https://restaurant-olive-one-15.vercel.app";
 }
 
 export function buildRestaurantPublicUrl(restaurantId: string) {

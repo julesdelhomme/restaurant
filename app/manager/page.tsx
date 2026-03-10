@@ -9,6 +9,7 @@ import autoTable from "jspdf-autotable";
 import { ChevronDown, ChevronRight, Pencil, Printer, Send, Star, Trash2, X } from "lucide-react";
 import { DEFAULT_ALLERGEN_TRANSLATIONS_EXTENDED, PREDEFINED_LANGUAGE_OPTIONS_EXTENDED } from "../lib/languagesConfig";
 import RestaurantQrCard from "../components/RestaurantQrCard";
+import { buildRestaurantPublicUrl, buildRestaurantVitrineUrl } from "@/lib/restaurant-url";
 import {
   Bar,
   BarChart,
@@ -6232,6 +6233,9 @@ export default function MenuManager() {
       (restaurant as Record<string, unknown> | null)?.views_vitrine ??
       0
   );
+  const currentRestaurantQrId = String(restaurant?.id || scopedRestaurantId || "").trim();
+  const currentRestaurantPublicUrl = currentRestaurantQrId ? buildRestaurantPublicUrl(currentRestaurantQrId) : "";
+  const currentRestaurantVitrineUrl = currentRestaurantQrId ? buildRestaurantVitrineUrl(currentRestaurantQrId) : "";
   const printFrameRef = useRef<HTMLIFrameElement | null>(null);
   const handleGeneratePrintableMenu = () => {
     const printFrame = printFrameRef.current;
@@ -7578,17 +7582,27 @@ export default function MenuManager() {
             <div className="rounded-xl border border-gray-300 bg-white p-3">
               <div className="text-sm font-black mb-2">QR Code Tables</div>
               <RestaurantQrCard
-                restaurantId={String(restaurant?.id || scopedRestaurantId || "").trim()}
+                restaurantId={currentRestaurantQrId}
                 restaurantName={String(restaurantForm.name || restaurant?.name || "Restaurant").trim()}
                 logoUrl={String(restaurantForm.logo_url || restaurant?.logo_url || "").trim()}
                 primaryColor={String(restaurantForm.primary_color || restaurant?.primary_color || "#111111").trim()}
                 title="QR Code Tables"
               />
+              {currentRestaurantPublicUrl ? (
+                <a
+                  href={currentRestaurantPublicUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-2 inline-flex items-center rounded border border-gray-300 px-3 py-1 text-xs font-black text-black hover:bg-gray-100"
+                >
+                  Voir ma carte
+                </a>
+              ) : null}
             </div>
             <div className="rounded-xl border border-gray-300 bg-white p-3">
               <div className="text-sm font-black mb-2">QR Code Vitrine</div>
               <RestaurantQrCard
-                restaurantId={String(restaurant?.id || scopedRestaurantId || "").trim()}
+                restaurantId={currentRestaurantQrId}
                 restaurantName={String(restaurantForm.name || restaurant?.name || "Restaurant").trim()}
                 logoUrl={String(restaurantForm.logo_url || restaurant?.logo_url || "").trim()}
                 primaryColor={String(restaurantForm.primary_color || restaurant?.primary_color || "#111111").trim()}
@@ -7596,6 +7610,16 @@ export default function MenuManager() {
                 title="QR Code Vitrine"
               />
               <div className="mt-2 text-xs font-bold text-gray-600">Notre Carte / Our Menu</div>
+              {currentRestaurantVitrineUrl ? (
+                <a
+                  href={currentRestaurantVitrineUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-2 inline-flex items-center rounded border border-gray-300 px-3 py-1 text-xs font-black text-black hover:bg-gray-100"
+                >
+                  Lien Vitrine
+                </a>
+              ) : null}
             </div>
             <div className="lg:col-span-2 rounded-xl border border-gray-300 bg-white p-3 text-sm">
               <div className="font-black">Vues mode vitrine</div>
