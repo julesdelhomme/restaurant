@@ -2834,15 +2834,60 @@ export default function MenuManager() {
 
       if (error) {
         const code = String((error as { code?: string })?.code || "");
-        if (code === "42P01" || code === "42703") {
+        if (code === "42P01") {
           console.warn("Table reviews absente ou schema incomplet:", (error as { message?: string })?.message || error);
           setReviews([]);
           return;
         }
-        console.error("Erreur chargement reviews:", toLoggableSupabaseError(error));
-        return;
+        if (code !== "42703") {
+          console.error("Erreur chargement reviews:", toLoggableSupabaseError(error));
+          return;
+        }
       }
-      setReviews(Array.isArray(data) ? (data as ReviewRow[]) : []);
+      let reviewRows = Array.isArray(data) ? (data as ReviewRow[]) : [];
+      if (reviewRows.length === 0 || String((error as { code?: string })?.code || "") === "42703") {
+        let relatedOrders = await supabase
+          .from("orders")
+          .select("id")
+          .eq("restaurant_id", scopedRestaurantId)
+          .gte("created_at", sevenDaysAgoIso)
+          .order("created_at", { ascending: false })
+          .limit(400);
+        if (relatedOrders.error && String((relatedOrders.error as { code?: string })?.code || "") === "42703") {
+          relatedOrders = await supabase
+            .from("orders")
+            .select("id")
+            .eq("id_restaurant", scopedRestaurantId)
+            .gte("created_at", sevenDaysAgoIso)
+            .order("created_at", { ascending: false })
+            .limit(400);
+        }
+        const orderIds = Array.isArray(relatedOrders.data)
+          ? relatedOrders.data.map((row) => String((row as { id?: string | number | null })?.id || "").trim()).filter(Boolean)
+          : [];
+        if (!relatedOrders.error && orderIds.length > 0) {
+          let byOrder = await supabase
+            .from("reviews")
+            .select("*, dish:dishes(id,name,name_fr,image_url)")
+            .in("order_id", orderIds)
+            .gte("created_at", sevenDaysAgoIso)
+            .order("created_at", { ascending: false })
+            .limit(100);
+          if (byOrder.error) {
+            byOrder = await supabase
+              .from("reviews")
+              .select("*")
+              .in("order_id", orderIds)
+              .gte("created_at", sevenDaysAgoIso)
+              .order("created_at", { ascending: false })
+              .limit(100);
+          }
+          if (!byOrder.error && Array.isArray(byOrder.data)) {
+            reviewRows = byOrder.data as ReviewRow[];
+          }
+        }
+      }
+      setReviews(reviewRows);
     } catch (error) {
       console.warn("Chargement reviews ignor?:", error);
     }
@@ -7837,7 +7882,7 @@ export default function MenuManager() {
                 </button>
               </div>
             </div>
-            <div className="hidden">
+            <div className={activeManagerTab === "appearance" ? "" : "hidden"}>
               <label className="block mb-1 font-bold">Style des cartes (affichage)</label>
               <div className="flex flex-wrap gap-2">
                 <button
@@ -7865,38 +7910,6 @@ export default function MenuManager() {
               <p className="mt-2 text-xs text-gray-600">
                 Format recommandé : 4:3 ou 1:1 (Carré). Taille conseillée : 800x600px. Assurez-vous que le plat est centré.
               </p>
-            </div>
-            <div className={activeManagerTab === "appearance" ? "" : "hidden"}>
-              <label className="block mb-1 font-bold">Densité de la carte</label>
-              <div className="flex flex-wrap gap-2">
-                {([
-                  { key: "compact", label: "Compact" },
-                  { key: "spacious", label: "Spacieux" },
-                ] as const).map((item) => {
-                  const currentDensity = normalizeDensityStyle(
-                    (restaurantForm as Record<string, unknown>).card_density ??
-                      (restaurantForm as Record<string, unknown>).density_style
-                  );
-                  return (
-                    <button
-                      key={item.key}
-                      type="button"
-                      onClick={() =>
-                        setRestaurantForm((prev) => ({
-                          ...prev,
-                          card_density: item.key,
-                          density_style: item.key,
-                        }))
-                      }
-                      className={`px-3 py-2 border-2 font-black rounded ${
-                        currentDensity === item.key ? "bg-black text-white border-black" : "bg-white text-black border-gray-300"
-                      }`}
-                    >
-                      {item.label}
-                    </button>
-                  );
-                })}
-              </div>
             </div>
             <div className={activeManagerTab === "appearance" ? "" : "hidden"}>
               <label className="block mb-1 font-bold">Style des cartes (coins)</label>

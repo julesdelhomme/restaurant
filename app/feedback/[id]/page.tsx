@@ -240,6 +240,7 @@ export default function FeedbackPage() {
   const [dishRatings, setDishRatings] = useState<Record<string, number>>({});
   const [dishComments, setDishComments] = useState<Record<string, string>>({});
   const [restaurantRating, setRestaurantRating] = useState(5);
+  const [restaurantIdForReview, setRestaurantIdForReview] = useState("");
   const [restaurantGoogleUrl, setRestaurantGoogleUrl] = useState("");
   const [comment, setComment] = useState("");
   const [loading, setLoading] = useState(false);
@@ -277,7 +278,7 @@ export default function FeedbackPage() {
       const orderRow = order as Record<string, unknown>;
       const relatedOrders: Record<string, unknown>[] = [orderRow];
       const orderTableNumber = Number(orderRow.table_number || 0);
-      const orderRestaurantId = String(orderRow.restaurant_id || "").trim();
+      const orderRestaurantId = String(orderRow.restaurant_id || orderRow.id_restaurant || "").trim();
       const sharedPaidAt = String(orderRow.paid_at || orderRow.closed_at || "").trim();
 
       if (Number.isFinite(orderTableNumber) && orderTableNumber > 0 && orderRestaurantId && sharedPaidAt) {
@@ -375,6 +376,7 @@ export default function FeedbackPage() {
 
       if (!cancelled) {
         setOrderExists(true);
+        setRestaurantIdForReview(orderRestaurantId);
         setDishLines(nextLines);
         setRestaurantGoogleUrl(googleUrl);
         setDishRatings((prev) => {
@@ -419,6 +421,7 @@ export default function FeedbackPage() {
 
       rows.push({
         order_id: orderId,
+        restaurant_id: restaurantIdForReview || null,
         dish_id: null,
         rating: restaurantRating,
         comment: String(comment || "").trim() || null,
@@ -429,13 +432,21 @@ export default function FeedbackPage() {
         if (lineRating < 1 || lineRating > 5) return;
         rows.push({
           order_id: orderId,
+          restaurant_id: restaurantIdForReview || null,
           dish_id: line.dish_id || null,
           rating: lineRating,
           comment: String(dishComments[line.key] || "").trim() || null,
         });
       });
 
-      const { error: insertError } = await supabase.from("reviews").insert(rows as never);
+      let { error: insertError } = await supabase.from("reviews").insert(rows as never);
+      if (insertError && String((insertError as { code?: string })?.code || "") === "42703") {
+        const fallbackRows = rows.map((row) =>
+          Object.fromEntries(Object.entries(row).filter(([key]) => key !== "restaurant_id"))
+        );
+        const fallbackInsert = await supabase.from("reviews").insert(fallbackRows as never);
+        insertError = fallbackInsert.error;
+      }
       if (insertError) {
         setError(insertError.message || "Impossible d'enregistrer votre avis.");
         return;
