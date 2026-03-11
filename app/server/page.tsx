@@ -170,6 +170,17 @@ function parseJsonObject(raw: unknown): Record<string, unknown> | null {
   return null;
 }
 
+function parsePriceNumber(raw: unknown): number {
+  if (raw == null) return 0;
+  if (typeof raw === "number") return Number.isFinite(raw) ? Number(raw.toFixed(2)) : 0;
+  const text = String(raw).trim();
+  if (!text) return 0;
+  const cleaned = text.replace(/\s+/g, "").replace(",", ".").replace(/[^0-9.-]/g, "");
+  if (!cleaned || cleaned === "-" || cleaned === ".") return 0;
+  const parsed = Number.parseFloat(cleaned);
+  return Number.isFinite(parsed) ? Number(parsed.toFixed(2)) : 0;
+}
+
 function readTranslationLabel(rawTranslations: unknown, language = "fr") {
   const parsed = parseJsonObject(rawTranslations);
   if (!parsed) return "";
@@ -400,9 +411,9 @@ function parseOptionsFromDescription(description: string | null): ParsedDishOpti
             const entry = row as Record<string, unknown>;
             const name = String(entry.name_fr || entry.name || "").trim();
             if (!name) return null;
-            const amount = Number(entry.price || 0);
+            const amount = parsePriceNumber(entry.price);
             const id = String(entry.id || "").trim();
-            return { id, name, price: Number.isFinite(amount) ? amount : 0 };
+            return { id, name, price: amount };
           })
           .filter(Boolean) as ExtraChoice[];
       }
@@ -443,8 +454,7 @@ function isUuidLike(value: unknown) {
 function buildStableExtraId(dishId: unknown, name: unknown, price: unknown, index = 0) {
   const dishKey = String(dishId || "").trim();
   const nameKey = normalizeLookupText(name || "");
-  const priceKey = Number(price || 0);
-  const safePrice = Number.isFinite(priceKey) ? priceKey.toFixed(2) : "0.00";
+  const safePrice = parsePriceNumber(price).toFixed(2);
   return `extra:${dishKey}:${nameKey || "option"}:${safePrice}:${index}`;
 }
 
@@ -1107,8 +1117,7 @@ export default function ServerPage() {
   };
 
   const getDishPrice = (dish: DishItem) => {
-    const value = Number(dish.price || 0);
-    return Number.isFinite(value) ? value : 0;
+    return parsePriceNumber(dish.price);
   };
 
   const getDishRawDescription = (dish: DishItem) =>
@@ -1211,8 +1220,7 @@ export default function ServerPage() {
             const cleaned = entry.trim();
             if (!cleaned) return null;
             const [namePart, pricePart] = cleaned.split("=").map((part) => part.trim());
-            const fallbackPrice = Number((pricePart || "0").replace(",", "."));
-            const price = Number.isFinite(fallbackPrice) ? fallbackPrice : 0;
+            const price = parsePriceNumber(pricePart || "0");
             return {
               id: buildStableExtraId(dish.id, namePart || cleaned, price, index),
               name: namePart || cleaned,
@@ -1223,8 +1231,7 @@ export default function ServerPage() {
           const row = entry as Record<string, unknown>;
           const name = String(row.name_fr || row.name || "").trim();
           if (!name) return null;
-          const price = Number(row.price || 0);
-          const safePrice = Number.isFinite(price) ? price : 0;
+          const safePrice = parsePriceNumber(row.price);
           return {
             id: String(row.id || "").trim() || buildStableExtraId(dish.id, name, safePrice, index),
             name,
@@ -1240,8 +1247,7 @@ export default function ServerPage() {
         .map(([name, value], index) => {
           const label = String(name || "").trim();
           if (!label) return null;
-          const amount = Number(value || 0);
-          const safeAmount = Number.isFinite(amount) ? amount : 0;
+          const safeAmount = parsePriceNumber(value);
           return {
             id: buildStableExtraId(dish.id, label, safeAmount, index),
             name: label,
@@ -1282,7 +1288,12 @@ export default function ServerPage() {
     if (line.selectedSides.length > 0) parts.push(`Accompagnements: ${line.selectedSides.join(", ")}`);
     if (line.selectedExtras.length > 0) {
       parts.push(
-        `Suppléments: ${line.selectedExtras.map((extra) => `${extra.name} (+${extra.price.toFixed(2)}\u20AC)`).join(", ")}`
+        `Suppléments: ${line.selectedExtras
+          .map((extra) => {
+            const amount = parsePriceNumber(extra.price);
+            return amount > 0 ? `${extra.name} (+${amount.toFixed(2)}\u20AC)` : `${extra.name}`;
+          })
+          .join(", ")}`
       );
     }
     if (line.selectedCooking) parts.push(`Cuisson: ${line.selectedCooking}`);
@@ -1801,7 +1812,7 @@ export default function ServerPage() {
       return;
     }
 
-    const extrasUnitPrice = modalSelectedExtras.reduce((sum, extra) => sum + Number(extra.price || 0), 0);
+    const extrasUnitPrice = modalSelectedExtras.reduce((sum, extra) => sum + parsePriceNumber(extra.price), 0);
     const category = getDishCategoryLabel(modalDish);
     const newLine: FastOrderLine = {
       lineId: makeLineId(),
@@ -1810,7 +1821,7 @@ export default function ServerPage() {
       category,
       categoryId: modalDish.category_id ?? null,
       quantity: modalQty,
-      unitPrice: getDishPrice(modalDish) + extrasUnitPrice,
+      unitPrice: Number((getDishPrice(modalDish) + extrasUnitPrice).toFixed(2)),
       selectedSides: modalSelectedSides,
       selectedExtras: modalSelectedExtras,
       selectedCooking: modalCooking,
@@ -1889,7 +1900,7 @@ export default function ServerPage() {
       const selectedExtras = line.selectedExtras.map((extra, index) => ({
         id: String(extra.id || "").trim() || buildStableExtraId(line.dishId, extra.name, extra.price, index),
         label_fr: String(extra.name || "").trim() || "Supplément",
-        price: Number(extra.price || 0),
+        price: parsePriceNumber(extra.price),
       }));
       const cookingKey = normalizeCookingKey(line.selectedCooking || "");
 
@@ -2739,7 +2750,8 @@ export default function ServerPage() {
                           }}
                         />
                         <span>
-                          {extra.name} (+{extra.price.toFixed(2)}&euro;)
+                          {extra.name}
+                          {parsePriceNumber(extra.price) > 0 ? ` (+${parsePriceNumber(extra.price).toFixed(2)}\u20AC)` : ""}
                         </span>
                       </label>
                     );

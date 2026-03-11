@@ -1906,8 +1906,8 @@ function buildInstructionText(
     const extrasText = dedupeDisplayValues(
       selectedExtras.map((e) => {
         const extraName = String(e.name_fr || "Suppl\u00e9ment").trim() || "Suppl\u00e9ment";
-        const extraPrice = Number(e.price || 0);
-        return `${extraName} (+${PRICE_FORMATTER_EUR.format(Number.isFinite(extraPrice) ? extraPrice : 0)})`;
+        const extraPrice = parsePriceNumber(e.price);
+        return extraPrice > 0 ? `${extraName} (+${PRICE_FORMATTER_EUR.format(extraPrice)})` : extraName;
       })
     )
       .join(", ");
@@ -5176,6 +5176,7 @@ export default function MenuDigital() {
                 <div className="flex flex-col gap-2">
                   {modalExtrasOptions.map((extra) => {
                     const extraKey = `${extra.name_fr}-${parsePriceNumber(extra.price)}`;
+                    const extraPriceAmount = parsePriceNumber(extra.price);
                     const checked = selectedExtras.some(
                       (e) => `${e.name_fr}-${parsePriceNumber(e.price)}` === extraKey
                     );
@@ -5196,7 +5197,10 @@ export default function MenuDigital() {
                             }
                           }}
                         />
-                        {uiText.extraLabel}: {getExtraLabel(extra, lang)} (+{parsePriceNumber(extra.price).toFixed(2)} <Euro size={14} className="inline-block" />)
+                        {uiText.extraLabel}: {getExtraLabel(extra, lang)}
+                        {extraPriceAmount > 0 ? (
+                          <> (+{extraPriceAmount.toFixed(2)} <Euro size={14} className="inline-block" />)</>
+                        ) : null}
                       </label>
                     );
                   })}

@@ -229,6 +229,17 @@ function parseObjectRecord(raw: unknown): Record<string, unknown> {
   return typeof raw === "object" ? (raw as Record<string, unknown>) : {};
 }
 
+function parsePriceNumber(raw: unknown): number {
+  if (raw == null) return 0;
+  if (typeof raw === "number") return Number.isFinite(raw) ? Number(raw.toFixed(2)) : 0;
+  const text = String(raw).trim();
+  if (!text) return 0;
+  const cleaned = text.replace(/\s+/g, "").replace(",", ".").replace(/[^0-9.-]/g, "");
+  if (!cleaned || cleaned === "-" || cleaned === ".") return 0;
+  const parsed = Number.parseFloat(cleaned);
+  return Number.isFinite(parsed) ? Number(parsed.toFixed(2)) : 0;
+}
+
 function getServiceNotificationReasonFr(notification: ServiceNotification) {
   const payload = parseNotificationPayload(notification.payload);
   const requestKey = String(
@@ -594,16 +605,16 @@ function calcLineBreakdown(item: OrderItem) {
       });
     }
     for (const candidate of directCandidates) {
-      const amount = Number(candidate);
-      if (Number.isFinite(amount) && amount > 0) return amount;
+      const amount = parsePriceNumber(candidate);
+      if (amount > 0) return amount;
     }
     return 0;
   };
   const optionSupplementUnitPrice = readOptionSupplement();
   const supplementUnitPrice =
     optionSupplementUnitPrice +
-    (Array.isArray(item.selectedExtras) ? item.selectedExtras.reduce((sum, e) => sum + (Number(e?.price) || 0), 0) : 0) +
-    (Array.isArray(item.selected_extras) ? item.selected_extras.reduce((sum, e) => sum + (Number(e?.price) || 0), 0) : 0);
+    (Array.isArray(item.selectedExtras) ? item.selectedExtras.reduce((sum, e) => sum + parsePriceNumber(e?.price), 0) : 0) +
+    (Array.isArray(item.selected_extras) ? item.selected_extras.reduce((sum, e) => sum + parsePriceNumber(e?.price), 0) : 0);
   const explicitBaseCandidates = [
     item.base_price,
     record.basePrice,
@@ -615,7 +626,7 @@ function calcLineBreakdown(item: OrderItem) {
   const explicitTotalCandidates = [item.unit_total_price, record.unitTotalPrice, record.total_unit_price, record.totalUnitPrice];
   const explicitBase = explicitBaseCandidates.map((v) => Number(v)).find((v) => Number.isFinite(v));
   const explicitTotal = explicitTotalCandidates.map((v) => Number(v)).find((v) => Number.isFinite(v));
-  const rawUnitPrice = Number(item.price || 0);
+  const rawUnitPrice = parsePriceNumber(item.price);
 
   let baseUnitPrice = 0;
   let unitTotal = 0;

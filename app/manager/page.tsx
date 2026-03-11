@@ -6567,7 +6567,10 @@ export default function MenuManager() {
       const extras = Array.from(extrasMergedMap.values());
       if (extras.length > 0) {
         const extrasText = extras
-          .map((extra) => `${extra.name_fr} (+${formatEuro(Number(extra.price || 0))})`)
+          .map((extra) => {
+            const price = Number(extra.price || 0);
+            return Number.isFinite(price) && price > 0 ? `${extra.name_fr} (+${formatEuro(price)})` : `${extra.name_fr}`;
+          })
           .join(", ");
         lines.push(`Suppléments: ${extrasText}`);
       } else if (dish.has_extras) {
@@ -6593,7 +6596,8 @@ export default function MenuManager() {
         const optionsText = options
           .map((option) => {
             const label = String(option.name_fr || option.name || "Variante").trim();
-            const price = option.price_override == null ? "" : ` (${formatEuro(Number(option.price_override || 0))})`;
+            const parsed = Number(option.price_override || 0);
+            const price = Number.isFinite(parsed) && parsed > 0 ? ` (${formatEuro(parsed)})` : "";
             return `${label}${price}`;
           })
           .join(", ");
@@ -9931,7 +9935,9 @@ export default function MenuManager() {
                               {" "} | {code.toUpperCase()}: {extra.names_i18n?.[code] || (code === "en" ? extra.name_en : code === "es" ? extra.name_es : code === "de" ? extra.name_de : "") || "-"}
                             </span>
                           ))}
-                        <span className="font-bold"> (+{formatEuro(Number(extra.price || 0))})</span>
+                        {Number(extra.price || 0) > 0 ? (
+                          <span className="font-bold"> (+{formatEuro(Number(extra.price || 0))})</span>
+                        ) : null}
                       </div>
                       <div className="flex items-center gap-2">
                         <button

@@ -51,6 +51,17 @@ function parseJsonObject(raw: unknown): Record<string, unknown> | null {
   return null;
 }
 
+function parsePriceNumber(raw: unknown): number {
+  if (raw == null) return 0;
+  if (typeof raw === "number") return Number.isFinite(raw) ? Number(raw.toFixed(2)) : 0;
+  const text = String(raw).trim();
+  if (!text) return 0;
+  const cleaned = text.replace(/\s+/g, "").replace(",", ".").replace(/[^0-9.-]/g, "");
+  if (!cleaned || cleaned === "-" || cleaned === ".") return 0;
+  const parsed = Number.parseFloat(cleaned);
+  return Number.isFinite(parsed) ? Number(parsed.toFixed(2)) : 0;
+}
+
 function resolveTotalTables(value: unknown): number | null {
   const readNumber = (entry: unknown): number | null => {
     const numeric = Number(entry);
@@ -299,8 +310,7 @@ function normalizeLookupText(raw: unknown) {
 function buildStableExtraId(dishId: unknown, name: unknown, price: unknown, index = 0) {
   const dishKey = String(dishId || "").trim();
   const nameKey = normalizeLookupText(name || "");
-  const amount = Number(price || 0);
-  const safeAmount = Number.isFinite(amount) ? amount.toFixed(2) : "0.00";
+  const safeAmount = parsePriceNumber(price).toFixed(2);
   return `extra:${dishKey}:${nameKey || "option"}:${safeAmount}:${index}`;
 }
 
@@ -333,7 +343,7 @@ function parseDescriptionOptions(description?: string | null): ParsedDishOptions
             decodedName = nameFr;
           }
           const price = Number.parseFloat(String(pricePart || "0").replace(",", "."));
-          return { name: decodedName || "Supplément", price: Number.isFinite(price) ? price : 0 };
+          return { name: decodedName || "Supplément", price: Number.isFinite(price) ? Number(price.toFixed(2)) : 0 };
         })
         .filter((extra) => extra.name.trim().length > 0)
     : [];
@@ -859,8 +869,7 @@ function AdminContent() {
   };
 
   const getDishPrice = (dish: DishItem) => {
-    const value = Number(dish.price || 0);
-    return Number.isFinite(value) ? value : 0;
+    return parsePriceNumber(dish.price);
   };
 
   const getDishRawDescription = (dish: DishItem) =>
@@ -917,15 +926,15 @@ function AdminContent() {
             const cleaned = entry.trim();
             if (!cleaned) return null;
             const [namePart, pricePart] = cleaned.split("=").map((part) => part.trim());
-            const fallbackPrice = Number((pricePart || "0").replace(",", "."));
-            return { name: namePart || cleaned, price: Number.isFinite(fallbackPrice) ? fallbackPrice : 0 };
+            const fallbackPrice = parsePriceNumber(pricePart || "0");
+            return { name: namePart || cleaned, price: fallbackPrice };
           }
           if (!entry || typeof entry !== "object") return null;
           const row = entry as Record<string, unknown>;
           const name = String(row.name_fr || row.name || "").trim();
           if (!name) return null;
-          const price = Number(row.price || 0);
-          return { name, price: Number.isFinite(price) ? price : 0 };
+          const price = parsePriceNumber(row.price);
+          return { name, price };
         })
         .filter(Boolean) as ExtraChoice[];
     };
@@ -936,8 +945,8 @@ function AdminContent() {
         .map(([name, value]) => {
           const label = String(name || "").trim();
           if (!label) return null;
-          const amount = Number(value || 0);
-          return { name: label, price: Number.isFinite(amount) ? amount : 0 };
+          const amount = parsePriceNumber(value);
+          return { name: label, price: amount };
         })
         .filter(Boolean) as ExtraChoice[];
     };
@@ -1074,7 +1083,7 @@ function AdminContent() {
             ""
         ).trim();
         if (!name) return null;
-        const price = Number(
+        const price = parsePriceNumber(
           row.price ??
             row.option_price ??
             row.supplement_price ??
@@ -1083,13 +1092,13 @@ function AdminContent() {
             row.value ??
             0
         );
-        return { name, price: Number.isFinite(price) ? price : 0 } as ExtraChoice;
+        return { name, price } as ExtraChoice;
       })
       .filter(Boolean) as ExtraChoice[];
 
     const deduped = new Map<string, ExtraChoice>();
     parsed.forEach((extra) => {
-      const key = `${normalizeLookupText(extra.name)}:${Number(extra.price || 0).toFixed(2)}`;
+      const key = `${normalizeLookupText(extra.name)}:${parsePriceNumber(extra.price).toFixed(2)}`;
       if (!deduped.has(key)) deduped.set(key, extra);
     });
     return [...deduped.values()];
@@ -1158,7 +1167,10 @@ function AdminContent() {
     if (line.selectedExtras.length > 0) {
       parts.push(
         `Suppléments: ${line.selectedExtras
-.map((extra) => `${extra.name} (+${extra.price.toFixed(2)}\u20AC)`)
+          .map((extra) => {
+            const amount = parsePriceNumber(extra.price);
+            return amount > 0 ? `${extra.name} (+${amount.toFixed(2)}\u20AC)` : `${extra.name}`;
+          })
           .join(", ")}`
       );
     }
@@ -1829,7 +1841,7 @@ function AdminContent() {
       return;
     }
     const category = getDishCategoryLabel(modalDish);
-    const extrasUnit = modalSelectedExtras.reduce((sum, extra) => sum + Number(extra.price || 0), 0);
+    const extrasUnit = modalSelectedExtras.reduce((sum, extra) => sum + parsePriceNumber(extra.price), 0);
     const line: FastOrderLine = {
       lineId: makeLineId(),
       dishId: String(modalDish.id),
@@ -1837,7 +1849,7 @@ function AdminContent() {
       category,
       categoryId: modalDish.category_id ?? null,
       quantity: modalQty,
-      unitPrice: getDishPrice(modalDish) + extrasUnit,
+      unitPrice: Number((getDishPrice(modalDish) + extrasUnit).toFixed(2)),
       selectedSides: modalSelectedSides,
       selectedExtras: modalSelectedExtras,
       selectedCooking: modalCooking,
@@ -1993,7 +2005,7 @@ function AdminContent() {
       .map((line) => {
         const quantity = Number(line.quantity || 0);
         const unitPrice = Number(line.unitPrice || 0);
-        const extrasPrice = (line.selectedExtras || []).reduce((sum, extra) => sum + Number(extra.price || 0), 0);
+        const extrasPrice = (line.selectedExtras || []).reduce((sum, extra) => sum + parsePriceNumber(extra.price), 0);
         const baseUnitPrice = Number((unitPrice - extrasPrice).toFixed(2));
         const selectedSideIds = (line.selectedSides || [])
           .map((label) => sideIdByAlias.get(normalizeLookupText(label)) || "")
@@ -2022,7 +2034,7 @@ function AdminContent() {
           selected_extras: line.selectedExtras.map((extra, index) => ({
             id: buildStableExtraId(line.dishId, extra.name, extra.price, index),
             label_fr: String(extra.name || "").trim(),
-            price: Number(extra.price || 0),
+            price: parsePriceNumber(extra.price),
           })),
           selected_extra_ids: line.selectedExtras.map((extra, index) =>
             buildStableExtraId(line.dishId, extra.name, extra.price, index)
@@ -2964,7 +2976,7 @@ function AdminContent() {
             <div className="mb-3 text-sm font-bold">
               {(() => {
                 const basePrice = getDishPrice(modalDish);
-                const extrasPrice = modalSelectedExtras.reduce((sum, extra) => sum + Number(extra.price || 0), 0);
+                const extrasPrice = modalSelectedExtras.reduce((sum, extra) => sum + parsePriceNumber(extra.price), 0);
                 const unitTotal = basePrice + extrasPrice;
                 const lineTotal = unitTotal * modalQty;
                 if (extrasPrice > 0) {
@@ -3023,7 +3035,10 @@ function AdminContent() {
                             }
                           }}
                         />
-                        <span>{extra.name} (+{extra.price.toFixed(2)}&euro;)</span>
+                        <span>
+                          {extra.name}
+                          {parsePriceNumber(extra.price) > 0 ? ` (+${parsePriceNumber(extra.price).toFixed(2)}\u20AC)` : ""}
+                        </span>
                       </label>
                     );
                   })}
