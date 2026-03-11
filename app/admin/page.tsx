@@ -3512,7 +3512,7 @@ function AdminContent() {
                                 if (isSingleChoice) {
                                   setModalSelectedSides((prev) => {
                                     const isSelected = prev.includes(side);
-                                    if (isSelected) return sideRequired ? prev : [];
+                                    if (isSelected) return [];
                                     return [side];
                                   });
                                   return;
@@ -3520,7 +3520,6 @@ function AdminContent() {
                                 setModalSelectedSides((prev) => {
                                   const isSelected = prev.includes(side);
                                   if (isSelected) {
-                                    if (sideRequired && prev.length <= 1) return prev;
                                     return prev.filter((value) => value !== side);
                                   }
                                   if (maxSelections > 0 && prev.length >= maxSelections) return prev;

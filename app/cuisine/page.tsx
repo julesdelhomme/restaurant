@@ -726,6 +726,33 @@ export default function KitchenPage() {
     return cookingKey ? getCookingLabelFr(cookingKey) : "";
   };
 
+  const getKitchenNotesLine = (item: Item) => {
+    const parts = String(getKitchenNotes(item) || "")
+      .split("|")
+      .map((part) =>
+        String(part || "")
+          .replace(/^details?\s*:\s*/i, "")
+          .replace(/^notes?\s*:\s*/i, "")
+          .replace(/^precisions?\s*:\s*/i, "Remarque: ")
+          .replace(/^précisions?\s*:\s*/i, "Remarque: ")
+          .replace(/^commentaire cuisine\s*:\s*/i, "Remarque: ")
+          .trim()
+      )
+      .filter(Boolean);
+    const seen = new Set<string>();
+    const deduped = parts.filter((part) => {
+      const key = part
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase()
+        .trim();
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+    return deduped.join(" | ");
+  };
+
   const fetchCatalogNames = async () => {
     const scopeId = String(resolvedRestaurantId || "").trim();
     const dishesBaseQuery = supabase
@@ -1197,6 +1224,19 @@ export default function KitchenPage() {
     }
   };
 
+  const [readyGroupLoadingKey, setReadyGroupLoadingKey] = useState<string>("");
+  const handleReadyGroup = async (groupKey: string, orderIds: Array<string | number>) => {
+    if (!groupKey || orderIds.length === 0) return;
+    setReadyGroupLoadingKey(groupKey);
+    try {
+      for (const orderId of orderIds) {
+        await handleReady(orderId);
+      }
+    } finally {
+      setReadyGroupLoadingKey("");
+    }
+  };
+
   const handleRemindServer = async () => {
     const targetRestaurantId = String(resolvedRestaurantId || "").trim();
     if (!targetRestaurantId) {
@@ -1228,6 +1268,59 @@ export default function KitchenPage() {
 
   const priorityOrders = orders.filter((order) => hasPendingKitchenItems(order as Order));
   const readyHistoryOrders = orders.filter((order) => areKitchenItemsReady(order as Order));
+  const groupedPriorityOrders = (() => {
+    const getHourKey = (createdAt: string) => {
+      const date = new Date(createdAt);
+      if (!Number.isFinite(date.getTime())) return String(createdAt || "").slice(0, 13);
+      return `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}-${date.getHours()}`;
+    };
+    const toCovers = (order: Order) => {
+      const value = Number(order.covers || order.guest_count || order.customer_count || 0);
+      return Number.isFinite(value) && value > 0 ? Math.trunc(value) : null;
+    };
+
+    type KitchenGroup = {
+      groupKey: string;
+      tableNumber: string;
+      covers: number | null;
+      createdAt: string;
+      orderIds: Array<string | number>;
+      items: Array<{ orderId: string | number; item: Item; idx: number }>;
+    };
+
+    const map = new Map<string, KitchenGroup>();
+    priorityOrders.forEach((order) => {
+      const hourKey = getHourKey(String(order.created_at || ""));
+      const tableNumber = String(order.table_number || "").trim() || "?";
+      const groupKey = `${tableNumber}-${hourKey}`;
+      const kitchenItems = getOrderItems(order as Order).filter((item: any) => isKitchenCourse(item));
+      if (kitchenItems.length === 0) return;
+      const existing = map.get(groupKey);
+      if (existing) {
+        existing.orderIds.push(order.id);
+        existing.items.push(
+          ...kitchenItems.map((item, idx) => ({ orderId: order.id, item: item as Item, idx }))
+        );
+        const nextCovers = toCovers(order);
+        if (!existing.covers && nextCovers) existing.covers = nextCovers;
+        if (new Date(order.created_at).getTime() < new Date(existing.createdAt).getTime()) {
+          existing.createdAt = order.created_at;
+        }
+        return;
+      }
+      map.set(groupKey, {
+        groupKey,
+        tableNumber,
+        covers: toCovers(order),
+        createdAt: order.created_at,
+        orderIds: [order.id],
+        items: kitchenItems.map((item, idx) => ({ orderId: order.id, item: item as Item, idx })),
+      });
+    });
+    return [...map.values()].sort(
+      (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+    );
+  })();
   const handleManualPrint = () => {
     const targetOrder = priorityOrders[0] || readyHistoryOrders[0] || orders[0] || null;
     if (!targetOrder) return;
@@ -1272,56 +1365,45 @@ export default function KitchenPage() {
       {orders.length === 0 && <p className="text-gray-500 italic">Aucune commande en attente pour la cuisine.</p>}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {priorityOrders.map((order) => {
-          const isReady = areKitchenItemsReady(order as Order);
-          const items = getOrderItems(order as Order);
-          const kitchenItems = items.filter((item: any) => isKitchenCourse(item));
-
-          if (kitchenItems.length === 0) return null;
+        {groupedPriorityOrders.map((group) => {
+          const isSubmitting = readyGroupLoadingKey === group.groupKey;
+          if (group.items.length === 0) return null;
 
           return (
             <div
-              key={order.id}
+              key={group.groupKey}
               className="bg-white border-2 border-black p-4 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] flex flex-col justify-between"
             >
               <div>
                 <div className="flex justify-between items-start mb-4 border-b-2 border-black pb-2">
                   <h2 className="text-3xl font-black">
-                    T-{order.table_number}
-                    {Number(order.covers || order.guest_count || order.customer_count) > 0
-                      ? ` | 👥 ${Number(order.covers || order.guest_count || order.customer_count)}`
-                      : ""}
+                    T-{group.tableNumber}
+                    {group.covers ? ` | 👥 ${group.covers}` : ""}
                   </h2>
-                  <span className="text-xs font-mono text-gray-500">#{String(order.id).slice(0, 4)}</span>
+                  <span className="text-xs font-mono text-gray-500">{group.orderIds.length} commande(s)</span>
                 </div>
 
                 <div className="mb-4">
-                  <p className="text-sm text-gray-600">Arrivée: {formatTime(order.created_at)}</p>
+                  <p className="text-sm text-gray-600">Arrivée: {formatTime(group.createdAt)}</p>
                 </div>
 
                 <div className="space-y-2 mb-4">
-                  {kitchenItems.map((item: any, idx: number) => {
-                    const kitchenDetails = getKitchenNotes(item);
-                    const cookingInline = getInlineCookingLevel(item as Item);
+                  {group.items.map(({ item, orderId, idx }) => {
+                    const notesLine = getKitchenNotesLine(item as Item);
                     return (
-                      <div key={`${String(order.id)}-${idx}-${String(item.dish_id || item.id || "")}`} className="bg-gray-100 p-2">
+                      <div key={`${String(orderId)}-${idx}-${String(item.dish_id || item.id || "")}`} className="bg-gray-100 p-2">
                         <div className="font-bold text-lg">
                           <span className="bg-black text-white px-2 mr-2 rounded">{item.quantity}x</span>
                           <span translate="no" className="notranslate">
                             {resolveKitchenDishName(item)}
                           </span>
-                          {cookingInline ? (
-                            <span className="ml-2 italic font-black text-red-700 notranslate" translate="no">
-                              ({cookingInline})
-                            </span>
-                          ) : null}
                         </div>
-                        {kitchenDetails ? (
+                        {notesLine ? (
                           <div
-                            className="mt-1 text-xs italic text-red-600 leading-tight"
+                            className="mt-1 text-xs italic text-gray-800 leading-tight"
                             translate="no"
                           >
-                            <span className="notranslate">{kitchenDetails}</span>
+                            <span className="notranslate">Notes: {notesLine}</span>
                           </div>
                         ) : null}
                       </div>
@@ -1333,11 +1415,11 @@ export default function KitchenPage() {
               <div className="mt-4 pt-4 border-t-2 border-dashed border-gray-300">
                 <div className="space-y-2">
                   <button
-                    onClick={() => handleReady(order.id)}
-                    disabled={isReady}
-                    className="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-4 text-xl border-2 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-x-[2px] active:translate-y-[2px] transition-all disabled:cursor-not-allowed disabled:opacity-60"
+                    onClick={() => void handleReadyGroup(group.groupKey, group.orderIds)}
+                    disabled={isSubmitting}
+                    className="w-full bg-green-600 hover:bg-green-700 text-white font-black py-5 text-2xl border-2 border-black shadow-[5px_5px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-x-[2px] active:translate-y-[2px] transition-all disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    {isReady ? "DÉJÀ PRÊT" : "PLAT PRÊT"}
+                    {isSubmitting ? "MISE À JOUR..." : "TOUT EST PRÊT"}
                   </button>
                 </div>
               </div>
@@ -1366,8 +1448,7 @@ export default function KitchenPage() {
                   </div>
                   <div className="space-y-1">
                     {kitchenItems.map((item: any, idx: number) => {
-                      const kitchenDetails = getKitchenNotes(item);
-                      const cookingInline = getInlineCookingLevel(item as Item);
+                      const notesLine = getKitchenNotesLine(item as Item);
                       return (
                         <div key={`${String(order.id)}-ready-${idx}-${String(item.dish_id || item.id || "")}`} className="text-xs text-black">
                           <div className="font-semibold">
@@ -1375,15 +1456,10 @@ export default function KitchenPage() {
                             <span translate="no" className="notranslate">
                               {resolveKitchenDishName(item)}
                             </span>
-                            {cookingInline ? (
-                              <span className="ml-1 italic font-bold text-red-700 notranslate" translate="no">
-                                ({cookingInline})
-                              </span>
-                            ) : null}
                           </div>
-                          {kitchenDetails ? (
+                          {notesLine ? (
                             <div className="text-[11px] italic text-gray-700" translate="no">
-                              <span className="notranslate">{kitchenDetails}</span>
+                              <span className="notranslate">Notes: {notesLine}</span>
                             </div>
                           ) : null}
                         </div>
@@ -1407,35 +1483,16 @@ export default function KitchenPage() {
             </div>
             <div className="border-t border-b border-dashed border-black py-2">
               {printableCuisineItems(printOrder).map((item: any, idx: number) => {
-                const kitchenDetails = (() => {
-                  const raw = String(getKitchenNotes(item) || "")
-                    .split("|")
-                    .map((part) => String(part || "").trim())
-                    .filter(Boolean);
-                  const seen = new Set<string>();
-                  const deduped = raw.filter((part) => {
-                    const key = part
-                      .normalize("NFD")
-                      .replace(/[\u0300-\u036f]/g, "")
-                      .toLowerCase()
-                      .trim();
-                    if (!key || seen.has(key)) return false;
-                    seen.add(key);
-                    return true;
-                  });
-                  return deduped.join(" | ");
-                })();
-                const cookingInline = getInlineCookingLevel(item as Item);
+                const notesLine = getKitchenNotesLine(item as Item);
                 return (
                   <div key={`print-${String(printOrder.id)}-${idx}-${String(item.dish_id || item.id || "")}`}>
                     {item.quantity}x{" "}
                     <span translate="no" className="notranslate">
                       {resolveKitchenDishName(item)}
                     </span>
-                    {cookingInline ? <span translate="no" className="notranslate"> ({cookingInline})</span> : null}
-                    {kitchenDetails ? (
+                    {notesLine ? (
                       <div translate="no" className="notranslate italic text-xs">
-                        Détails: {kitchenDetails}
+                        Notes: {notesLine}
                       </div>
                     ) : null}
                   </div>
@@ -1447,7 +1504,7 @@ export default function KitchenPage() {
             @media print {
               @page {
                 size: 80mm auto;
-                margin: 0;
+                margin: 0 !important;
               }
               html, body {
                 margin: 0 !important;
