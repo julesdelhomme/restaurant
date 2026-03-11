@@ -45,6 +45,7 @@ type Item = {
   special_request: string | null;
   selectedSides: Array<string | number>;
   selectedExtras: Array<{ name: string; name_fr: string; price: number }>;
+  status?: string | null;
 };
 
 type Order = {
@@ -130,6 +131,69 @@ export default function KitchenPage() {
     return /(entree|entrée|starter|appetizer|plat|plats|main|dish|dessert|sucre|sweet)/.test(category);
   };
 
+  const normalizeStatusValue = (value: unknown) =>
+    String(value || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .trim();
+
+  const normalizeItemStatus = (value: unknown): "pending" | "preparing" | "ready" => {
+    const normalized = normalizeStatusValue(value);
+    if (
+      [
+        "ready",
+        "ready_bar",
+        "pret",
+        "prêt",
+        "prete",
+        "prête",
+        "ready_to_serve",
+      ].includes(normalized)
+    ) {
+      return "ready";
+    }
+    if (
+      [
+        "preparing",
+        "to_prepare",
+        "to_prepare_kitchen",
+        "to_prepare_bar",
+        "en_preparation",
+        "preparant",
+      ].includes(normalized)
+    ) {
+      return "preparing";
+    }
+    return "pending";
+  };
+
+  const getItemStatus = (item: Item): "pending" | "preparing" | "ready" => {
+    const record = item as unknown as Record<string, unknown>;
+    const rawStatus =
+      record.status ??
+      record.item_status ??
+      record.preparation_status ??
+      record.prep_status ??
+      record.state;
+    return normalizeItemStatus(rawStatus);
+  };
+
+  const isItemReady = (item: Item) => getItemStatus(item) === "ready";
+
+  const setItemStatus = (item: Item, status: "pending" | "preparing" | "ready"): Item => ({
+    ...item,
+    status,
+  });
+
+  const deriveOrderStatusFromItems = (items: Item[]) => {
+    if (items.length === 0) return "pending";
+    const statuses = items.map((item) => getItemStatus(item));
+    if (statuses.every((status) => status === "ready")) return "ready";
+    if (statuses.some((status) => status === "ready" || status === "preparing")) return "preparing";
+    return "pending";
+  };
+
   const parseItems = (items: any): Item[] => {
     if (Array.isArray(items)) return items;
     if (typeof items === "string") {
@@ -168,9 +232,18 @@ export default function KitchenPage() {
   };
 
   const getOrderItems = (order: Order): Item[] => {
+    const directItems = parseItems(order.items);
+    if (directItems.length > 0) return directItems;
     const relationalItems = parseOrderItemsRelation(order);
     if (relationalItems.length > 0) return relationalItems;
-    return parseItems(order.items);
+    return [];
+  };
+
+  const getKitchenItems = (order: Order) => getOrderItems(order).filter((item: any) => isKitchenCourse(item));
+  const hasPendingKitchenItems = (order: Order) => getKitchenItems(order).some((item) => !isItemReady(item));
+  const areKitchenItemsReady = (order: Order) => {
+    const kitchenItems = getKitchenItems(order);
+    return kitchenItems.length > 0 && kitchenItems.every((item) => isItemReady(item));
   };
 
   const normalizeEntityId = (value: unknown) => String(value ?? "").trim();
@@ -598,9 +671,10 @@ export default function KitchenPage() {
       }
     }
 
+    const detailValues: string[] = [];
     const specialRequest = String(item.special_request || "").trim();
     if (specialRequest) {
-      notes.push(`Précisions: ${translateClientTextToFrench(specialRequest)}`);
+      detailValues.push(translateClientTextToFrench(specialRequest));
     }
 
     const instructions = String(item.instructions || "")
@@ -618,7 +692,19 @@ export default function KitchenPage() {
       })
       .filter(Boolean)
       .join(" | ");
-    if (instructions) notes.push(instructions);
+    if (instructions) detailValues.push(instructions);
+
+    const dedupedDetailValues = dedupeList(
+      detailValues.map((value) =>
+        String(value || "")
+          .replace(/^precisions?\s*:\s*/i, "")
+          .replace(/^commentaire cuisine\s*:\s*/i, "")
+          .trim()
+      )
+    );
+    if (dedupedDetailValues.length > 0) {
+      notes.push(`Précisions: ${dedupedDetailValues.join(" | ")}`);
+    }
 
     return repairUtf8Text(notes.join(" | "));
   };
@@ -995,7 +1081,7 @@ export default function KitchenPage() {
 
       await hydrateDishNamesFromOrders(kitchenOrdersWithCovers);
 
-      const pendingRows = kitchenOrdersWithCovers.filter((o: any) => String(o.status || "") === "pending");
+      const pendingRows = kitchenOrdersWithCovers.filter((o: any) => hasPendingKitchenItems(o as Order));
       const pendingMap: Record<string, boolean> = {};
       pendingRows.forEach((o: any) => {
         pendingMap[String(o.id)] = true;
@@ -1073,16 +1159,37 @@ export default function KitchenPage() {
   }, [printOrder, autoPrintEnabled, lastPrintedId]);
 
   const handleReady = async (orderId: string | number) => {
-    setOrders((prev) => prev.filter((o) => o.id !== orderId));
-    let updateResult = await supabase.from("orders").update({ status: "ready" }).eq("id", orderId);
-    if (updateResult.error) {
-      const fallback = await supabase.from("orders").update({ status: "pret" }).eq("id", orderId);
+    const targetOrder = orders.find((order) => String(order.id) === String(orderId));
+    if (!targetOrder) {
+      await fetchOrders();
+      return;
+    }
+
+    const currentItems = getOrderItems(targetOrder as Order);
+    if (currentItems.length === 0) return;
+    const nextItems = currentItems.map((item) => (isKitchenCourse(item) ? setItemStatus(item, "ready") : item));
+    const nextStatus = deriveOrderStatusFromItems(nextItems);
+
+    setOrders((prev) =>
+      prev.map((order) =>
+        String(order.id) === String(orderId)
+          ? { ...order, items: nextItems, order_items: null, status: nextStatus }
+          : order
+      )
+    );
+
+    let updateResult = await supabase
+      .from("orders")
+      .update({ items: nextItems, status: nextStatus })
+      .eq("id", orderId);
+    if (updateResult.error && nextStatus === "ready") {
+      const fallback = await supabase.from("orders").update({ items: nextItems, status: "pret" }).eq("id", orderId);
       updateResult = fallback;
     }
 
     if (updateResult.error) {
       console.error("Erreur update:", updateResult.error);
-      fetchOrders();
+      await fetchOrders();
     }
   };
 
@@ -1115,16 +1222,8 @@ export default function KitchenPage() {
     return date.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
   };
 
-  const isReadyStatus = (status: unknown) => {
-    const normalized = String(status || "")
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .toLowerCase()
-      .trim();
-    return normalized === "ready" || normalized === "pret";
-  };
-  const priorityOrders = orders.filter((order) => !isReadyStatus(order.status));
-  const readyHistoryOrders = orders.filter((order) => isReadyStatus(order.status));
+  const priorityOrders = orders.filter((order) => hasPendingKitchenItems(order as Order));
+  const readyHistoryOrders = orders.filter((order) => areKitchenItemsReady(order as Order));
   const handleManualPrint = () => {
     const targetOrder = priorityOrders[0] || readyHistoryOrders[0] || orders[0] || null;
     if (!targetOrder) return;
@@ -1170,7 +1269,7 @@ export default function KitchenPage() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {priorityOrders.map((order) => {
-          const isReady = isReadyStatus(order.status);
+          const isReady = areKitchenItemsReady(order as Order);
           const items = getOrderItems(order as Order);
           const kitchenItems = items.filter((item: any) => isKitchenCourse(item));
 

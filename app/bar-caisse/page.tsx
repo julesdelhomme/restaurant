@@ -63,6 +63,7 @@ type OrderItem = {
   selectedSides?: Array<string | number | Record<string, unknown>>;
   selectedExtras?: Array<{ name?: string; name_fr?: string; price?: number }>;
   selected_extras?: Array<{ label_fr?: string; name?: string; name_fr?: string; price?: number }>;
+  status?: string | null;
   [key: string]: unknown;
 };
 
@@ -299,6 +300,74 @@ function isDrink(item: OrderItem) {
 
   const c = getCategory(item);
   return ["boisson", "boissons", "bar", "drink", "drinks", "beverage", "beverages"].includes(c);
+}
+
+function normalizePrepItemStatus(raw: unknown): "pending" | "preparing" | "ready" {
+  const normalized = String(raw || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+  if (
+    [
+      "ready",
+      "ready_bar",
+      "pret",
+      "prêt",
+      "prete",
+      "prête",
+      "ready_to_serve",
+    ].includes(normalized)
+  ) {
+    return "ready";
+  }
+  if (
+    [
+      "preparing",
+      "to_prepare",
+      "to_prepare_bar",
+      "to_prepare_kitchen",
+      "en_preparation",
+      "preparant",
+    ].includes(normalized)
+  ) {
+    return "preparing";
+  }
+  return "pending";
+}
+
+function getItemPrepStatus(item: OrderItem): "pending" | "preparing" | "ready" {
+  const record = item as Record<string, unknown>;
+  const rawStatus =
+    record.status ??
+    record.item_status ??
+    record.preparation_status ??
+    record.prep_status ??
+    record.state;
+  return normalizePrepItemStatus(rawStatus);
+}
+
+function isItemReady(item: OrderItem) {
+  return getItemPrepStatus(item) === "ready";
+}
+
+function setItemPrepStatus(item: OrderItem, status: "pending" | "preparing" | "ready"): OrderItem {
+  return { ...(item || {}), status };
+}
+
+function deriveOrderStatusFromItems(items: OrderItem[]): string {
+  if (items.length === 0) return "pending";
+  const statuses = items.map((item) => getItemPrepStatus(item));
+  if (statuses.every((status) => status === "ready")) {
+    const allDrinks = items.every((item) => isDrink(item));
+    return allDrinks ? "ready_bar" : "ready";
+  }
+  if (statuses.some((status) => status === "ready" || status === "preparing")) return "preparing";
+  return "pending";
+}
+
+function orderHasPendingDrinkItems(order: Order) {
+  return parseItems(order.items).some((item) => isDrink(item) && !isItemReady(item));
 }
 
 function detectUiLang() {
@@ -1139,14 +1208,7 @@ export default function BarCaissePage() {
     };
   }, []);
 
-  const pendingDrinkOrders = useMemo(
-    () =>
-      orders.filter((o) => {
-        const status = normalizeStatus(o.status);
-        return DRINK_QUEUE_STATUSES.has(status) && parseItems(o.items).some((item) => isDrink(item));
-      }),
-    [orders]
-  );
+  const pendingDrinkOrders = useMemo(() => orders.filter((order) => orderHasPendingDrinkItems(order)), [orders]);
 
   const activeOrders = useMemo(() => orders.filter((o) => !isPaidOrArchived(o)), [orders]);
 
@@ -1338,11 +1400,31 @@ export default function BarCaissePage() {
   };
 
   const handleDrinkReady = async (orderId: string | number) => {
-    setOrders((prev) => prev.filter((o) => String(o.id) !== String(orderId)));
-    const { error } = await supabase.from("orders").update({ status: "ready_bar" }).eq("id", orderId);
+    const targetOrder = orders.find((order) => String(order.id) === String(orderId));
+    if (!targetOrder) {
+      await fetchOrders();
+      return;
+    }
+    const currentItems = parseItems(targetOrder.items);
+    if (currentItems.length === 0) return;
+    const nextItems = currentItems.map((item) => (isDrink(item) ? setItemPrepStatus(item, "ready") : item));
+    const nextStatus = deriveOrderStatusFromItems(nextItems);
+
+    setOrders((prev) =>
+      prev.map((order) =>
+        String(order.id) === String(orderId)
+          ? { ...order, items: nextItems, status: nextStatus }
+          : order
+      )
+    );
+
+    const { error } = await supabase
+      .from("orders")
+      .update({ items: nextItems, status: nextStatus })
+      .eq("id", orderId);
     if (error) {
       console.error("Erreur Boisson prete:", error);
-      void fetchOrders();
+      await fetchOrders();
     }
   };
 
@@ -1803,7 +1885,8 @@ export default function BarCaissePage() {
           <div className="space-y-4">
             {pendingDrinkOrders.length === 0 ? <p className="text-gray-500 italic">Aucune boisson en attente.</p> : null}
             {pendingDrinkOrders.map((order) => {
-              const drinks = parseItems(order.items).filter((i) => isDrink(i));
+              const drinks = parseItems(order.items).filter((i) => isDrink(i) && !isItemReady(i));
+              if (drinks.length === 0) return null;
               return (
                 <div key={String(order.id)} className="bg-white border-2 border-black p-4 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] flex flex-col justify-between">
                   <div>

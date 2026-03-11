@@ -168,6 +168,7 @@ type Item = {
   inserted_at?: string | null;
   updated_at?: string | null;
   timestamp?: string | null;
+  status?: string | null;
 };
 
 type Order = {
@@ -352,6 +353,91 @@ function isDrink(item: Item) {
   if (item?.is_drink === true) return true;
   const c = getCategory(item);
   return c === "boisson" || c === "boissons" || c === "bar" || c === "drink" || c === "drinks";
+}
+
+function normalizePrepItemStatus(raw: unknown): "pending" | "preparing" | "ready" {
+  const normalized = String(raw || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+  if (
+    [
+      "ready",
+      "ready_bar",
+      "pret",
+      "prêt",
+      "prete",
+      "prête",
+      "ready_to_serve",
+    ].includes(normalized)
+  ) {
+    return "ready";
+  }
+  if (
+    [
+      "preparing",
+      "to_prepare",
+      "to_prepare_kitchen",
+      "to_prepare_bar",
+      "en_preparation",
+      "preparant",
+    ].includes(normalized)
+  ) {
+    return "preparing";
+  }
+  return "pending";
+}
+
+function getItemPrepStatus(item: Item): "pending" | "preparing" | "ready" {
+  const record = item as unknown as Record<string, unknown>;
+  const rawStatus =
+    record.status ??
+    record.item_status ??
+    record.preparation_status ??
+    record.prep_status ??
+    record.state;
+  return normalizePrepItemStatus(rawStatus);
+}
+
+function isItemReady(item: Item) {
+  return getItemPrepStatus(item) === "ready";
+}
+
+function getItemStatusLabel(item: Item) {
+  const status = getItemPrepStatus(item);
+  if (status === "ready") return "PRÊT";
+  if (status === "preparing") return "EN PRÉPARATION";
+  return "EN ATTENTE";
+}
+
+function getItemStatusClass(item: Item) {
+  const status = getItemPrepStatus(item);
+  if (status === "ready") return "border-green-700 bg-green-600 text-white";
+  if (status === "preparing") return "border-amber-700 bg-amber-500 text-black";
+  return "border-gray-500 bg-white text-gray-800";
+}
+
+function summarizeItems(items: Item[]) {
+  const total = items.length;
+  const ready = items.filter((item) => isItemReady(item)).length;
+  const preparing = items.filter((item) => getItemPrepStatus(item) === "preparing").length;
+  const pending = Math.max(0, total - ready - preparing);
+  return { total, ready, preparing, pending };
+}
+
+function getOrderItemProgress(order: Order) {
+  const items = parseItems(order.items);
+  const drinks = items.filter((item) => isDrink(item));
+  const foods = items.filter((item) => !isDrink(item));
+  return {
+    items,
+    drinks,
+    foods,
+    all: summarizeItems(items),
+    drink: summarizeItems(drinks),
+    food: summarizeItems(foods),
+  };
 }
 
 function makeLineId() {
@@ -1308,16 +1394,20 @@ function AdminContent() {
   };
 
   const buildLineInstructions = (line: FastOrderLine) => {
-    const parts: string[] = [];
+    const detailParts: string[] = [];
     if (line.selectedProductOptionName) {
       const optionPrice = parsePriceNumber(line.selectedProductOptionPrice);
-      parts.push(optionPrice > 0 ? `Option: ${line.selectedProductOptionName} (+${optionPrice.toFixed(2)}\u20AC)` : `Option: ${line.selectedProductOptionName}`);
+      detailParts.push(
+        optionPrice > 0
+          ? `Option: ${line.selectedProductOptionName} (+${optionPrice.toFixed(2)}\u20AC)`
+          : `Option: ${line.selectedProductOptionName}`
+      );
     }
     if (line.selectedSides.length > 0) {
-      parts.push(`Accompagnements: ${line.selectedSides.join(", ")}`);
+      detailParts.push(`Accompagnements: ${line.selectedSides.join(", ")}`);
     }
     if (line.selectedExtras.length > 0) {
-      parts.push(
+      detailParts.push(
         `Suppléments: ${line.selectedExtras
           .map((extra) => {
             const amount = parsePriceNumber(extra.price);
@@ -1326,9 +1416,9 @@ function AdminContent() {
           .join(", ")}`
       );
     }
-    if (line.selectedCooking.trim()) parts.push(`Cuisson: ${line.selectedCooking.trim()}`);
-    if (line.specialRequest.trim()) parts.push(`Commentaire cuisine: ${line.specialRequest.trim()}`);
-    return parts.join(" | ");
+    if (line.selectedCooking.trim()) detailParts.push(`Cuisson: ${line.selectedCooking.trim()}`);
+    if (line.specialRequest.trim()) detailParts.push(`Remarque: ${line.specialRequest.trim()}`);
+    return detailParts.length > 0 ? `Détails: ${detailParts.join(" | ")}` : "";
   };
 
   const fetchFastEntryResources = async (
@@ -2270,6 +2360,7 @@ function AdminContent() {
           selected_cooking_key: cookingKey || null,
           special_request: String(line.specialRequest || "").trim(),
           instructions: buildLineInstructions(line),
+          status: "pending",
           from_recommendation: false,
         } as Item;
       })
@@ -2419,55 +2510,27 @@ function AdminContent() {
     );
   }
 
-  function isReadyStatus(status: unknown) {
-    const normalized = normalizeOrderStatus(status);
-    return (
-      normalized === "ready" ||
-      normalized === "ready_bar" ||
-      normalized === "pret" ||
-      normalized === "pret_bar" ||
-      normalized === "ready_to_serve"
-    );
-  }
-
   const serviceVisibleOrders = useMemo(
     () => orders.filter((order) => !isServedOrArchivedStatus(order.status) && !isPaidStatus(order.status)),
     [orders]
   );
 
-  const waitingOrders = useMemo(
-    () =>
-      serviceVisibleOrders.filter((order) =>
-        ["pending", "to_prepare", "en_attente"].includes(normalizeOrderStatus(order.status))
-      ),
-    [serviceVisibleOrders]
-  );
-
   const preparingOrders = useMemo(
     () =>
-      serviceVisibleOrders.filter((order) =>
-        [
-          "pending",
-          "to_prepare",
-          "en_attente",
-          "preparing",
-          "to_prepare_kitchen",
-          "to_prepare_bar",
-          "en_preparation",
-          "preparant",
-        ].includes(normalizeOrderStatus(order.status))
-      ),
+      serviceVisibleOrders.filter((order) => {
+        const progress = getOrderItemProgress(order);
+        return progress.all.total > 0 && progress.all.ready < progress.all.total;
+      }),
     [serviceVisibleOrders]
   );
 
   const readyOrders = useMemo(
-    () => serviceVisibleOrders.filter((order) => isReadyStatus(order.status)),
+    () =>
+      serviceVisibleOrders.filter((order) => {
+        const progress = getOrderItemProgress(order);
+        return progress.all.total > 0 && progress.all.ready === progress.all.total;
+      }),
     [serviceVisibleOrders]
-  );
-
-  const servedOrders = useMemo(
-    () => orders.filter((order) => ["served", "servi", "servie"].includes(normalizeOrderStatus(order.status))),
-    [orders]
   );
 
   const tableStatusRows = useMemo(() => {
@@ -2730,16 +2793,80 @@ function AdminContent() {
         return true;
       });
     if (items.length === 0) return null;
-    const isReadyHighlighted = isReadyStatus(order.status) && !!readyAlertOrderIds[String(order.id)];
-    const isReadyCard = isReadyStatus(order.status);
-    const hasBarItems = items.some((item) => isDrink(item) || Boolean((item as Record<string, unknown>)?.is_bar));
-    const readySource = isReadyCard ? (hasBarItems ? "bar" : "cuisine") : null;
-    const readyToneClass =
-      readySource === "bar"
-        ? "bg-blue-100 border-blue-500"
-        : readySource === "cuisine"
-          ? "bg-orange-100 border-orange-500"
-          : "bg-white border-black";
+    const foodItems = items.filter((item) => !isDrink(item));
+    const drinkItems = items.filter((item) => isDrink(item));
+    const itemProgress = summarizeItems(items);
+    const isReadyCard = itemProgress.total > 0 && itemProgress.ready === itemProgress.total;
+    const isReadyHighlighted = isReadyCard && !!readyAlertOrderIds[String(order.id)];
+    const hasPartiallyReadyItems = !isReadyCard && itemProgress.ready > 0;
+    const readyToneClass = isReadyCard
+      ? "bg-green-100 border-green-500"
+      : hasPartiallyReadyItems
+        ? "bg-amber-50 border-amber-400"
+        : "bg-white border-black";
+    const buildItemDetailLine = (item: Item) => {
+      const details = getOrderItemDetails(item);
+      const instructionValues = uniqueTexts(
+        [String(item.instructions || "").trim(), String(item.special_request || "").trim()]
+          .map((value) =>
+            String(value || "")
+              .replace(/^details?\s*:\s*/i, "")
+              .replace(/^commentaire cuisine\s*:\s*/i, "")
+              .trim()
+          )
+          .filter(Boolean)
+      );
+      const parts = details ? [details] : [];
+      instructionValues.forEach((value) => {
+        const normalizedValue = normalizeLookupText(value);
+        const alreadyIncluded = parts.some((part) => {
+          const normalizedPart = normalizeLookupText(part);
+          return normalizedPart.includes(normalizedValue) || normalizedValue.includes(normalizedPart);
+        });
+        if (!alreadyIncluded) parts.push(value);
+      });
+      const merged = uniqueTexts(parts);
+      return merged.length > 0 ? `Détails: ${merged.join(" | ")}` : "";
+    };
+    const renderItemsSection = (sectionLabel: "Plats" | "Boissons", sectionItems: Item[]) => {
+      if (sectionItems.length === 0) return null;
+      const sectionProgress = summarizeItems(sectionItems);
+      return (
+        <div className="space-y-2">
+          <div className="flex items-center justify-between rounded border border-black bg-white px-2 py-1">
+            <span className="text-xs font-black uppercase">{sectionLabel}</span>
+            <span className="text-[11px] font-bold text-gray-700">
+              {sectionProgress.ready}/{sectionProgress.total} prêts
+            </span>
+          </div>
+          {sectionItems.map((item, idx) => {
+            const detailsLine = buildItemDetailLine(item);
+            const statusLabel = getItemStatusLabel(item);
+            const statusClass = getItemStatusClass(item);
+            return (
+              <div key={`${sectionLabel}-${idx}-${String(item.dish_id ?? item.id ?? idx)}`} className="bg-gray-100 px-2 py-2 border border-gray-200">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="font-bold text-base">
+                    <span className="bg-black text-white px-2 mr-2 rounded">{Number(item.quantity) || 1}x</span>
+                    <span translate="no" className="notranslate">
+                      {getOrderItemLabel(item)}
+                    </span>
+                  </div>
+                  <span className={`mt-0.5 rounded border px-2 py-0.5 text-[10px] font-black uppercase ${statusClass}`}>
+                    {statusLabel}
+                  </span>
+                </div>
+                {detailsLine ? (
+                  <div className="mt-1 text-xs italic text-gray-800 notranslate" translate="no">
+                    {detailsLine}
+                  </div>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+      );
+    };
 
     return (
       <div
@@ -2754,39 +2881,12 @@ function AdminContent() {
               T-{order.table_number ?? "?"}
               {resolvedCovers ? ` | 👥 ${resolvedCovers}` : ""}
             </div>
-            {readySource ? (
-              <span
-                className={`mt-1 inline-flex rounded border px-2 py-0.5 text-[10px] font-black uppercase tracking-wide ${
-                  readySource === "bar" ? "border-blue-700 bg-blue-600 text-white" : "border-orange-700 bg-orange-500 text-black"
-                }`}
-              >
-                {readySource === "bar" ? "BAR" : "CUISINE"}
-              </span>
-            ) : null}
           </div>
           <div className="text-xs font-mono text-gray-500">#{String(order.id).slice(0, 4)}</div>
         </div>
-        <div className="space-y-2 text-sm text-black">
-          {items.map((item, idx) => (
-            <div key={idx} className="bg-gray-100 px-2 py-2 border border-gray-200">
-              <div className="font-bold text-base">
-                <span className="bg-black text-white px-2 mr-2 rounded">{Number(item.quantity) || 1}x</span>
-                <span translate="no" className="notranslate">
-                  {getOrderItemLabel(item)}
-                </span>
-              </div>
-              {getOrderItemDetails(item) ? (
-                <div className="mt-1 text-xs italic text-gray-800 notranslate" translate="no">
-                  {getOrderItemDetails(item)}
-                </div>
-              ) : null}
-              {item.instructions ? (
-                <div className="mt-1 text-red-700 text-xs font-bold notranslate" translate="no">
-                  {item.instructions}
-                </div>
-              ) : null}
-            </div>
-          ))}
+        <div className="space-y-3 text-sm text-black">
+          {mode !== "drinks" ? renderItemsSection("Plats", foodItems) : null}
+          {mode !== "foods" ? renderItemsSection("Boissons", drinkItems) : null}
         </div>
 
         {actionLabel && actionHandler ? (
