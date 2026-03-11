@@ -4627,33 +4627,31 @@ export default function MenuDigital() {
                             <Euro size={24} />
                           </span>
                         )}
-                        {!isInteractionDisabled && (
-                          <div className="flex flex-wrap items-center justify-end gap-2 sm:flex-nowrap">
-                            {quickAddToCartEnabled ? (
-                              <button
-                                type="button"
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  handleQuickAddFromList(featuredDish);
-                                }}
-                                className="text-sm md:text-base font-black px-4 py-2.5 rounded-lg border-2 border-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] whitespace-nowrap shrink-0"
-                                style={{ backgroundColor: bannerBgColor, color: bannerContentTextColor }}
-                              >
-                                {uiText.addToCart}
-                              </button>
-                            ) : null}
-                            <span
-                              className="text-sm md:text-base font-black px-4 py-2 rounded-lg border-2 whitespace-nowrap"
-                              style={{
-                                borderColor: featuredOverlay ? "rgba(255,255,255,0.9)" : "#000000",
-                                color: featuredOverlay ? "#FFFFFF" : darkMode ? "#FFFFFF" : "#111111",
-                                backgroundColor: featuredOverlay ? "rgba(0,0,0,0.25)" : "rgba(255,255,255,0.65)",
+                        <div className="flex flex-wrap items-center justify-end gap-2 sm:flex-nowrap">
+                          {quickAddToCartEnabled ? (
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                handleQuickAddFromList(featuredDish);
                               }}
+                              className="text-sm md:text-base font-black px-4 py-2.5 rounded-lg border-2 border-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] whitespace-nowrap shrink-0"
+                              style={{ backgroundColor: bannerBgColor, color: bannerContentTextColor }}
                             >
-                              {clickDetailsLabel}
-                            </span>
-                          </div>
-                        )}
+                              {uiText.addToCart}
+                            </button>
+                          ) : null}
+                          <span
+                            className="text-sm md:text-base font-black px-4 py-2 rounded-lg border-2 whitespace-nowrap"
+                            style={{
+                              borderColor: featuredOverlay ? "rgba(255,255,255,0.9)" : "#000000",
+                              color: featuredOverlay ? "#FFFFFF" : darkMode ? "#FFFFFF" : "#111111",
+                              backgroundColor: featuredOverlay ? "rgba(0,0,0,0.25)" : "rgba(255,255,255,0.65)",
+                            }}
+                          >
+                            {clickDetailsLabel}
+                          </span>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -4959,45 +4957,43 @@ export default function MenuDigital() {
                             <Euro size={18} />
                           </span>
                         )}
-                        {!isInteractionDisabled && (
-                          <div className="w-full sm:w-auto sm:ml-auto flex flex-wrap items-center gap-2 sm:justify-end">
-                            {quickAddToCartEnabled ? (
-                              <button
-                                type="button"
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  handleQuickAddFromList(dish);
-                                }}
-                                className={`h-11 px-3.5 py-2 rounded-lg inline-flex items-center justify-center text-sm sm:text-base font-black border-2 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] whitespace-nowrap ${
-                                  isOverlayCard ? "border-white" : "border-black"
-                                }`}
-                                style={{
-                                  backgroundColor: isOverlayCard ? "#FFFFFF" : bannerBgColor,
-                                  color: isOverlayCard ? "#111111" : bannerContentTextColor,
-                                }}
-                                aria-label={uiText.addToCart}
-                                title={uiText.addToCart}
-                              >
-                                {uiText.addToCart}
-                              </button>
-                            ) : null}
-                            <span
-                              className={`h-11 px-3.5 py-2 rounded-lg inline-flex items-center justify-center text-sm sm:text-base font-black border-2 whitespace-nowrap ${
+                        <div className="w-full sm:w-auto sm:ml-auto flex flex-wrap items-center gap-2 sm:justify-end">
+                          {quickAddToCartEnabled ? (
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                handleQuickAddFromList(dish);
+                              }}
+                              className={`h-11 px-3.5 py-2 rounded-lg inline-flex items-center justify-center text-sm sm:text-base font-black border-2 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] whitespace-nowrap ${
                                 isOverlayCard ? "border-white" : "border-black"
                               }`}
                               style={{
-                                backgroundColor: isOverlayCard
-                                  ? "rgba(0,0,0,0.25)"
-                                  : darkMode
-                                    ? "#000000"
-                                    : "rgba(255,255,255,0.65)",
-                                color: darkMode ? "#FFFFFF" : isOverlayCard ? "#FFFFFF" : "#111111",
+                                backgroundColor: isOverlayCard ? "#FFFFFF" : bannerBgColor,
+                                color: isOverlayCard ? "#111111" : bannerContentTextColor,
                               }}
+                              aria-label={uiText.addToCart}
+                              title={uiText.addToCart}
                             >
-                              {viewDetailsLabel}
-                            </span>
-                          </div>
-                        )}
+                              {uiText.addToCart}
+                            </button>
+                          ) : null}
+                          <span
+                            className={`h-11 px-3.5 py-2 rounded-lg inline-flex items-center justify-center text-sm sm:text-base font-black border-2 whitespace-nowrap ${
+                              isOverlayCard ? "border-white" : "border-black"
+                            }`}
+                            style={{
+                              backgroundColor: isOverlayCard
+                                ? "rgba(0,0,0,0.25)"
+                                : darkMode
+                                  ? "#000000"
+                                  : "rgba(255,255,255,0.65)",
+                              color: darkMode ? "#FFFFFF" : isOverlayCard ? "#FFFFFF" : "#111111",
+                            }}
+                          >
+                            {viewDetailsLabel}
+                          </span>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -5079,7 +5075,7 @@ export default function MenuDigital() {
               </div>
             ) : null}
 
-            {!isInteractionDisabled && (selectedDish.has_sides || modalSidesOptions.length > 0) && (
+            {(selectedDish.has_sides || modalSidesOptions.length > 0) && (
               <div className="mb-3">
                 <span className="font-bold text-black">{uiText.sidesLabel} :</span>
                 {getSideMaxOptions(selectedDish) > 1 && (
@@ -5142,7 +5138,7 @@ export default function MenuDigital() {
               </div>
             )}
 
-            {!isInteractionDisabled && modalProductOptions.length > 0 && (
+            {modalProductOptions.length > 0 && (
               <div className="mb-3">
                 <label className="font-bold text-black mb-1 block">Options / Variantes :</label>
                 <div className="flex flex-col gap-2">
@@ -5170,7 +5166,7 @@ export default function MenuDigital() {
               </div>
             )}
 
-            {!isInteractionDisabled && selectedDish.has_extras && modalExtrasOptions.length > 0 && (
+            {selectedDish.has_extras && modalExtrasOptions.length > 0 && (
               <div className="mb-3">
                 <label className="font-bold text-black mb-1 block">{uiText.extrasLabel} :</label>
                 <div className="flex flex-col gap-2">
@@ -5208,7 +5204,7 @@ export default function MenuDigital() {
               </div>
             )}
 
-            {!isInteractionDisabled && modalAskCooking && (
+            {modalAskCooking && (
               <div className="mb-3">
                 <label className="font-bold text-black mb-1 block">{uiText.cookingLabel} :</label>
                 <div className="flex flex-col gap-2">

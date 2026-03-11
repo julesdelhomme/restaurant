@@ -762,8 +762,9 @@ export default function KitchenPage() {
         .filter(Boolean);
 
     const cooking: string[] = [];
-    const options: string[] = [];
     const accompaniments: string[] = [];
+    const supplements: string[] = [];
+    const options: string[] = [];
     const remarks: string[] = [];
 
     String(getKitchenNotes(item) || "")
@@ -771,23 +772,29 @@ export default function KitchenPage() {
       .map((entry) => stripPrefix(entry))
       .filter(Boolean)
       .forEach((entry) => {
-        if (/^cuisson\s*:/i.test(entry)) {
-          cooking.push(...extractTokens(entry.replace(/^cuisson\s*:\s*/i, "").trim()));
+        if (/^(cuisson|cooking|cui)\s*:/i.test(entry)) {
+          cooking.push(...extractTokens(entry.replace(/^(cuisson|cooking|cui)\s*:\s*/i, "").trim()));
           return;
         }
-        if (/^(option|options|suppl[eé]ments?|supplements?)\s*:/i.test(entry)) {
-          options.push(...extractTokens(entry.replace(/^(option|options|suppl[eé]ments?|supplements?)\s*:\s*/i, "").trim()));
-          return;
-        }
-        if (/^(accompagnement|accompagnements|side|sides)\s*:/i.test(entry)) {
+        if (/^(accompagnement|accompagnements|side|sides|acc)\s*:/i.test(entry)) {
           accompaniments.push(
-            ...extractTokens(entry.replace(/^(accompagnement|accompagnements|side|sides)\s*:\s*/i, "").trim())
+            ...extractTokens(entry.replace(/^(accompagnement|accompagnements|side|sides|acc)\s*:\s*/i, "").trim())
           );
           return;
         }
-        if (/^(pr[eé]cisions?|commentaire cuisine|remarque|remarks?)\s*:/i.test(entry)) {
+        if (/^(suppl[eé]ments?|supplements?|extras?|sup)\s*:/i.test(entry)) {
+          supplements.push(
+            ...extractTokens(entry.replace(/^(suppl[eé]ments?|supplements?|extras?|sup)\s*:\s*/i, "").trim())
+          );
+          return;
+        }
+        if (/^(option|options|op)\s*:/i.test(entry)) {
+          options.push(...extractTokens(entry.replace(/^(option|options|op)\s*:\s*/i, "").trim()));
+          return;
+        }
+        if (/^(pr[eé]cisions?|commentaire cuisine|remarque|remarks?|rq)\s*:/i.test(entry)) {
           remarks.push(
-            ...extractTokens(entry.replace(/^(pr[eé]cisions?|commentaire cuisine|remarque|remarks?)\s*:\s*/i, "").trim())
+            ...extractTokens(entry.replace(/^(pr[eé]cisions?|commentaire cuisine|remarque|remarks?|rq)\s*:\s*/i, "").trim())
           );
           return;
         }
@@ -795,16 +802,24 @@ export default function KitchenPage() {
       });
 
     const cookingValues = uniqueValues(cooking);
-    const optionValues = uniqueValues(options);
     const accompanimentValues = uniqueValues(accompaniments);
+    const supplementValues = uniqueValues(supplements);
+    const optionValues = uniqueValues(options);
     const remarkValues = uniqueValues(remarks).filter((remark) => {
       const remarkKey = normalizeKey(remark);
-      const alreadyInOtherSection = [...cookingValues, ...optionValues, ...accompanimentValues].some(
+      const alreadyInOtherSection = [...cookingValues, ...accompanimentValues, ...supplementValues, ...optionValues].some(
         (value) => normalizeKey(value) === remarkKey
       );
       return !alreadyInOtherSection;
     });
-    return [...cookingValues, ...optionValues, ...accompanimentValues, ...remarkValues].join(", ");
+
+    const parts: string[] = [];
+    if (cookingValues.length > 0) parts.push(`CUI : ${cookingValues.join(" / ")}`);
+    if (accompanimentValues.length > 0) parts.push(`ACC : ${accompanimentValues.join(" / ")}`);
+    if (supplementValues.length > 0) parts.push(`SUP : ${supplementValues.join(" / ")}`);
+    if (optionValues.length > 0) parts.push(`OP : ${optionValues.join(" / ")}`);
+    if (remarkValues.length > 0) parts.push(`RQ : ${remarkValues.join(" / ")}`);
+    return parts.join(", ");
   };
 
   const fetchCatalogNames = async () => {
