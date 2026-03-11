@@ -2113,11 +2113,6 @@ export default function MenuDigital() {
   const getDishOptionSupplement = (option?: ProductOptionItem | null) =>
     option ? parseAddonPrice(option.price_override) : 0;
   const getDishUnitPrice = (dish: Dish, option?: ProductOptionItem | null) => {
-    const product = dish as { price?: unknown };
-    const selectedOptions = option ? [option] : [];
-    console.log("--- DEBUG PRIX ---");
-    console.log("Prix de base:", product.price);
-    console.log("Options sélectionnées:", selectedOptions);
     const basePrice = getDishBasePrice(dish);
     const optionSupplement = getDishOptionSupplement(option);
     const promoPrice = getPromoPriceForDish(dish);
@@ -4609,7 +4604,6 @@ export default function MenuDigital() {
                         )}
                       </div>
                       <div className="mt-2 grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_auto] items-center gap-3">
-                        <div style={{ background: "red", color: "white", padding: "5px", fontWeight: "bold" }}>DEBUG-V1</div>
                         {getPromoPriceForDish(featuredDish) != null ? (
                           <div
                             className="inline-flex items-center gap-2"
@@ -4942,7 +4936,6 @@ export default function MenuDigital() {
                         ))}
                       </div>
                       <div className="mt-1 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-                        <div style={{ background: "red", color: "white", padding: "5px", fontWeight: "bold" }}>DEBUG-V1</div>
                         {getPromoPriceForDish(dish) != null ? (
                           <div
                             className={`inline-flex items-center gap-2 ${isOverlayCard ? "text-white" : ""}`}
@@ -5168,7 +5161,7 @@ export default function MenuDigital() {
                         />
                         <span>
                           {optionLabel}
-                          {optionPrice > 0 ? " (MODIF-OK)" : null}
+                          {optionPrice > 0 ? ` (+ ${optionPrice.toFixed(2)} \u20AC)` : null}
                         </span>
                       </label>
                     );
