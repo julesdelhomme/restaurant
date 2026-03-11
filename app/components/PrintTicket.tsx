@@ -181,6 +181,169 @@ function buildTicketDetailLine(item: OrderItem) {
   return parts.join(" | ");
 }
 
+function buildTicketFinalDetailsLine(item: OrderItem) {
+  const record = item as Record<string, unknown>;
+  const normalize = (value: unknown) =>
+    String(value || "")
+      .replace(/^[-•]\s*/, "")
+      .replace(/\s{2,}/g, " ")
+      .trim();
+  const splitByComma = (value: unknown) =>
+    normalize(value)
+      .split(",")
+      .map((part) => normalize(part))
+      .filter(Boolean);
+  const unique = (values: string[]) => {
+    const seen = new Set<string>();
+    return values
+      .map((value) => normalize(value))
+      .filter(Boolean)
+      .filter((value) => {
+        const key = normalizeTextKey(value);
+        if (!key || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+  };
+
+  const cooking: string[] = [];
+  const accompaniments: string[] = [];
+  const supplements: string[] = [];
+  const options: string[] = [];
+  const remarks: string[] = [];
+
+  const selectedOptionsRaw = record.selected_options ?? record.options;
+  const selectedOptions = Array.isArray(selectedOptionsRaw)
+    ? selectedOptionsRaw
+    : selectedOptionsRaw && typeof selectedOptionsRaw === "object"
+      ? Object.values(selectedOptionsRaw as Record<string, unknown>)
+      : [];
+
+  const routeSegment = (raw: unknown) => {
+    const segment = normalize(raw)
+      .replace(/^details?\s*:\s*/i, "")
+      .replace(/^notes?\s*:\s*/i, "")
+      .replace(/^propos?\s*:\s*/i, "")
+      .trim();
+    if (!segment) return;
+    if (/^(cuisson|cooking|cui)\s*:/i.test(segment)) {
+      cooking.push(...splitByComma(segment.replace(/^(cuisson|cooking|cui)\s*:\s*/i, "")));
+      return;
+    }
+    if (/^(accompagnement|accompagnements|side|sides|acc)\s*:/i.test(segment)) {
+      accompaniments.push(...splitByComma(segment.replace(/^(accompagnement|accompagnements|side|sides|acc)\s*:\s*/i, "")));
+      return;
+    }
+    if (/^(suppl[eé]ments?|supplements?|extras?|sup)\s*:/i.test(segment)) {
+      supplements.push(...splitByComma(segment.replace(/^(suppl[eé]ments?|supplements?|extras?|sup)\s*:\s*/i, "")));
+      return;
+    }
+    if (/^(option|options|op)\s*:/i.test(segment)) {
+      options.push(...splitByComma(segment.replace(/^(option|options|op)\s*:\s*/i, "")));
+      return;
+    }
+    if (/^(pr[eé]cisions?|commentaire cuisine|remarque|remarks?|rq)\s*:/i.test(segment)) {
+      remarks.push(...splitByComma(segment.replace(/^(pr[eé]cisions?|commentaire cuisine|remarque|remarks?|rq)\s*:\s*/i, "")));
+      return;
+    }
+    remarks.push(...splitByComma(segment));
+  };
+
+  cooking.push(
+    ...[
+      item.cooking,
+      item.cuisson,
+      item.selected_cooking_label_fr,
+      item.selected_cooking,
+    ]
+      .map((value) => normalize(value))
+      .filter(Boolean)
+  );
+
+  accompaniments.push(
+    ...[
+      ...flattenChoiceTexts(item.side),
+      ...flattenChoiceTexts(item.accompaniment),
+      ...flattenChoiceTexts(item.accompagnement),
+      ...flattenChoiceTexts(item.accompaniments),
+      ...flattenChoiceTexts(item.accompagnements),
+    ]
+      .flatMap((value) => splitByComma(value))
+      .filter(Boolean)
+  );
+
+  supplements.push(
+    ...[
+      ...flattenChoiceTexts(record.supplement),
+      ...flattenChoiceTexts(record.supplements),
+      ...flattenChoiceTexts(record.selected_extras),
+      ...flattenChoiceTexts(record.selectedExtras),
+    ]
+      .flatMap((value) => splitByComma(value))
+      .filter(Boolean)
+  );
+
+  options.push(
+    ...[
+      item.selected_option_name,
+      ...flattenChoiceTexts(item.selected_option),
+    ]
+      .flatMap((value) => splitByComma(value))
+      .filter(Boolean)
+  );
+
+  selectedOptions.forEach((entry) => {
+    if (entry == null) return;
+    if (typeof entry === "string" || typeof entry === "number") {
+      routeSegment(entry);
+      return;
+    }
+    const row = entry as Record<string, unknown>;
+    const kind = normalizeTextKey(row.kind || row.type || row.key || row.group || row.category || "");
+    const values = flattenChoiceTexts(
+      row.values ?? row.value ?? row.selection ?? row.selected ?? row.choice ?? row.option ?? row
+    );
+    if (/(cooking|cuisson|garstufe|cocc)/.test(kind)) {
+      cooking.push(...values.flatMap((value) => splitByComma(value)));
+      return;
+    }
+    if (/(side|accompagnement|acomp|beilage)/.test(kind)) {
+      accompaniments.push(...values.flatMap((value) => splitByComma(value)));
+      return;
+    }
+    if (/(extra|supplement|suplemento)/.test(kind)) {
+      supplements.push(...values.flatMap((value) => splitByComma(value)));
+      return;
+    }
+    if (/(option|variant|variante|format|taille)/.test(kind)) {
+      options.push(...values.flatMap((value) => splitByComma(value)));
+      return;
+    }
+    values.forEach((value) => routeSegment(value));
+  });
+
+  [item.special_request, item.instructions, record.details, record.detail, record.notes]
+    .flatMap((entry) => (typeof entry === "string" ? String(entry).split("|") : flattenChoiceTexts(entry)))
+    .forEach((entry) => routeSegment(entry));
+
+  const cVals = unique(cooking);
+  const accVals = unique(accompaniments);
+  const supVals = unique(supplements);
+  const opVals = unique(options);
+  const rqVals = unique(remarks).filter((remark) => {
+    const remarkKey = normalizeTextKey(remark);
+    return ![...accVals, ...opVals].some((value) => normalizeTextKey(value) === remarkKey);
+  });
+
+  const chunks: string[] = [];
+  if (cVals.length > 0) chunks.push(`CUI : ${cVals.join(" / ")}`);
+  if (accVals.length > 0) chunks.push(`ACC : ${accVals.join(" / ")}`);
+  if (supVals.length > 0) chunks.push(`SUP : ${supVals.join(" / ")}`);
+  if (opVals.length > 0) chunks.push(`OP : ${opVals.join(" / ")}`);
+  if (rqVals.length > 0) chunks.push(`RQ : ${rqVals.join(" / ")}`);
+  return chunks.join(", ");
+}
+
 export default function PrintTicket({ order, isVisible, logoUrl, restaurantName, categoryFilter }: PrintTicketProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
@@ -272,7 +435,7 @@ export default function PrintTicket({ order, isVisible, logoUrl, restaurantName,
                 <div>
                   ${filteredItems.map((item, index) => {
                     const itemName = item?.name || "Plat inconnu";
-                    const finalDetails = buildTicketDetailLine(item);
+                    const finalDetails = buildTicketFinalDetailsLine(item);
                     return `
                       <div style="margin-bottom: 5px;">
                         <div style="display: flex; justify-content: space-between;">
