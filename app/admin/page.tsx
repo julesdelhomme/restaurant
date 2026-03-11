@@ -370,6 +370,9 @@ function normalizePrepItemStatus(raw: unknown): "pending" | "preparing" | "ready
       "prete",
       "prête",
       "ready_to_serve",
+      "served",
+      "servi",
+      "servie",
     ].includes(normalized)
   ) {
     return "ready";
@@ -389,6 +392,22 @@ function normalizePrepItemStatus(raw: unknown): "pending" | "preparing" | "ready
   return "pending";
 }
 
+function isItemServed(item: Item) {
+  const record = item as unknown as Record<string, unknown>;
+  const rawStatus =
+    record.status ??
+    record.item_status ??
+    record.preparation_status ??
+    record.prep_status ??
+    record.state;
+  const normalized = String(rawStatus || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+  return normalized === "served" || normalized === "servi" || normalized === "servie";
+}
+
 function getItemPrepStatus(item: Item): "pending" | "preparing" | "ready" {
   const record = item as unknown as Record<string, unknown>;
   const rawStatus =
@@ -400,11 +419,23 @@ function getItemPrepStatus(item: Item): "pending" | "preparing" | "ready" {
   return normalizePrepItemStatus(rawStatus);
 }
 
+function hasExplicitItemStatus(item: Item) {
+  const record = item as unknown as Record<string, unknown>;
+  const rawStatus =
+    record.status ??
+    record.item_status ??
+    record.preparation_status ??
+    record.prep_status ??
+    record.state;
+  return String(rawStatus || "").trim().length > 0;
+}
+
 function isItemReady(item: Item) {
-  return getItemPrepStatus(item) === "ready";
+  return getItemPrepStatus(item) === "ready" && !isItemServed(item);
 }
 
 function getItemStatusLabel(item: Item) {
+  if (isItemServed(item)) return "SERVI";
   const status = getItemPrepStatus(item);
   if (status === "ready") return "PRÊT";
   if (status === "preparing") return "EN PRÉPARATION";
@@ -412,6 +443,7 @@ function getItemStatusLabel(item: Item) {
 }
 
 function getItemStatusClass(item: Item) {
+  if (isItemServed(item)) return "border-blue-700 bg-blue-600 text-white";
   const status = getItemPrepStatus(item);
   if (status === "ready") return "border-green-700 bg-green-600 text-white";
   if (status === "preparing") return "border-amber-700 bg-amber-500 text-black";
@@ -420,24 +452,48 @@ function getItemStatusClass(item: Item) {
 
 function summarizeItems(items: Item[]) {
   const total = items.length;
-  const ready = items.filter((item) => isItemReady(item)).length;
-  const preparing = items.filter((item) => getItemPrepStatus(item) === "preparing").length;
-  const pending = Math.max(0, total - ready - preparing);
-  return { total, ready, preparing, pending };
+  const served = items.filter((item) => isItemServed(item)).length;
+  const activeItems = items.filter((item) => !isItemServed(item));
+  const ready = activeItems.filter((item) => isItemReady(item)).length;
+  const preparing = activeItems.filter((item) => getItemPrepStatus(item) === "preparing").length;
+  const pending = Math.max(0, activeItems.length - ready - preparing);
+  return { total, ready, preparing, pending, served, active: activeItems.length };
 }
 
 function getOrderItemProgress(order: Order) {
   const items = parseItems(order.items);
+  const activeItems = items.filter((item) => !isItemServed(item));
+  const hasAnyItemStatus = activeItems.some((item) => hasExplicitItemStatus(item));
+  const orderReadyLike = isReadyLikeOrderStatus(order.status);
+  const readyItems =
+    !hasAnyItemStatus && orderReadyLike
+      ? [...activeItems]
+      : activeItems.filter((item) => isItemReady(item));
+  const pendingOrPreparingItems = activeItems.filter((item) => !readyItems.includes(item));
   const drinks = items.filter((item) => isDrink(item));
   const foods = items.filter((item) => !isDrink(item));
+  const activeDrinks = activeItems.filter((item) => isDrink(item));
+  const activeFoods = activeItems.filter((item) => !isDrink(item));
   return {
     items,
+    activeItems,
+    readyItems,
+    pendingOrPreparingItems,
     drinks,
     foods,
     all: summarizeItems(items),
-    drink: summarizeItems(drinks),
-    food: summarizeItems(foods),
+    drink: summarizeItems(activeDrinks),
+    food: summarizeItems(activeFoods),
   };
+}
+
+function isReadyLikeOrderStatus(status: unknown) {
+  const normalized = String(status || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+  return ["ready", "ready_bar", "pret", "prêt", "ready_to_serve"].includes(normalized);
 }
 
 function makeLineId() {
@@ -1835,39 +1891,48 @@ function AdminContent() {
     setMessage("");
   };
 
-  const handleServed = async (orderId: string) => {
-    setOrders((prev) => prev.filter((o) => o.id !== orderId));
-
-    const { error } = await supabase
-      .from("orders")
-      .update({ status: "served" })
-      .eq("id", orderId);
-
-    if (error) {
-      console.error("Erreur service:", error);
-      fetchOrders();
+  const deriveOrderStatusFromItems = (items: Item[]) => {
+    const activeItems = items.filter((item) => !isItemServed(item));
+    if (activeItems.length === 0) return "served";
+    if (activeItems.every((item) => isItemReady(item))) {
+      return activeItems.every((item) => isDrink(item)) ? "ready_bar" : "ready";
     }
+    if (activeItems.some((item) => isItemReady(item) || getItemPrepStatus(item) === "preparing")) {
+      return "preparing";
+    }
+    return "pending";
   };
 
-  const handleReady = async (order: Order) => {
-    const nextStatus = (() => {
-      const orderItems = parseItems(order.items);
-      if (orderItems.length > 0 && orderItems.every((item) => isDrink(item))) return "ready_bar";
-      return "ready";
-    })();
+  const handleServeItem = async (orderId: string, itemIndex: number) => {
+    const targetOrder = orders.find((order) => String(order.id) === String(orderId));
+    if (!targetOrder) {
+      await fetchOrders();
+      return;
+    }
+    const currentItems = parseItems(targetOrder.items);
+    if (itemIndex < 0 || itemIndex >= currentItems.length) return;
+
+    const nextItems = currentItems.map((item, idx) =>
+      idx === itemIndex ? { ...(item || {}), status: "served" } : item
+    );
+    const nextStatus = deriveOrderStatusFromItems(nextItems);
 
     setOrders((prev) =>
-      prev.map((entry) => (String(entry.id) === String(order.id) ? { ...entry, status: nextStatus } : entry))
+      prev.map((order) =>
+        String(order.id) === String(orderId)
+          ? { ...order, items: nextItems, status: nextStatus }
+          : order
+      )
     );
 
     const { error } = await supabase
       .from("orders")
-      .update({ status: nextStatus })
-      .eq("id", String(order.id));
+      .update({ items: nextItems, status: nextStatus })
+      .eq("id", orderId);
 
     if (error) {
-      console.error("Erreur passage commande prête:", error);
-      fetchOrders();
+      console.error("Erreur service article:", error);
+      await fetchOrders();
     }
   };
 
@@ -2519,7 +2584,7 @@ function AdminContent() {
     () =>
       serviceVisibleOrders.filter((order) => {
         const progress = getOrderItemProgress(order);
-        return progress.all.total > 0 && progress.all.ready < progress.all.total;
+        return progress.pendingOrPreparingItems.length > 0;
       }),
     [serviceVisibleOrders]
   );
@@ -2528,7 +2593,7 @@ function AdminContent() {
     () =>
       serviceVisibleOrders.filter((order) => {
         const progress = getOrderItemProgress(order);
-        return progress.all.total > 0 && progress.all.ready === progress.all.total;
+        return progress.readyItems.length > 0;
       }),
     [serviceVisibleOrders]
   );
@@ -2605,12 +2670,53 @@ function AdminContent() {
       ? "orders"
       : activeTab;
 
+  const resolveOrderItemLabel = (item: Item) => {
+    const directLabel =
+      String(item.name || "").trim() ||
+      String(item.name_fr || "").trim() ||
+      String(item.label || "").trim() ||
+      String(item.product_name || "").trim() ||
+      String(item.productName || "").trim() ||
+      String(item.dish_name || "").trim() ||
+      String(item.dishName || "").trim() ||
+      String(item.product?.name_fr || "").trim() ||
+      String(item.product?.name || "").trim() ||
+      String(item.product?.label || "").trim() ||
+      String(item.dish?.name_fr || "").trim() ||
+      String(item.dish?.name || "").trim();
+    if (directLabel) return directLabel;
+
+    const dishId = String(item.dish_id ?? item.id ?? "").trim();
+    if (dishId) {
+      const sourceDish = dishes.find((dish) => String(dish.id || "").trim() === dishId);
+      const catalogLabel =
+        String(sourceDish?.name_fr || "").trim() ||
+        String(sourceDish?.name || "").trim() ||
+        String(sourceDish?.nom || "").trim();
+      if (catalogLabel) return catalogLabel;
+    }
+
+    return isDrink(item) ? "Boisson" : "Plat inconnu";
+  };
+
+  const getReadyItemEntries = (order: Order) => {
+    const activeEntries = parseItems(order.items)
+      .map((item, index) => ({ item, index }))
+      .filter((entry) => !isItemServed(entry.item));
+    const hasAnyItemStatus = activeEntries.some((entry) => hasExplicitItemStatus(entry.item));
+    if (!hasAnyItemStatus && isReadyLikeOrderStatus(order.status)) {
+      return activeEntries;
+    }
+    return activeEntries.filter((entry) => isItemReady(entry.item));
+  };
+
   const renderOrderCard = (
     order: Order,
     mode: "all" | "drinks" | "foods",
     actionLabel?: string,
     actionHandler?: () => void,
-    actionColorClass = "bg-black text-white"
+    actionColorClass = "bg-black text-white",
+    itemVisibility: "all_active" | "pending_preparing" = "all_active"
   ) => {
     const resolvedCovers = (() => {
       const direct =
@@ -2620,34 +2726,7 @@ function AdminContent() {
       if (direct) return direct;
       return tableCoversByNumber.get(Number(order.table_number)) || null;
     })();
-    const getOrderItemLabel = (item: Item) => {
-      const directLabel =
-        String(item.name || "").trim() ||
-        String(item.name_fr || "").trim() ||
-        String(item.label || "").trim() ||
-        String(item.product_name || "").trim() ||
-        String(item.productName || "").trim() ||
-        String(item.dish_name || "").trim() ||
-        String(item.dishName || "").trim() ||
-        String(item.product?.name_fr || "").trim() ||
-        String(item.product?.name || "").trim() ||
-        String(item.product?.label || "").trim() ||
-        String(item.dish?.name_fr || "").trim() ||
-        String(item.dish?.name || "").trim();
-      if (directLabel) return directLabel;
-
-      const dishId = String(item.dish_id ?? item.id ?? "").trim();
-      if (dishId) {
-        const sourceDish = dishes.find((dish) => String(dish.id || "").trim() === dishId);
-        const catalogLabel =
-          String(sourceDish?.name_fr || "").trim() ||
-          String(sourceDish?.name || "").trim() ||
-          String(sourceDish?.nom || "").trim();
-        if (catalogLabel) return catalogLabel;
-      }
-
-      return isDrink(item) ? "Boisson" : "Plat inconnu";
-    };
+    const getOrderItemLabel = (item: Item) => resolveOrderItemLabel(item);
     const flattenChoiceTexts = (value: unknown): string[] => {
       if (value == null) return [];
       if (Array.isArray(value)) return value.flatMap((entry) => flattenChoiceTexts(entry));
@@ -2791,7 +2870,9 @@ function AdminContent() {
         if (mode === "drinks") return isDrink(item);
         if (mode === "foods") return !isDrink(item);
         return true;
-      });
+      })
+      .filter((item) => !isItemServed(item))
+      .filter((item) => (itemVisibility === "pending_preparing" ? !isItemReady(item) : true));
     if (items.length === 0) return null;
     const foodItems = items.filter((item) => !isDrink(item));
     const drinkItems = items.filter((item) => isDrink(item));
@@ -3230,7 +3311,7 @@ function AdminContent() {
               {preparingOrders.length === 0 ? (
                 <p className="text-sm text-gray-500 italic">Aucune commande en préparation.</p>
               ) : (
-                preparingOrders.map((order) => renderOrderCard(order, "all"))
+                preparingOrders.map((order) => renderOrderCard(order, "all", undefined, undefined, undefined, "pending_preparing"))
               )}
             </div>
           </section>
@@ -3241,15 +3322,56 @@ function AdminContent() {
               {readyOrders.length === 0 ? (
                 <p className="text-sm text-gray-500 italic">Aucune commande prête.</p>
               ) : (
-                readyOrders.map((order) =>
-                  renderOrderCard(
-                    order,
-                    "all",
-                    "COMMANDE SERVIE",
-                    () => handleServed(String(order.id)),
-                    "bg-yellow-400 text-black"
-                  )
-                )
+                readyOrders.map((order) => {
+                  const readyEntries = getReadyItemEntries(order);
+                  if (readyEntries.length === 0) return null;
+                  const covers =
+                    normalizeCoversValue((order as unknown as Record<string, unknown>).covers) ??
+                    normalizeCoversValue((order as unknown as Record<string, unknown>).guest_count) ??
+                    normalizeCoversValue((order as unknown as Record<string, unknown>).customer_count) ??
+                    tableCoversByNumber.get(Number(order.table_number)) ??
+                    null;
+                  return (
+                    <div
+                      key={`ready-items-${order.id}`}
+                      className="border-2 border-green-500 bg-white p-3 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]"
+                    >
+                      <div className="mb-2 flex items-center justify-between border-b-2 border-black pb-2">
+                        <div className="text-xl font-black uppercase">
+                          T-{order.table_number ?? "?"}
+                          {covers ? ` | 👥 ${covers}` : ""}
+                        </div>
+                        <div className="text-xs font-mono text-gray-500">#{String(order.id).slice(0, 4)}</div>
+                      </div>
+                      <div className="space-y-2">
+                        {readyEntries.map(({ item, index }) => (
+                          <div key={`ready-line-${order.id}-${index}`} className="border border-gray-300 bg-green-50 p-2">
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="font-bold text-sm">
+                                <span className="bg-black text-white px-2 mr-2 rounded">{Number(item.quantity) || 1}x</span>
+                                <span className="notranslate" translate="no">
+                                  {resolveOrderItemLabel(item)}
+                                </span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => void handleServeItem(String(order.id), index)}
+                                className="border-2 border-black bg-yellow-400 px-2 py-1 text-xs font-black text-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none"
+                              >
+                                MARQUER SERVI
+                              </button>
+                            </div>
+                            {String(item.instructions || "").trim() ? (
+                              <div className="mt-1 text-xs italic text-gray-700 notranslate" translate="no">
+                                {String(item.instructions || "").trim()}
+                              </div>
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })
               )}
             </div>
           </section>
@@ -3377,52 +3499,51 @@ function AdminContent() {
                           <span className="text-gray-600 text-xs"> - max {maxSelections}</span>
                         ) : null}
                       </div>
-                      <div className="space-y-1">
-                        {isSingleChoice && !sideRequired ? (
-                          <label className="flex items-center gap-2 text-sm">
-                            <input
-                              type="radio"
-                              name="modal-side-option"
-                              checked={modalSelectedSides.length === 0}
-                              onChange={() => setModalSelectedSides([])}
-                            />
-                            <span>Aucun accompagnement</span>
-                          </label>
-                        ) : null}
+                      <div className="flex flex-wrap gap-2">
                         {modalSideChoices.map((side) => {
                           const checked = modalSelectedSides.includes(side);
                           const limitReached = !checked && maxSelections > 0 && modalSelectedSides.length >= maxSelections;
                           return (
-                            <label key={side} className="flex items-center gap-2 text-sm">
-                              <input
-                                type={isSingleChoice ? "radio" : "checkbox"}
-                                name={isSingleChoice ? "modal-side-option" : undefined}
-                                checked={checked}
-                                disabled={limitReached}
-                                onChange={(event) => {
-                                  if (isSingleChoice) {
-                                    if (event.target.checked) {
-                                      setModalSelectedSides([side]);
-                                    } else if (!sideRequired) {
-                                      setModalSelectedSides([]);
-                                    }
-                                    return;
+                            <button
+                              key={side}
+                              type="button"
+                              disabled={limitReached}
+                              onClick={() => {
+                                if (isSingleChoice) {
+                                  setModalSelectedSides((prev) => {
+                                    const isSelected = prev.includes(side);
+                                    if (isSelected) return sideRequired ? prev : [];
+                                    return [side];
+                                  });
+                                  return;
+                                }
+                                setModalSelectedSides((prev) => {
+                                  const isSelected = prev.includes(side);
+                                  if (isSelected) {
+                                    if (sideRequired && prev.length <= 1) return prev;
+                                    return prev.filter((value) => value !== side);
                                   }
-                                  if (event.target.checked) {
-                                    setModalSelectedSides((prev) => {
-                                      if (prev.includes(side)) return prev;
-                                      if (maxSelections > 0 && prev.length >= maxSelections) return prev;
-                                      return [...prev, side];
-                                    });
-                                  } else {
-                                    setModalSelectedSides((prev) => prev.filter((value) => value !== side));
-                                  }
-                                }}
-                              />
-                              <span>{side}</span>
-                            </label>
+                                  if (maxSelections > 0 && prev.length >= maxSelections) return prev;
+                                  return [...prev, side];
+                                });
+                              }}
+                              className={`border-2 border-black px-3 py-2 text-sm font-bold ${
+                                checked ? "bg-black text-white" : "bg-white text-black"
+                              } ${limitReached ? "opacity-50 cursor-not-allowed" : ""}`}
+                            >
+                              {side}
+                            </button>
                           );
                         })}
+                        {!sideRequired ? (
+                          <button
+                            type="button"
+                            onClick={() => setModalSelectedSides([])}
+                            className="border-2 border-black bg-gray-100 px-3 py-2 text-sm font-bold text-black"
+                          >
+                            Réinitialiser
+                          </button>
+                        ) : null}
                       </div>
                     </>
                   );
@@ -3472,7 +3593,7 @@ function AdminContent() {
                       <button
                         key={choice}
                         type="button"
-                        onClick={() => setModalCooking(choice)}
+                        onClick={() => setModalCooking((prev) => (prev === choice ? "" : choice))}
                         className={`border-2 border-black px-2 py-2 text-sm font-bold ${
                           modalCooking === choice ? "bg-black text-white" : "bg-white text-black"
                         }`}

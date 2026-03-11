@@ -317,6 +317,9 @@ function normalizePrepItemStatus(raw: unknown): "pending" | "preparing" | "ready
       "prete",
       "prête",
       "ready_to_serve",
+      "served",
+      "servi",
+      "servie",
     ].includes(normalized)
   ) {
     return "ready";
@@ -2215,6 +2218,16 @@ export default function BarCaissePage() {
           display: none;
         }
         @media print {
+          @page {
+            size: 80mm auto;
+            margin: 0;
+          }
+          html, body {
+            margin: 0 !important;
+            padding: 0 !important;
+            width: 80mm !important;
+            background: #fff !important;
+          }
           body * {
             visibility: hidden !important;
           }
@@ -2231,6 +2244,8 @@ export default function BarCaissePage() {
             padding: 0;
             margin: 0;
             z-index: 999999;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
           }
           #thermal-ticket-print-root .thermal-ticket-card {
             width: 80mm;
@@ -2267,10 +2282,6 @@ export default function BarCaissePage() {
           }
           #thermal-ticket-print-root .thermal-total {
             font-size: 12px;
-          }
-          @page {
-            size: 80mm auto;
-            margin: 2mm;
           }
         }
       `}</style>

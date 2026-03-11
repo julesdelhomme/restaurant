@@ -149,6 +149,9 @@ export default function KitchenPage() {
         "prete",
         "prête",
         "ready_to_serve",
+        "served",
+        "servi",
+        "servie",
       ].includes(normalized)
     ) {
       return "ready";
@@ -697,6 +700,7 @@ export default function KitchenPage() {
     const dedupedDetailValues = dedupeList(
       detailValues.map((value) =>
         String(value || "")
+          .replace(/^details?\s*:\s*/i, "")
           .replace(/^precisions?\s*:\s*/i, "")
           .replace(/^commentaire cuisine\s*:\s*/i, "")
           .trim()
@@ -1401,10 +1405,26 @@ export default function KitchenPage() {
                 ? ` | 👥 ${Number(printOrder.covers || printOrder.guest_count || printOrder.customer_count)}`
                 : ""}
             </div>
-            <div className="text-sm mb-2">{new Date(printOrder.created_at).toLocaleTimeString("fr-FR")}</div>
             <div className="border-t border-b border-dashed border-black py-2">
               {printableCuisineItems(printOrder).map((item: any, idx: number) => {
-                const kitchenDetails = getKitchenNotes(item);
+                const kitchenDetails = (() => {
+                  const raw = String(getKitchenNotes(item) || "")
+                    .split("|")
+                    .map((part) => String(part || "").trim())
+                    .filter(Boolean);
+                  const seen = new Set<string>();
+                  const deduped = raw.filter((part) => {
+                    const key = part
+                      .normalize("NFD")
+                      .replace(/[\u0300-\u036f]/g, "")
+                      .toLowerCase()
+                      .trim();
+                    if (!key || seen.has(key)) return false;
+                    seen.add(key);
+                    return true;
+                  });
+                  return deduped.join(" | ");
+                })();
                 const cookingInline = getInlineCookingLevel(item as Item);
                 return (
                   <div key={`print-${String(printOrder.id)}-${idx}-${String(item.dish_id || item.id || "")}`}>
@@ -1425,6 +1445,16 @@ export default function KitchenPage() {
           </div>
           <style>{`
             @media print {
+              @page {
+                size: 80mm auto;
+                margin: 0;
+              }
+              html, body {
+                margin: 0 !important;
+                padding: 0 !important;
+                width: 80mm !important;
+                background: #fff !important;
+              }
               body * { visibility: hidden !important; }
               #ticket-print, #ticket-print * { visibility: visible !important; }
               #ticket-print {
@@ -1432,7 +1462,11 @@ export default function KitchenPage() {
                 top: 0;
                 left: 0;
                 width: 80mm;
+                margin: 0;
+                padding: 3mm;
                 font-family: "Courier New", Courier, monospace;
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
               }
             }
           `}</style>

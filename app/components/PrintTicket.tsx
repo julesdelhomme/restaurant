@@ -89,6 +89,16 @@ export default function PrintTicket({ order, isVisible, logoUrl, restaurantName,
                   margin: 0 auto;
                 }
                 @media print {
+                  @page {
+                    size: 80mm auto;
+                    margin: 0;
+                  }
+                  html, body {
+                    margin: 0 !important;
+                    padding: 0 !important;
+                    width: 80mm !important;
+                    background: #fff !important;
+                  }
                   body * {
                     visibility: visible !important;
                   }
@@ -96,6 +106,7 @@ export default function PrintTicket({ order, isVisible, logoUrl, restaurantName,
                     border: 1px dashed #000 !important;
                     padding: 10px !important;
                     margin: 0 !important;
+                    width: 80mm !important;
                   }
                 }
               </style>

@@ -38,6 +38,16 @@ export default function OrderTicket({ order }: { order: OrderTicketOrder | null 
     <>
       <style>{`
         @media print {
+          @page {
+            size: 80mm auto;
+            margin: 0;
+          }
+          html, body {
+            margin: 0 !important;
+            padding: 0 !important;
+            width: 80mm !important;
+            background: #fff !important;
+          }
           body * { visibility: hidden !important; }
           #section-to-print, #section-to-print * { visibility: visible !important; }
           #section-to-print { position: absolute; left: 0; top: 0; width: 80mm; background: #fff !important; color: #000 !important; }
