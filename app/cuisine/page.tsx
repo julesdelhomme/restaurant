@@ -726,7 +726,7 @@ export default function KitchenPage() {
     return cookingKey ? getCookingLabelFr(cookingKey) : "";
   };
 
-  const getKitchenNotesLine = (item: Item) => {
+  const getKitchenFinalDetails = (item: Item) => {
     const normalizeKey = (value: string) =>
       String(value || "")
         .normalize("NFD")
@@ -736,7 +736,12 @@ export default function KitchenPage() {
     const uniqueValues = (values: string[]) => {
       const seen = new Set<string>();
       return values
-        .map((value) => String(value || "").trim())
+        .map((value) =>
+          String(value || "")
+            .replace(/^[-•]\s*/, "")
+            .replace(/\s{2,}/g, " ")
+            .trim()
+        )
         .filter(Boolean)
         .filter((value) => {
           const key = normalizeKey(value);
@@ -750,6 +755,11 @@ export default function KitchenPage() {
         .replace(/^details?\s*:\s*/i, "")
         .replace(/^notes?\s*:\s*/i, "")
         .trim();
+    const extractTokens = (value: string) =>
+      String(value || "")
+        .split(",")
+        .map((token) => String(token || "").trim())
+        .filter(Boolean);
 
     const cooking: string[] = [];
     const options: string[] = [];
@@ -762,25 +772,28 @@ export default function KitchenPage() {
       .filter(Boolean)
       .forEach((entry) => {
         if (/^cuisson\s*:/i.test(entry)) {
-          cooking.push(entry.replace(/^cuisson\s*:\s*/i, "").trim());
+          cooking.push(...extractTokens(entry.replace(/^cuisson\s*:\s*/i, "").trim()));
           return;
         }
         if (/^(option|options|suppl[eé]ments?|supplements?)\s*:/i.test(entry)) {
-          options.push(entry.replace(/^(option|options|suppl[eé]ments?|supplements?)\s*:\s*/i, "").trim());
+          options.push(...extractTokens(entry.replace(/^(option|options|suppl[eé]ments?|supplements?)\s*:\s*/i, "").trim()));
           return;
         }
         if (/^(accompagnement|accompagnements|side|sides)\s*:/i.test(entry)) {
-          accompaniments.push(entry.replace(/^(accompagnement|accompagnements|side|sides)\s*:\s*/i, "").trim());
+          accompaniments.push(
+            ...extractTokens(entry.replace(/^(accompagnement|accompagnements|side|sides)\s*:\s*/i, "").trim())
+          );
           return;
         }
         if (/^(pr[eé]cisions?|commentaire cuisine|remarque|remarks?)\s*:/i.test(entry)) {
-          remarks.push(entry.replace(/^(pr[eé]cisions?|commentaire cuisine|remarque|remarks?)\s*:\s*/i, "").trim());
+          remarks.push(
+            ...extractTokens(entry.replace(/^(pr[eé]cisions?|commentaire cuisine|remarque|remarks?)\s*:\s*/i, "").trim())
+          );
           return;
         }
-        remarks.push(entry);
+        remarks.push(...extractTokens(entry));
       });
 
-    const finalParts: string[] = [];
     const cookingValues = uniqueValues(cooking);
     const optionValues = uniqueValues(options);
     const accompanimentValues = uniqueValues(accompaniments);
@@ -791,12 +804,7 @@ export default function KitchenPage() {
       );
       return !alreadyInOtherSection;
     });
-
-    if (cookingValues.length > 0) finalParts.push(`Cuisson: ${cookingValues.join(", ")}`);
-    if (optionValues.length > 0) finalParts.push(`Options: ${optionValues.join(", ")}`);
-    if (accompanimentValues.length > 0) finalParts.push(`Accompagnement: ${accompanimentValues.join(", ")}`);
-    if (remarkValues.length > 0) finalParts.push(`Remarque: ${remarkValues.join(" | ")}`);
-    return finalParts.join(" | ");
+    return [...cookingValues, ...optionValues, ...accompanimentValues, ...remarkValues].join(", ");
   };
 
   const fetchCatalogNames = async () => {
@@ -1435,7 +1443,7 @@ export default function KitchenPage() {
 
                 <div className="space-y-2 mb-4">
                   {group.items.map(({ item, orderId, idx }) => {
-                    const notesLine = getKitchenNotesLine(item as Item);
+                    const finalDetails = getKitchenFinalDetails(item as Item);
                     return (
                       <div key={`${String(orderId)}-${idx}-${String(item.dish_id || item.id || "")}`} className="bg-gray-100 p-2">
                         <div className="font-bold text-lg">
@@ -1444,12 +1452,12 @@ export default function KitchenPage() {
                             {resolveKitchenDishName(item)}
                           </span>
                         </div>
-                        {notesLine ? (
+                        {finalDetails ? (
                           <div
                             className="mt-1 text-xs italic text-gray-800 leading-tight"
                             translate="no"
                           >
-                            <span className="notranslate">Notes: {notesLine}</span>
+                            <span className="notranslate">- {finalDetails}</span>
                           </div>
                         ) : null}
                       </div>
@@ -1495,7 +1503,7 @@ export default function KitchenPage() {
                   </div>
                   <div className="space-y-1">
                     {kitchenItems.map((item: any, idx: number) => {
-                      const notesLine = getKitchenNotesLine(item as Item);
+                      const finalDetails = getKitchenFinalDetails(item as Item);
                       return (
                         <div key={`${String(order.id)}-ready-${idx}-${String(item.dish_id || item.id || "")}`} className="text-xs text-black">
                           <div className="font-semibold">
@@ -1504,9 +1512,9 @@ export default function KitchenPage() {
                               {resolveKitchenDishName(item)}
                             </span>
                           </div>
-                          {notesLine ? (
+                          {finalDetails ? (
                             <div className="text-[11px] italic text-gray-700" translate="no">
-                              <span className="notranslate">Notes: {notesLine}</span>
+                              <span className="notranslate">- {finalDetails}</span>
                             </div>
                           ) : null}
                         </div>
@@ -1530,16 +1538,16 @@ export default function KitchenPage() {
             </div>
             <div className="border-t border-b border-dashed border-black py-2">
               {printableCuisineItems(printOrder).map((item: any, idx: number) => {
-                const notesLine = getKitchenNotesLine(item as Item);
+                const finalDetails = getKitchenFinalDetails(item as Item);
                 return (
                   <div key={`print-${String(printOrder.id)}-${idx}-${String(item.dish_id || item.id || "")}`}>
                     {item.quantity}x{" "}
                     <span translate="no" className="notranslate">
                       {resolveKitchenDishName(item)}
                     </span>
-                    {notesLine ? (
+                    {finalDetails ? (
                       <div translate="no" className="notranslate italic text-xs">
-                        Notes: {notesLine}
+                        - {finalDetails}
                       </div>
                     ) : null}
                   </div>

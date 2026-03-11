@@ -272,16 +272,16 @@ export default function PrintTicket({ order, isVisible, logoUrl, restaurantName,
                 <div>
                   ${filteredItems.map((item, index) => {
                     const itemName = item?.name || "Plat inconnu";
-                    const detailsLine = buildTicketDetailLine(item);
+                    const finalDetails = buildTicketDetailLine(item);
                     return `
                       <div style="margin-bottom: 5px;">
                         <div style="display: flex; justify-content: space-between;">
                           <span>${item?.quantity || 0}x</span>
                           <span style="flex: 1; margin-left: 10px;">${itemName}</span>
                         </div>
-                        ${detailsLine ? `
+                        ${finalDetails ? `
                           <span style="color: #000; font-weight: bold; font-size: 12px;">
-                            Notes: ${detailsLine}
+                            - ${finalDetails}
                           </span>
                         ` : ''}
                       </div>
