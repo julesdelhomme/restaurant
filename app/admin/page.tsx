@@ -230,6 +230,8 @@ type DishItem = {
   categorie?: string | null;
   price?: number | string | null;
   active?: boolean | null;
+  has_sides?: boolean | null;
+  max_options?: number | null;
   selected_sides?: unknown;
   sides?: unknown;
   ask_cooking?: boolean | null;
@@ -280,6 +282,7 @@ type FastOrderLine = {
 };
 
 const DISH_SELECT_BASE = "id,name,price,category_id,restaurant_id";
+const DISH_SELECT_WITH_OPTIONS = `${DISH_SELECT_BASE},description,description_fr,description_en,description_es,description_de,ask_cooking,selected_sides,sides,has_sides,max_options,extras,supplement,supplements,options,selected_options`;
 
 interface ParsedDishOptions {
   sideIds: Array<string | number>;
@@ -1170,6 +1173,14 @@ function AdminContent() {
     return Number.isFinite(maxOptions) && maxOptions > 0;
   };
 
+  const getSideMaxSelections = (dish: DishItem, choices: string[]) => {
+    if (choices.length === 0) return 0;
+    const row = dish as unknown as Record<string, unknown>;
+    const raw = Number(row.max_options ?? 1);
+    if (!Number.isFinite(raw) || raw <= 0) return 1;
+    return Math.max(1, Math.min(choices.length, Math.trunc(raw)));
+  };
+
   const isProductOptionSelectionRequired = (dish: DishItem, options: ProductOptionChoice[]) => {
     if (options.length === 0) return false;
     const row = dish as unknown as Record<string, unknown>;
@@ -1333,7 +1344,7 @@ function AdminContent() {
       return;
     }
     const categoriesBaseQuery = supabase.from("categories").select("*").order("id", { ascending: true });
-    const dishesBaseQuery = supabase.from("dishes").select(DISH_SELECT_BASE).order("id", { ascending: true });
+    const dishesBaseQuery = supabase.from("dishes").select(DISH_SELECT_WITH_OPTIONS).order("id", { ascending: true });
     const sidesBaseQuery = supabase.from("sides_library").select("*").order("id", { ascending: true });
     const tablesBaseQuery = supabase.from("table_assignments").select("table_number").order("table_number", { ascending: true });
 
@@ -1862,7 +1873,7 @@ function AdminContent() {
     if (dishId) {
       let byIdPrimaryQuery = supabase
         .from("dishes")
-        .select(DISH_SELECT_BASE)
+        .select(DISH_SELECT_WITH_OPTIONS)
         .eq("id", dish.id)
         .limit(1);
       if (currentRestaurantId) byIdPrimaryQuery = byIdPrimaryQuery.eq("restaurant_id", currentRestaurantId);
@@ -1903,7 +1914,7 @@ function AdminContent() {
     if (dishName) {
       let byNamePrimaryQuery = supabase
         .from("dishes")
-        .select(DISH_SELECT_BASE)
+        .select(DISH_SELECT_WITH_OPTIONS)
         .eq("name", dishName)
         .limit(1);
       if (currentRestaurantId) byNamePrimaryQuery = byNamePrimaryQuery.eq("restaurant_id", currentRestaurantId);
@@ -1986,10 +1997,15 @@ function AdminContent() {
     const selectedProductOption =
       modalProductOptions.find((option) => String(option.id) === String(modalSelectedProductOptionId)) || null;
     const sideRequired = isSideSelectionRequired(modalDish, modalSideChoices);
+    const sideMaxSelections = getSideMaxSelections(modalDish, modalSideChoices);
     const optionRequired = isProductOptionSelectionRequired(modalDish, modalProductOptions);
 
     if (sideRequired && modalSelectedSides.length === 0) {
       alert("Veuillez choisir au moins un accompagnement.");
+      return;
+    }
+    if (sideMaxSelections > 0 && modalSelectedSides.length > sideMaxSelections) {
+      alert(`Vous pouvez choisir au maximum ${sideMaxSelections} accompagnement${sideMaxSelections > 1 ? "s" : ""}.`);
       return;
     }
     if (optionRequired && !selectedProductOption) {
@@ -2003,6 +2019,8 @@ function AdminContent() {
     const category = getDishCategoryLabel(modalDish);
     const optionUnit = parsePriceNumber(selectedProductOption?.price ?? 0);
     const extrasUnit = modalSelectedExtras.reduce((sum, extra) => sum + parsePriceNumber(extra.price), 0);
+    const normalizedSelectedSides =
+      sideMaxSelections > 0 ? modalSelectedSides.slice(0, sideMaxSelections) : modalSelectedSides;
     const line: FastOrderLine = {
       lineId: makeLineId(),
       dishId: String(modalDish.id),
@@ -2011,7 +2029,7 @@ function AdminContent() {
       categoryId: modalDish.category_id ?? null,
       quantity: modalQty,
       unitPrice: Number((getDishPrice(modalDish) + optionUnit + extrasUnit).toFixed(2)),
-      selectedSides: modalSelectedSides,
+      selectedSides: normalizedSelectedSides,
       selectedExtras: modalSelectedExtras,
       selectedProductOptionId: selectedProductOption?.id || null,
       selectedProductOptionName: selectedProductOption?.name || null,
@@ -3242,35 +3260,73 @@ function AdminContent() {
 
             {modalSideChoices.length > 0 ? (
               <div className="mb-3">
-                <div className="font-black mb-1">
-                  Accompagnements{" "}
-                  {isSideSelectionRequired(modalDish, modalSideChoices) ? (
-                    <span className="text-red-700 text-xs">(Obligatoire)</span>
-                  ) : (
-                    <span className="text-gray-500 text-xs">(Facultatif)</span>
-                  )}
-                </div>
-                <div className="space-y-1">
-                  {modalSideChoices.map((side) => {
-                    const checked = modalSelectedSides.includes(side);
-                    return (
-                      <label key={side} className="flex items-center gap-2 text-sm">
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={(event) => {
-                            if (event.target.checked) {
-                              setModalSelectedSides((prev) => [...prev, side]);
-                            } else {
-                              setModalSelectedSides((prev) => prev.filter((value) => value !== side));
-                            }
-                          }}
-                        />
-                        <span>{side}</span>
-                      </label>
-                    );
-                  })}
-                </div>
+                {(() => {
+                  const sideRequired = isSideSelectionRequired(modalDish, modalSideChoices);
+                  const maxSelections = getSideMaxSelections(modalDish, modalSideChoices);
+                  const isSingleChoice = maxSelections <= 1;
+                  return (
+                    <>
+                      <div className="font-black mb-1">
+                        Accompagnements{" "}
+                        {sideRequired ? (
+                          <span className="text-red-700 text-xs">(Obligatoire)</span>
+                        ) : (
+                          <span className="text-gray-500 text-xs">(Facultatif)</span>
+                        )}
+                        {maxSelections > 1 ? (
+                          <span className="text-gray-600 text-xs"> - max {maxSelections}</span>
+                        ) : null}
+                      </div>
+                      <div className="space-y-1">
+                        {isSingleChoice && !sideRequired ? (
+                          <label className="flex items-center gap-2 text-sm">
+                            <input
+                              type="radio"
+                              name="modal-side-option"
+                              checked={modalSelectedSides.length === 0}
+                              onChange={() => setModalSelectedSides([])}
+                            />
+                            <span>Aucun accompagnement</span>
+                          </label>
+                        ) : null}
+                        {modalSideChoices.map((side) => {
+                          const checked = modalSelectedSides.includes(side);
+                          const limitReached = !checked && maxSelections > 0 && modalSelectedSides.length >= maxSelections;
+                          return (
+                            <label key={side} className="flex items-center gap-2 text-sm">
+                              <input
+                                type={isSingleChoice ? "radio" : "checkbox"}
+                                name={isSingleChoice ? "modal-side-option" : undefined}
+                                checked={checked}
+                                disabled={limitReached}
+                                onChange={(event) => {
+                                  if (isSingleChoice) {
+                                    if (event.target.checked) {
+                                      setModalSelectedSides([side]);
+                                    } else if (!sideRequired) {
+                                      setModalSelectedSides([]);
+                                    }
+                                    return;
+                                  }
+                                  if (event.target.checked) {
+                                    setModalSelectedSides((prev) => {
+                                      if (prev.includes(side)) return prev;
+                                      if (maxSelections > 0 && prev.length >= maxSelections) return prev;
+                                      return [...prev, side];
+                                    });
+                                  } else {
+                                    setModalSelectedSides((prev) => prev.filter((value) => value !== side));
+                                  }
+                                }}
+                              />
+                              <span>{side}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </>
+                  );
+                })()}
               </div>
             ) : null}
 
