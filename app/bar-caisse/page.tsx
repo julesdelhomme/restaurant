@@ -572,10 +572,38 @@ function getItemNotes(item: OrderItem) {
 
 function calcLineBreakdown(item: OrderItem) {
   const quantity = Math.max(1, Number(item.quantity) || 1);
+  const record = item as Record<string, unknown>;
+  const readOptionSupplement = () => {
+    const directCandidates: unknown[] = [item.selected_option_price];
+    const selectedOptionRecord =
+      item.selected_option && typeof item.selected_option === "object"
+        ? (item.selected_option as Record<string, unknown>)
+        : null;
+    if (selectedOptionRecord) {
+      directCandidates.push(selectedOptionRecord.price, selectedOptionRecord.price_override, selectedOptionRecord.amount);
+    }
+    const selectedOptionsRaw =
+      record.selected_options ?? record.selectedOptions ?? record.options;
+    if (Array.isArray(selectedOptionsRaw)) {
+      selectedOptionsRaw.forEach((entry) => {
+        if (!entry || typeof entry !== "object") return;
+        const row = entry as Record<string, unknown>;
+        const kind = String(row.kind || row.type || row.key || "").toLowerCase().trim();
+        if (kind && !/(option|variant|variante|format|taille)/.test(kind)) return;
+        directCandidates.push(row.price, row.price_override, row.amount);
+      });
+    }
+    for (const candidate of directCandidates) {
+      const amount = Number(candidate);
+      if (Number.isFinite(amount) && amount > 0) return amount;
+    }
+    return 0;
+  };
+  const optionSupplementUnitPrice = readOptionSupplement();
   const supplementUnitPrice =
+    optionSupplementUnitPrice +
     (Array.isArray(item.selectedExtras) ? item.selectedExtras.reduce((sum, e) => sum + (Number(e?.price) || 0), 0) : 0) +
     (Array.isArray(item.selected_extras) ? item.selected_extras.reduce((sum, e) => sum + (Number(e?.price) || 0), 0) : 0);
-  const record = item as Record<string, unknown>;
   const explicitBaseCandidates = [
     item.base_price,
     record.basePrice,

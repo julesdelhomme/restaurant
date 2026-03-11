@@ -1834,6 +1834,46 @@ export default function MenuManager() {
       .slice(0, 3)
       .map((entry) => entry.review);
   }, [reviews]);
+  const reviewCriteriaAverages = useMemo(() => {
+    const criteria = [
+      { key: "service", label: "Service", fields: ["service_rating", "service_score", "rating_service"] },
+      { key: "food", label: "Qualité des plats", fields: ["food_rating", "food_score", "quality_rating", "rating_food"] },
+      { key: "speed", label: "Rapidité", fields: ["speed_rating", "speed_score", "rating_speed", "wait_time_rating"] },
+      { key: "ambience", label: "Ambiance", fields: ["ambience_rating", "atmosphere_rating", "rating_ambience"] },
+      { key: "value", label: "Rapport qualité-prix", fields: ["value_rating", "value_score", "rating_value"] },
+      { key: "cleanliness", label: "Propreté", fields: ["cleanliness_rating", "clean_rating", "rating_cleanliness"] },
+    ];
+    const rows = criteria
+      .map((criterion) => {
+        const values = reviews
+          .map((review) => {
+            const row = review as unknown as Record<string, unknown>;
+            for (const field of criterion.fields) {
+              const candidate = Number(row[field]);
+              if (Number.isFinite(candidate) && candidate >= 1 && candidate <= 5) return candidate;
+            }
+            return NaN;
+          })
+          .filter((value) => Number.isFinite(value) && value >= 1 && value <= 5);
+        const count = values.length;
+        const average = count > 0 ? values.reduce((sum, value) => sum + value, 0) / count : 0;
+        return { key: criterion.key, label: criterion.label, average, count };
+      })
+      .filter((entry) => entry.count > 0);
+
+    if (rows.length > 0) return rows;
+    if (reviewAverage > 0) {
+      return [
+        {
+          key: "global",
+          label: "Satisfaction globale",
+          average: reviewAverage,
+          count: reviews.length,
+        },
+      ];
+    }
+    return [] as Array<{ key: string; label: string; average: number; count: number }>;
+  }, [reviews, reviewAverage]);
   const renderReviewStars = (ratingRaw: number | null | undefined) => {
     const rating = Math.max(0, Math.min(5, Math.round(Number(ratingRaw || 0))));
     return (
@@ -1889,6 +1929,34 @@ export default function MenuManager() {
 
     const strengthsHtml = weeklyAiSummary.strengths.map((item) => `<li>${escapeReportHtml(item)}</li>`).join("");
     const watchoutsHtml = weeklyAiSummary.watchouts.map((item) => `<li>${escapeReportHtml(item)}</li>`).join("");
+    const criteriaRowsHtml = reviewCriteriaAverages
+      .map(
+        (criterion) =>
+          `<tr><td>${escapeReportHtml(criterion.label)}</td><td>${criterion.average.toFixed(2)}/5</td><td>${criterion.count}</td></tr>`
+      )
+      .join("");
+    const detailedCommentsHtml = reviews
+      .filter((review) => String(review.comment || "").trim().length > 0)
+      .slice(0, 30)
+      .map((review) => {
+        const rating = Number(review.rating || 0);
+        const dishName =
+          String(review.dish?.name_fr || review.dish?.name || "").trim() ||
+          (review.dish_id ? dishNameById.get(String(review.dish_id)) : "") ||
+          "Restaurant";
+        const scope = String(review.dish_id || "").trim() ? `Plat: ${dishName}` : "Avis restaurant";
+        const comment = String(review.comment || "").trim();
+        const dateLabel = review.created_at ? new Date(review.created_at).toLocaleString("fr-FR") : "-";
+        return `
+          <tr>
+            <td>${escapeReportHtml(dateLabel)}</td>
+            <td>${escapeReportHtml(scope)}</td>
+            <td>${rating > 0 ? `${rating}/5` : "-"}</td>
+            <td>${escapeReportHtml(comment)}</td>
+          </tr>
+        `;
+      })
+      .join("");
     const generatedAt = new Date().toLocaleString("fr-FR");
 
     reportWindow.document.open();
@@ -1915,6 +1983,9 @@ export default function MenuManager() {
     .comment p { margin: 8px 0; white-space: pre-wrap; }
     .meta { color: #6b7280; font-size: 12px; }
     .empty { border: 1px dashed #d1d5db; padding: 12px; border-radius: 10px; color: #6b7280; }
+    table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 12px; }
+    th, td { border: 1px solid #e5e7eb; padding: 8px; text-align: left; vertical-align: top; }
+    th { background: #f3f4f6; font-weight: 700; }
     @media print { body { margin: 12mm; } }
   </style>
 </head>
@@ -1926,6 +1997,11 @@ export default function MenuManager() {
     <div class="card"><div class="label">Top plat</div><div class="value" style="font-size:18px;">${escapeReportHtml(topReviewedDish ? topReviewedDish.name : "Aucun")}</div><div class="muted">${topReviewedDish ? `${topReviewedDish.avg}/5 (${topReviewedDish.count} avis)` : ""}</div></div>
     <div class="card"><div class="label">Nombre d'avis</div><div class="value">${reviews.length}</div></div>
   </div>
+  <h2>Moyennes par critère de satisfaction</h2>
+  <table>
+    <thead><tr><th>Critère</th><th>Note moyenne</th><th>Nb. avis</th></tr></thead>
+    <tbody>${criteriaRowsHtml || `<tr><td colspan="3">Aucun critère détaillé disponible.</td></tr>`}</tbody>
+  </table>
     <h2>R\u00e9sum\u00e9 de l'IA</h2>
     <div class="two-col">
       <div>
@@ -1937,9 +2013,13 @@ export default function MenuManager() {
         <ul>${watchoutsHtml || "<li>Aucun point critique détecté</li>"}</ul>
       </div>
     </div>
-  </div>
   <h2>3 commentaires les plus pertinents</h2>
   ${topCommentsHtml}
+  <h2>Détail des commentaires clients</h2>
+  <table>
+    <thead><tr><th>Date</th><th>Type</th><th>Note</th><th>Commentaire</th></tr></thead>
+    <tbody>${detailedCommentsHtml || `<tr><td colspan="4">Aucun commentaire disponible.</td></tr>`}</tbody>
+  </table>
 </body>
 </html>`);
     reportWindow.document.close();
@@ -5653,6 +5733,59 @@ export default function MenuManager() {
 
     const totalTablesCount = configuredTableNumbers.length;
     const averageOccupationRate = totalTablesCount > 0 ? (tableStateCounts.occupied / totalTablesCount) * 100 : 0;
+    const occupancyIgnoredStatuses = new Set(["cancelled", "canceled", "annule", "annulee"]);
+    const occupationSlotDefinitions = [
+      { id: "lunch", label: "12h-14h", startHour: 12, endHour: 14 },
+      { id: "dinner", label: "19h-22h", startHour: 19, endHour: 22 },
+    ] as const;
+    const occupationSlotDayMap = new Map<string, Map<string, Set<number>>>();
+    occupationSlotDefinitions.forEach((slot) => {
+      const dayMap = new Map<string, Set<number>>();
+      for (let offset = 0; offset < rangeDays; offset += 1) {
+        const date = new Date(rangeStart);
+        date.setDate(rangeStart.getDate() + offset);
+        dayMap.set(dateKeyFormatter.format(date), new Set<number>());
+      }
+      occupationSlotDayMap.set(slot.id, dayMap);
+    });
+    inRangeOrders.forEach((order) => {
+      const status = readStatus(order);
+      if (occupancyIgnoredStatuses.has(status)) return;
+      const tableNumber = Number(order.table_number);
+      if (!Number.isFinite(tableNumber) || tableNumber <= 0) return;
+      if (!configuredTableSet.has(tableNumber)) return;
+      const date = readOrderDateLocal(order);
+      if (!Number.isFinite(date.getTime())) return;
+      const dayKey = dateKeyFormatter.format(date);
+      const hm = hourMinuteFormatter.format(date);
+      const [hourText] = hm.split(":");
+      const hour = Number(hourText);
+      if (!Number.isFinite(hour)) return;
+      occupationSlotDefinitions.forEach((slot) => {
+        if (hour < slot.startHour || hour >= slot.endHour) return;
+        const slotDayMap = occupationSlotDayMap.get(slot.id);
+        const tables = slotDayMap?.get(dayKey);
+        if (!tables) return;
+        tables.add(tableNumber);
+      });
+    });
+    const occupationByTimeSlots = occupationSlotDefinitions.map((slot) => {
+      const slotDays = occupationSlotDayMap.get(slot.id);
+      const daySets = slotDays ? [...slotDays.values()] : [];
+      const occupiedSum = daySets.reduce((sum, tables) => sum + tables.size, 0);
+      const peakOccupiedTables = daySets.reduce((max, tables) => Math.max(max, tables.size), 0);
+      const sampleDays = daySets.reduce((sum, tables) => sum + (tables.size > 0 ? 1 : 0), 0);
+      const averageOccupiedTables = rangeDays > 0 ? occupiedSum / rangeDays : 0;
+      const occupancyRate = totalTablesCount > 0 ? (averageOccupiedTables / totalTablesCount) * 100 : 0;
+      return {
+        id: slot.id,
+        label: slot.label,
+        occupancyRate,
+        averageOccupiedTables,
+        peakOccupiedTables,
+        sampleDays,
+      };
+    });
     const averageTableDurationMinutes =
       paidTableDurationsMinutes.length > 0
         ? paidTableDurationsMinutes.reduce((sum, value) => sum + value, 0) / paidTableDurationsMinutes.length
@@ -6065,6 +6198,7 @@ export default function MenuManager() {
       featuredSpecialSoldItems,
       averageTableDurationMinutes,
       averageOccupationRate,
+      occupationByTimeSlots,
       salesTrendData,
       orderTrendData,
       salesTrendTitle,
@@ -6138,60 +6272,193 @@ export default function MenuManager() {
       return;
     }
     const { start, end } = getRangeBounds(analyticsRange);
-    const topRows = displayedAnalytics.top5
-      .map((item, index) => `<tr><td>${index + 1}</td><td>${escapeHtml(item.name)}</td><td>${item.count}</td></tr>`)
+    const paidOrdersCount = Number(displayedAnalytics.paidOrdersCount || 0);
+    const categoryTotal = (displayedAnalytics.productMixData || []).reduce(
+      (sum: number, entry: { value: number }) => sum + Number(entry.value || 0),
+      0
+    );
+    const categoryRows = (displayedAnalytics.productMixData || [])
+      .map((entry: { name: string; value: number }) => {
+        const value = Number(entry.value || 0);
+        const share = categoryTotal > 0 ? (value / categoryTotal) * 100 : 0;
+        return `<tr><td>${escapeHtml(entry.name)}</td><td>${value}</td><td>${share.toFixed(1)}%</td></tr>`;
+      })
       .join("");
-    const mixRows = displayedAnalytics.productMixData
-      .map((entry) => `<tr><td>${escapeHtml(entry.name)}</td><td>${entry.value}</td></tr>`)
+    const topRows = (displayedAnalytics.top5 || [])
+      .map((item: { name: string; count: number }, index: number) => `<tr><td>${index + 1}</td><td>${escapeHtml(item.name)}</td><td>${item.count}</td></tr>`)
       .join("");
-    const tableRows = displayedAnalytics.tablePerformance
+    const topRevenueRows = (displayedAnalytics.topRevenue5 || [])
       .map(
-        (entry) =>
+        (entry: { name: string; revenue: number; count: number }, index: number) =>
+          `<tr><td>${index + 1}</td><td>${escapeHtml(entry.name)}</td><td>${formatEuro(entry.revenue)}</td><td>${Number(entry.count || 0)}</td></tr>`
+      )
+      .join("");
+    const tableRows = (displayedAnalytics.tablePerformance || [])
+      .map(
+        (entry: { table: string; revenue: number }) =>
           `<tr><td>${escapeHtml(String(entry.table))}</td><td>${formatEuro(entry.revenue)}</td></tr>`
       )
+      .join("");
+    const occupationRows = (displayedAnalytics.occupationByTimeSlots || [])
+      .map((slot: { label: string; occupancyRate: number; averageOccupiedTables: number; peakOccupiedTables: number }) => {
+        const averageTables = Number(slot.averageOccupiedTables || 0).toFixed(2);
+        const peakTables = Number(slot.peakOccupiedTables || 0).toFixed(0);
+        return `<tr><td>${escapeHtml(slot.label)}</td><td>${Number(slot.occupancyRate || 0).toFixed(1)}%</td><td>${averageTables}</td><td>${peakTables}</td></tr>`;
+      })
+      .join("");
+    const salesTrendSource = Array.isArray(displayedAnalytics.salesTrendData) ? displayedAnalytics.salesTrendData : [];
+    const salesTrendMax = Math.max(
+      1,
+      ...salesTrendSource.map((entry: { value: number }) => Number(entry.value || 0))
+    );
+    const salesTrendBars = salesTrendSource
+      .map((entry: { label: string; value: number }) => {
+        const value = Number(entry.value || 0);
+        const width = Math.max(2, Math.round((value / salesTrendMax) * 100));
+        return `
+          <div class="bar-row">
+            <div class="bar-label">${escapeHtml(entry.label)}</div>
+            <div class="bar-track"><div class="bar-fill" style="width:${width}%"></div></div>
+            <div class="bar-value">${formatEuro(value)}</div>
+          </div>
+        `;
+      })
+      .join("");
+    const tablePerformanceSource = (displayedAnalytics.tablePerformance || []).slice(0, 8);
+    const tablePerformanceMax = Math.max(
+      1,
+      ...tablePerformanceSource.map((entry: { revenue: number }) => Number(entry.revenue || 0))
+    );
+    const tablePerformanceBars = tablePerformanceSource
+      .map((entry: { table: string; revenue: number }) => {
+        const value = Number(entry.revenue || 0);
+        const width = Math.max(2, Math.round((value / tablePerformanceMax) * 100));
+        return `
+          <div class="bar-row">
+            <div class="bar-label">Table ${escapeHtml(String(entry.table))}</div>
+            <div class="bar-track"><div class="bar-fill bar-fill-green" style="width:${width}%"></div></div>
+            <div class="bar-value">${formatEuro(value)}</div>
+          </div>
+        `;
+      })
       .join("");
     const html = `
       <!doctype html>
       <html>
         <head>
           <meta charset="utf-8" />
-          <title>Rapport Manager</title>
+          <title>Rapport financier manager</title>
           <style>
-            body { font-family: Arial, sans-serif; padding: 24px; color: #111; }
-            h1 { margin-bottom: 8px; }
-            .meta { margin-bottom: 20px; color: #444; }
-            .card { border: 1px solid #ddd; border-radius: 8px; padding: 12px; margin-bottom: 12px; }
-            table { width: 100%; border-collapse: collapse; margin-top: 8px; }
-            th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-            th { background: #f5f5f5; }
+            @page { margin: 10mm; }
+            * { box-sizing: border-box; }
+            body { font-family: "Segoe UI", Arial, sans-serif; margin: 0; color: #111827; background: #ffffff; }
+            h1, h2, h3 { margin: 0; }
+            .wrapper { padding: 20px; }
+            .header { margin-bottom: 16px; border-bottom: 2px solid #111827; padding-bottom: 10px; }
+            .title { font-size: 26px; font-weight: 800; }
+            .meta { margin-top: 6px; color: #4b5563; font-size: 12px; }
+            .kpi-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 14px 0 16px; }
+            .kpi { border: 1px solid #d1d5db; border-radius: 10px; padding: 10px; background: #f9fafb; }
+            .kpi-label { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: #6b7280; font-weight: 700; }
+            .kpi-value { font-size: 21px; font-weight: 800; margin-top: 4px; color: #111827; }
+            .section { border: 1px solid #e5e7eb; border-radius: 12px; padding: 12px; margin-bottom: 12px; }
+            .section h2 { font-size: 15px; font-weight: 800; margin-bottom: 8px; }
+            .two-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+            table { width: 100%; border-collapse: collapse; margin-top: 6px; font-size: 12px; }
+            th, td { border: 1px solid #e5e7eb; padding: 7px; text-align: left; }
+            th { background: #f3f4f6; font-weight: 800; }
+            .bar-panel { border: 1px dashed #d1d5db; border-radius: 10px; padding: 10px; background: #fff; }
+            .bar-title { font-size: 12px; font-weight: 800; margin-bottom: 6px; }
+            .bar-row { display: grid; grid-template-columns: 110px 1fr 90px; align-items: center; gap: 8px; margin: 6px 0; }
+            .bar-label { font-size: 11px; color: #374151; }
+            .bar-track { width: 100%; height: 9px; background: #e5e7eb; border-radius: 999px; overflow: hidden; }
+            .bar-fill { height: 100%; background: linear-gradient(90deg, #2563eb, #60a5fa); }
+            .bar-fill-green { background: linear-gradient(90deg, #059669, #34d399); }
+            .bar-value { text-align: right; font-size: 11px; font-weight: 700; color: #111827; }
+            .empty { color: #6b7280; font-style: italic; font-size: 12px; padding: 8px 0; }
+            @media print {
+              .wrapper { padding: 8mm; }
+              .section { break-inside: avoid; page-break-inside: avoid; }
+            }
           </style>
         </head>
         <body>
-          <h1>Rapport Manager</h1>
-          <div class="meta">Période: ${escapeHtml(getRangeLabel(analyticsRange))} (${formatReportDate(start)} - ${formatReportDate(end)})</div>
-          <div class="card"><strong>CA total:</strong> ${formatEuro(displayedAnalytics.realRevenue)}</div>
-          <div class="card"><strong>Panier moyen:</strong> ${formatEuro(displayedAnalytics.averageBasket)}</div>
-          <div class="card"><strong>Score Upselling (recommandations):</strong> ${displayedAnalytics.recommendationConversion.toFixed(2)}%</div>
-          <div class="card">
-            <strong>Top 5 ventes</strong>
-            <table>
-              <thead><tr><th>#</th><th>Produit</th><th>Ventes</th></tr></thead>
-              <tbody>${topRows || `<tr><td colspan="3">${escapeHtml(analyticsText.noData)}</td></tr>`}</tbody>
-            </table>
-          </div>
-          <div class="card">
-            <strong>Mix produit</strong>
-            <table>
-              <thead><tr><th>Catégorie</th><th>Volume</th></tr></thead>
-              <tbody>${mixRows || `<tr><td colspan="2">${escapeHtml(analyticsText.noData)}</td></tr>`}</tbody>
-            </table>
-          </div>
-          <div class="card">
-            <strong>CA par table</strong>
-            <table>
-              <thead><tr><th>Table</th><th>CA</th></tr></thead>
-              <tbody>${tableRows || `<tr><td colspan="2">${escapeHtml(analyticsText.noData)}</td></tr>`}</tbody>
-            </table>
+          <div class="wrapper">
+            <div class="header">
+              <h1 class="title">Rapport financier manager</h1>
+              <div class="meta">Période: ${escapeHtml(getRangeLabel(analyticsRange))} (${formatReportDate(start)} - ${formatReportDate(end)})</div>
+            </div>
+            <div class="kpi-grid">
+              <div class="kpi">
+                <div class="kpi-label">CA total</div>
+                <div class="kpi-value">${formatEuro(displayedAnalytics.realRevenue)}</div>
+              </div>
+              <div class="kpi">
+                <div class="kpi-label">Panier moyen</div>
+                <div class="kpi-value">${formatEuro(displayedAnalytics.averageBasket)}</div>
+              </div>
+              <div class="kpi">
+                <div class="kpi-label">Commandes payées</div>
+                <div class="kpi-value">${paidOrdersCount}</div>
+              </div>
+              <div class="kpi">
+                <div class="kpi-label">${escapeHtml(avgOccupationRateLabel)}</div>
+                <div class="kpi-value">${Number(displayedAnalytics.averageOccupationRate || 0).toFixed(1)}%</div>
+              </div>
+            </div>
+            <div class="section">
+              <h2>Occupation par tranche horaire</h2>
+              <table>
+                <thead><tr><th>Tranche</th><th>Taux</th><th>Tables moyennes occupées</th><th>Pic de tables occupées</th></tr></thead>
+                <tbody>${occupationRows || `<tr><td colspan="4">${escapeHtml(analyticsText.noData)}</td></tr>`}</tbody>
+              </table>
+            </div>
+            <div class="two-cols">
+              <div class="section">
+                <h2>Détail par catégorie</h2>
+                <table>
+                  <thead><tr><th>Catégorie</th><th>Volume</th><th>Part</th></tr></thead>
+                  <tbody>${categoryRows || `<tr><td colspan="3">${escapeHtml(analyticsText.noData)}</td></tr>`}</tbody>
+                </table>
+              </div>
+              <div class="section">
+                <h2>Top 5 ventes</h2>
+                <table>
+                  <thead><tr><th>#</th><th>Produit</th><th>Ventes</th></tr></thead>
+                  <tbody>${topRows || `<tr><td colspan="3">${escapeHtml(analyticsText.noData)}</td></tr>`}</tbody>
+                </table>
+              </div>
+            </div>
+            <div class="section">
+              <h2>Top CA produits</h2>
+              <table>
+                <thead><tr><th>#</th><th>Produit</th><th>CA</th><th>Volume</th></tr></thead>
+                <tbody>${topRevenueRows || `<tr><td colspan="4">${escapeHtml(analyticsText.noData)}</td></tr>`}</tbody>
+              </table>
+            </div>
+            <div class="two-cols">
+              <div class="section">
+                <h2>Performance horaire</h2>
+                <div class="bar-panel">
+                  <div class="bar-title">${escapeHtml(displayedAnalytics.salesTrendTitle || analyticsText.salesByHour)}</div>
+                  ${salesTrendBars || `<div class="empty">${escapeHtml(analyticsText.noData)}</div>`}
+                </div>
+              </div>
+              <div class="section">
+                <h2>Performance par table (Top 8)</h2>
+                <div class="bar-panel">
+                  <div class="bar-title">${escapeHtml(analyticsText.tablePerformance)}</div>
+                  ${tablePerformanceBars || `<div class="empty">${escapeHtml(analyticsText.noData)}</div>`}
+                </div>
+              </div>
+            </div>
+            <div class="section">
+              <h2>CA par table</h2>
+              <table>
+                <thead><tr><th>Table</th><th>CA</th></tr></thead>
+                <tbody>${tableRows || `<tr><td colspan="2">${escapeHtml(analyticsText.noData)}</td></tr>`}</tbody>
+              </table>
+            </div>
           </div>
         </body>
       </html>
@@ -6961,6 +7228,17 @@ export default function MenuManager() {
                     <p className="mt-1 text-xs font-bold text-purple-800">
                       {avgOccupationRateLabel}: {displayedAnalytics.averageOccupationRate.toFixed(1)}%
                     </p>
+                    {Array.isArray(displayedAnalytics.occupationByTimeSlots) ? (
+                      <div className="mt-2 space-y-1">
+                        {displayedAnalytics.occupationByTimeSlots.map(
+                          (slot: { id: string; label: string; occupancyRate: number }) => (
+                            <p key={`live-occupation-slot-${slot.id}`} className="text-[11px] font-semibold text-purple-900">
+                              {slot.label}: {Number(slot.occupancyRate || 0).toFixed(1)}%
+                            </p>
+                          )
+                        )}
+                      </div>
+                    ) : null}
                   </div>
                   <div className="rounded-xl bg-amber-50 border border-amber-200 p-4">
                     <div className="text-sm font-bold text-amber-900">{avgTicketPerCoverLabel}</div>
@@ -7142,6 +7420,17 @@ export default function MenuManager() {
                     <div className="text-2xl font-black text-purple-700">
                       {displayedAnalytics.averageOccupationRate.toFixed(1)}%
                     </div>
+                    {Array.isArray(displayedAnalytics.occupationByTimeSlots) ? (
+                      <div className="mt-2 space-y-1">
+                        {displayedAnalytics.occupationByTimeSlots.map(
+                          (slot: { id: string; label: string; occupancyRate: number }) => (
+                            <p key={`ops-occupation-slot-${slot.id}`} className="text-[11px] font-semibold text-purple-900">
+                              {slot.label}: {Number(slot.occupancyRate || 0).toFixed(1)}%
+                            </p>
+                          )
+                        )}
+                      </div>
+                    ) : null}
                   </div>
                   <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-4">
                     <div className="text-sm font-bold text-emerald-900">{analyticsText.recommendationConversion}</div>

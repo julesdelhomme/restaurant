@@ -2088,16 +2088,18 @@ export default function MenuDigital() {
     if (promo == null || promo <= 0) return null;
     return promo;
   };
-  const getDishBasePriceWithOption = (dish: Dish, option?: ProductOptionItem | null) => {
+  const getDishBasePrice = (dish: Dish) => Number(dish.price || 0);
+  const getDishOptionSupplement = (option?: ProductOptionItem | null) => {
     const optionPrice = option ? toFinitePrice(option.price_override) : null;
-    if (optionPrice != null && optionPrice >= 0) return optionPrice;
-    return Number(dish.price || 0);
+    if (optionPrice == null || optionPrice <= 0) return 0;
+    return optionPrice;
   };
   const getDishUnitPrice = (dish: Dish, option?: ProductOptionItem | null) => {
-    const basePrice = getDishBasePriceWithOption(dish, option);
+    const basePrice = getDishBasePrice(dish);
+    const optionSupplement = getDishOptionSupplement(option);
     const promoPrice = getPromoPriceForDish(dish);
-    if (promoPrice != null && promoPrice < basePrice) return promoPrice;
-    return basePrice;
+    const discountedBase = promoPrice != null && promoPrice < basePrice ? promoPrice : basePrice;
+    return discountedBase + optionSupplement;
   };
   const getDishSuggestionBadge = (dish: Dish) => {
     const source = dish as unknown as Record<string, unknown>;
@@ -4600,7 +4602,7 @@ export default function MenuDigital() {
                             style={{ color: featuredOverlay ? "#FFFFFF" : darkMode ? "#FFFFFF" : cardTextColorValue }}
                           >
                             <span className="text-xl font-bold line-through opacity-70 inline-flex items-center gap-1">
-                              {Number(getDishBasePriceWithOption(featuredDish, null) || 0).toFixed(2)}
+                              {Number(getDishBasePrice(featuredDish) || 0).toFixed(2)}
                               <Euro size={16} />
                             </span>
                             <span className="text-5xl font-black inline-flex items-center gap-1 text-[#ff2d00]">
@@ -4613,7 +4615,7 @@ export default function MenuDigital() {
                             className="text-4xl font-black inline-flex items-center gap-1"
                             style={{ color: featuredOverlay ? "#FFFFFF" : darkMode ? "#FFFFFF" : cardTextColorValue }}
                           >
-                            {Number(getDishBasePriceWithOption(featuredDish, null) || 0).toFixed(2)}
+                            {Number(getDishBasePrice(featuredDish) || 0).toFixed(2)}
                             <Euro size={24} />
                           </span>
                         )}
@@ -4932,7 +4934,7 @@ export default function MenuDigital() {
                             style={!isOverlayCard ? { color: cardTextColorValue } : undefined}
                           >
                             <span className="text-sm font-bold line-through opacity-70 inline-flex items-center gap-1">
-                              {Number(getDishBasePriceWithOption(dish, null) || 0).toFixed(2)}
+                              {Number(getDishBasePrice(dish) || 0).toFixed(2)}
                               <Euro size={14} />
                             </span>
                             <span className="text-3xl md:text-4xl font-black inline-flex items-center gap-1 text-[#ff2d00]">
@@ -4945,7 +4947,7 @@ export default function MenuDigital() {
                             className={`text-2xl md:text-3xl font-black inline-flex items-center gap-1 ${isOverlayCard ? "text-white" : ""}`}
                             style={!isOverlayCard ? { color: cardTextColorValue } : undefined}
                           >
-                            {Number(getDishBasePriceWithOption(dish, null) || 0).toFixed(2)}
+                            {Number(getDishBasePrice(dish) || 0).toFixed(2)}
                             <Euro size={18} />
                           </span>
                         )}

@@ -123,6 +123,13 @@ export default function KitchenPage() {
     );
   };
 
+  const isKitchenCourse = (item: any) => {
+    if (isDrink(item)) return false;
+    const category = getCategory(item);
+    if (!category) return true;
+    return /(entree|entrée|starter|appetizer|plat|plats|main|dish|dessert|sucre|sweet)/.test(category);
+  };
+
   const parseItems = (items: any): Item[] => {
     if (Array.isArray(items)) return items;
     if (typeof items === "string") {
@@ -805,7 +812,7 @@ export default function KitchenPage() {
   };
 
   const printableCuisineItems = (order: Order) =>
-    getOrderItems(order).filter((item: any) => !isDrink(item));
+    getOrderItems(order).filter((item: any) => isKitchenCourse(item));
 
   const isRateLimitError = (error: any) => {
     const code = String(error.code || error.status || "").toLowerCase();
@@ -941,7 +948,7 @@ export default function KitchenPage() {
           .trim();
         if (!allowedStatuses.has(normalizedStatus)) return false;
         const items = getOrderItems(order as Order);
-        return items.some((item: any) => !isDrink(item));
+        return items.some((item: any) => isKitchenCourse(item));
       });
 
       const normalizeCoversValue = (value: unknown) => {
@@ -1165,7 +1172,7 @@ export default function KitchenPage() {
         {priorityOrders.map((order) => {
           const isReady = isReadyStatus(order.status);
           const items = getOrderItems(order as Order);
-          const kitchenItems = items.filter((item: any) => !isDrink(item));
+          const kitchenItems = items.filter((item: any) => isKitchenCourse(item));
 
           if (kitchenItems.length === 0) return null;
 
@@ -1241,7 +1248,7 @@ export default function KitchenPage() {
           <div className="grid grid-cols-1 gap-2 md:grid-cols-2 lg:grid-cols-3">
             {readyHistoryOrders.map((order) => {
               const items = getOrderItems(order as Order);
-              const kitchenItems = items.filter((item: any) => !isDrink(item));
+              const kitchenItems = items.filter((item: any) => isKitchenCourse(item));
               if (kitchenItems.length === 0) return null;
               return (
                 <div key={`ready-${order.id}`} className="rounded border border-gray-300 bg-gray-50 p-2">
