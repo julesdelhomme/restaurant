@@ -1369,12 +1369,28 @@ function extractMissingColumnName(errorMessage: unknown) {
   const patterns = [
     /column\s+["']?([a-zA-Z0-9_]+)["']?\s+does not exist/i,
     /colonne\s+["']?([a-zA-Z0-9_]+)["']?\s+n['’]existe/i,
+    /could not find the ['"]?([a-zA-Z0-9_]+)['"]?\s+column/i,
   ];
   for (const pattern of patterns) {
     const match = message.match(pattern);
     if (match && match[1]) return String(match[1]).trim();
   }
   return "";
+}
+
+function hasMissingColumnError(error: unknown, expectedColumn?: string) {
+  if (!error || typeof error !== "object") return false;
+  const row = error as Record<string, unknown>;
+  const code = String(row.code || "").trim().toUpperCase();
+  const message = String(row.message || "").trim();
+  const hint = String(row.hint || "").trim();
+  const details = String(row.details || "").trim();
+  const missingColumn =
+    extractMissingColumnName(message) || extractMissingColumnName(hint) || extractMissingColumnName(details);
+  if (expectedColumn) {
+    return missingColumn.toLowerCase() === String(expectedColumn || "").trim().toLowerCase();
+  }
+  return code === "42703" || code === "PGRST204" || Boolean(missingColumn);
 }
 
 export default function MenuManager() {
@@ -4170,11 +4186,6 @@ export default function MenuManager() {
               name: String(names.fr || "").trim(),
               price: Number.parseFloat(String(extra.price || 0)) || 0,
             };
-            Object.entries(names).forEach(([langCode, value]) => {
-              const normalizedCode = normalizeLanguageKey(langCode);
-              if (!normalizedCode) return;
-              row[`name_${normalizedCode}`] = String(value || "").trim() || null;
-            });
             return row;
           })
           .filter((row) => row.name);
@@ -4198,16 +4209,10 @@ export default function MenuManager() {
                 .filter(([lang]) => Boolean(lang))
             ) as Record<string, string>;
             normalizedNames.fr = nameFr;
-            const dynamicToken = Object.keys(normalizedNames).length > 1
-              ? `__I18N__:${encodeURIComponent(JSON.stringify(normalizedNames))}`
-              : null;
             return {
               product_id: savedDishIdRaw,
               name: nameFr,
               name_fr: nameFr,
-              name_en: normalizedNames.en || dynamicToken,
-              name_es: normalizedNames.es || null,
-              name_de: normalizedNames.de || null,
               names_i18n: normalizedNames,
               price_override:
                 option.price_override == null || !Number.isFinite(option.price_override)
@@ -4216,8 +4221,13 @@ export default function MenuManager() {
             };
           })
           .filter(Boolean) as Array<Record<string, unknown>>;
-        const variantRowsBasic = variantRowsRich.map((row) => ({
+        const variantRowsBasicByProductId = variantRowsRich.map((row) => ({
           product_id: row.product_id,
+          name: row.name,
+          price_override: row.price_override,
+        }));
+        const variantRowsBasicByDishId = variantRowsRich.map((row) => ({
+          dish_id: row.product_id,
           name: row.name,
           price_override: row.price_override,
         }));
@@ -4225,7 +4235,7 @@ export default function MenuManager() {
           .from("product_options")
           .delete()
           .eq("product_id", savedDishIdRaw as never);
-        if (productOptionsDeleteResult.error && String((productOptionsDeleteResult.error as { code?: string })?.code || "") === "42703") {
+        if (productOptionsDeleteResult.error && hasMissingColumnError(productOptionsDeleteResult.error, "product_id")) {
           productOptionsDeleteResult = await supabase
             .from("product_options")
             .delete()
@@ -4238,8 +4248,11 @@ export default function MenuManager() {
         }
         if (variantRowsRich.length > 0) {
           let insertVariantsResult = await supabase.from("product_options").insert(variantRowsRich as never);
-          if (insertVariantsResult.error && String((insertVariantsResult.error as { code?: string })?.code || "") === "42703") {
-            insertVariantsResult = await supabase.from("product_options").insert(variantRowsBasic as never);
+          if (insertVariantsResult.error && hasMissingColumnError(insertVariantsResult.error)) {
+            insertVariantsResult = await supabase.from("product_options").insert(variantRowsBasicByProductId as never);
+          }
+          if (insertVariantsResult.error && hasMissingColumnError(insertVariantsResult.error, "product_id")) {
+            insertVariantsResult = await supabase.from("product_options").insert(variantRowsBasicByDishId as never);
           }
           if (insertVariantsResult.error) {
             console.error("Erreur insertion variantes product_options:", insertVariantsResult.error);
@@ -7843,6 +7856,39 @@ export default function MenuManager() {
                   </span>
                 </span>
               </label>
+            </div>
+            <div className={`${activeManagerTab === "appearance" ? "md:col-span-2 border border-gray-200 rounded bg-white p-3" : "hidden"}`}>
+              <div className="text-sm font-black text-black mb-2">Commande client</div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <label className="flex items-start gap-2 text-sm font-bold text-black">
+                  <input
+                    type="checkbox"
+                    checked={showCaloriesClient}
+                    onChange={(e) => setShowCaloriesClient(e.target.checked)}
+                    className="mt-0.5"
+                  />
+                  <span>
+                    <span className="block">Afficher les kilocalories (kcal)</span>
+                    <span className="mt-0.5 block text-xs font-semibold text-gray-600">
+                      Si désactivé, les calories sont masquées sur la carte client.
+                    </span>
+                  </span>
+                </label>
+                <label className="flex items-start gap-2 text-sm font-bold text-black">
+                  <input
+                    type="checkbox"
+                    checked={consultationModeEnabled}
+                    onChange={(e) => setConsultationModeEnabled(e.target.checked)}
+                    className="mt-0.5"
+                  />
+                  <span>
+                    <span className="block">Mode commande serveur</span>
+                    <span className="mt-0.5 block text-xs font-semibold text-gray-600">
+                      Désactive l&apos;ajout au panier et le tunnel de commande côté client.
+                    </span>
+                  </span>
+                </label>
+              </div>
             </div>
             <div className={activeManagerTab === "appearance" ? "" : "hidden"}>
               <button

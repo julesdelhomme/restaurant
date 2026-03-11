@@ -19,11 +19,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="fr" style={{ backgroundColor: "transparent" }}>
+    <html lang="fr" style={{ backgroundColor: "transparent", colorScheme: "light" }}>
       <head>
         <meta charSet="utf-8" />
       </head>
-      <body style={{ backgroundColor: "transparent" }}>
+      <body style={{ backgroundColor: "transparent", colorScheme: "light" }}>
         {children}
       </body>
     </html>

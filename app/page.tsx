@@ -2128,6 +2128,11 @@ export default function MenuDigital() {
         UI_TRANSLATIONS[uiLang]?.view_details ||
         ""
     ).trim() || "Voir dÃ©tails";
+  const consultationModeBannerText =
+    String(
+      (uiText as unknown as Record<string, unknown>).consultation_mode_banner ||
+        "La commande se fait auprès de votre serveur. Utilisez ce menu pour découvrir nos plats !"
+    ).trim() || "La commande se fait auprès de votre serveur. Utilisez ce menu pour découvrir nos plats !";
   const restaurantTableConfig = parseJsonObject(restaurant?.table_config);
   const restaurantRecord = restaurant as Record<string, unknown> | null;
   const quickAddToCartEnabled =
@@ -2371,8 +2376,7 @@ export default function MenuDigital() {
       setDarkMode(stored === "dark");
       return;
     }
-    const prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
-    setDarkMode(Boolean(prefersDark));
+    setDarkMode(false);
   }, []);
 
   useEffect(() => {
@@ -5024,8 +5028,13 @@ export default function MenuDigital() {
                 </div>
               </div>
             )}
+            {isInteractionDisabled ? (
+              <div className="mb-3 rounded-lg border-2 border-black bg-gray-100 px-3 py-2 text-sm font-bold text-black">
+                {consultationModeBannerText}
+              </div>
+            ) : null}
 
-            {(selectedDish.has_sides || modalSidesOptions.length > 0) && (
+            {!isInteractionDisabled && (selectedDish.has_sides || modalSidesOptions.length > 0) && (
               <div className="mb-3">
                 <span className="font-bold text-black">{uiText.sidesLabel} :</span>
                 {getSideMaxOptions(selectedDish) > 1 && (
@@ -5088,7 +5097,7 @@ export default function MenuDigital() {
               </div>
             )}
 
-            {modalProductOptions.length > 0 && (
+            {!isInteractionDisabled && modalProductOptions.length > 0 && (
               <div className="mb-3">
                 <label className="font-bold text-black mb-1 block">Options / Variantes :</label>
                 <div className="flex flex-col gap-2">
@@ -5124,7 +5133,7 @@ export default function MenuDigital() {
               </div>
             )}
 
-            {selectedDish.has_extras && modalExtrasOptions.length > 0 && (
+            {!isInteractionDisabled && selectedDish.has_extras && modalExtrasOptions.length > 0 && (
               <div className="mb-3">
                 <label className="font-bold text-black mb-1 block">{uiText.extrasLabel} :</label>
                 <div className="flex flex-col gap-2">
@@ -5158,7 +5167,7 @@ export default function MenuDigital() {
               </div>
             )}
 
-            {modalAskCooking && (
+            {!isInteractionDisabled && modalAskCooking && (
               <div className="mb-3">
                 <label className="font-bold text-black mb-1 block">{uiText.cookingLabel} :</label>
                 <div className="flex flex-col gap-2">
@@ -5182,7 +5191,7 @@ export default function MenuDigital() {
               </div>
             )}
 
-            {!isVitrineMode && (
+            {!isInteractionDisabled && (
               <div className="flex items-center gap-2 mb-2">
                 <span className="font-bold text-black">{uiText.quantity}:</span>
                 <button
@@ -5201,29 +5210,33 @@ export default function MenuDigital() {
               </div>
             )}
 
-            <div className="mb-3">
-              <label className="font-bold text-black mb-1 block">{uiText.specialRequestLabel} :</label>
-              <textarea
-                value={specialRequest}
-                onChange={(e) => setSpecialRequest(e.target.value)}
-                className="w-full px-3 py-2 bg-white text-black border border-gray-300"
-                rows={2}
-                placeholder={uiText.specialRequestPlaceholder}
-              />
-            </div>
-            <div className="text-sm font-bold text-black mb-2">
-              Total article: {modalTotalPrice.toFixed(2)}&euro;
-            </div>
+            {!isInteractionDisabled && (
+              <>
+                <div className="mb-3">
+                  <label className="font-bold text-black mb-1 block">{uiText.specialRequestLabel} :</label>
+                  <textarea
+                    value={specialRequest}
+                    onChange={(e) => setSpecialRequest(e.target.value)}
+                    className="w-full px-3 py-2 bg-white text-black border border-gray-300"
+                    rows={2}
+                    placeholder={uiText.specialRequestPlaceholder}
+                  />
+                </div>
+                <div className="text-sm font-bold text-black mb-2">
+                  Total article: {modalTotalPrice.toFixed(2)}&euro;
+                </div>
 
-            {sideError && (
-              <div className="text-sm font-bold text-red-600 mb-2">
-                {sideError}
-              </div>
-            )}
-            {modalInstructionPreview && (
-              <div className="text-sm font-bold text-black mb-2">
-                {modalInstructionPreview}
-              </div>
+                {sideError && (
+                  <div className="text-sm font-bold text-red-600 mb-2">
+                    {sideError}
+                  </div>
+                )}
+                {modalInstructionPreview && (
+                  <div className="text-sm font-bold text-black mb-2">
+                    {modalInstructionPreview}
+                  </div>
+                )}
+              </>
             )}
             </div>
             {!isInteractionDisabled && (
