@@ -3484,8 +3484,7 @@ function AdminContent() {
               <div className="mb-3">
                 {(() => {
                   const sideRequired = isSideSelectionRequired(modalDish, modalSideChoices);
-                  const maxSelections = getSideMaxSelections(modalDish, modalSideChoices);
-                  const isSingleChoice = maxSelections <= 1;
+                  const selectedSide = modalSelectedSides[0] || "";
                   return (
                     <>
                       <div className="font-black mb-1">
@@ -3495,46 +3494,36 @@ function AdminContent() {
                         ) : (
                           <span className="text-gray-500 text-xs">(Facultatif)</span>
                         )}
-                        {maxSelections > 1 ? (
-                          <span className="text-gray-600 text-xs"> - max {maxSelections}</span>
-                        ) : null}
                       </div>
-                      <div className="flex flex-wrap gap-2">
+                      <div className="space-y-1">
+                        {!sideRequired ? (
+                          <label className="flex items-center gap-2 text-sm">
+                            <input
+                              type="radio"
+                              name="modal-side-option"
+                              checked={!selectedSide}
+                              onChange={() => setModalSelectedSides([])}
+                            />
+                            <span>Aucun accompagnement</span>
+                          </label>
+                        ) : null}
                         {modalSideChoices.map((side) => {
-                          const checked = modalSelectedSides.includes(side);
-                          const limitReached = !checked && maxSelections > 0 && modalSelectedSides.length >= maxSelections;
+                          const checked = selectedSide === side;
                           return (
-                            <button
-                              key={side}
-                              type="button"
-                              disabled={limitReached}
-                              onClick={() => {
-                                if (isSingleChoice) {
-                                  setModalSelectedSides((prev) => {
-                                    const isSelected = prev.includes(side);
-                                    if (isSelected) return [];
-                                    return [side];
-                                  });
-                                  return;
-                                }
-                                setModalSelectedSides((prev) => {
-                                  const isSelected = prev.includes(side);
-                                  if (isSelected) {
-                                    return prev.filter((value) => value !== side);
-                                  }
-                                  if (maxSelections > 0 && prev.length >= maxSelections) return prev;
-                                  return [...prev, side];
-                                });
-                              }}
-                              className={`border-2 border-black px-3 py-2 text-sm font-bold ${
-                                checked ? "bg-black text-white" : "bg-white text-black"
-                              } ${limitReached ? "opacity-50 cursor-not-allowed" : ""}`}
-                            >
-                              {side}
-                            </button>
+                            <label key={side} className="flex items-center gap-2 text-sm">
+                              <input
+                                type="radio"
+                                name="modal-side-option"
+                                checked={checked}
+                                onChange={() => setModalSelectedSides([side])}
+                              />
+                              <span>{side}</span>
+                            </label>
                           );
                         })}
-                        {!sideRequired ? (
+                      </div>
+                      {!sideRequired ? (
+                        <div className="mt-2">
                           <button
                             type="button"
                             onClick={() => setModalSelectedSides([])}
@@ -3542,8 +3531,8 @@ function AdminContent() {
                           >
                             Réinitialiser
                           </button>
-                        ) : null}
-                      </div>
+                        </div>
+                      ) : null}
                     </>
                   );
                 })()}

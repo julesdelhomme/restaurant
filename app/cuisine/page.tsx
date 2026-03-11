@@ -727,30 +727,76 @@ export default function KitchenPage() {
   };
 
   const getKitchenNotesLine = (item: Item) => {
-    const parts = String(getKitchenNotes(item) || "")
-      .split("|")
-      .map((part) =>
-        String(part || "")
-          .replace(/^details?\s*:\s*/i, "")
-          .replace(/^notes?\s*:\s*/i, "")
-          .replace(/^precisions?\s*:\s*/i, "Remarque: ")
-          .replace(/^précisions?\s*:\s*/i, "Remarque: ")
-          .replace(/^commentaire cuisine\s*:\s*/i, "Remarque: ")
-          .trim()
-      )
-      .filter(Boolean);
-    const seen = new Set<string>();
-    const deduped = parts.filter((part) => {
-      const key = part
+    const normalizeKey = (value: string) =>
+      String(value || "")
         .normalize("NFD")
         .replace(/[\u0300-\u036f]/g, "")
         .toLowerCase()
         .trim();
-      if (!key || seen.has(key)) return false;
-      seen.add(key);
-      return true;
+    const uniqueValues = (values: string[]) => {
+      const seen = new Set<string>();
+      return values
+        .map((value) => String(value || "").trim())
+        .filter(Boolean)
+        .filter((value) => {
+          const key = normalizeKey(value);
+          if (!key || seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+    };
+    const stripPrefix = (value: string) =>
+      String(value || "")
+        .replace(/^details?\s*:\s*/i, "")
+        .replace(/^notes?\s*:\s*/i, "")
+        .trim();
+
+    const cooking: string[] = [];
+    const options: string[] = [];
+    const accompaniments: string[] = [];
+    const remarks: string[] = [];
+
+    String(getKitchenNotes(item) || "")
+      .split("|")
+      .map((entry) => stripPrefix(entry))
+      .filter(Boolean)
+      .forEach((entry) => {
+        if (/^cuisson\s*:/i.test(entry)) {
+          cooking.push(entry.replace(/^cuisson\s*:\s*/i, "").trim());
+          return;
+        }
+        if (/^(option|options|suppl[eé]ments?|supplements?)\s*:/i.test(entry)) {
+          options.push(entry.replace(/^(option|options|suppl[eé]ments?|supplements?)\s*:\s*/i, "").trim());
+          return;
+        }
+        if (/^(accompagnement|accompagnements|side|sides)\s*:/i.test(entry)) {
+          accompaniments.push(entry.replace(/^(accompagnement|accompagnements|side|sides)\s*:\s*/i, "").trim());
+          return;
+        }
+        if (/^(pr[eé]cisions?|commentaire cuisine|remarque|remarks?)\s*:/i.test(entry)) {
+          remarks.push(entry.replace(/^(pr[eé]cisions?|commentaire cuisine|remarque|remarks?)\s*:\s*/i, "").trim());
+          return;
+        }
+        remarks.push(entry);
+      });
+
+    const finalParts: string[] = [];
+    const cookingValues = uniqueValues(cooking);
+    const optionValues = uniqueValues(options);
+    const accompanimentValues = uniqueValues(accompaniments);
+    const remarkValues = uniqueValues(remarks).filter((remark) => {
+      const remarkKey = normalizeKey(remark);
+      const alreadyInOtherSection = [...cookingValues, ...optionValues, ...accompanimentValues].some(
+        (value) => normalizeKey(value) === remarkKey
+      );
+      return !alreadyInOtherSection;
     });
-    return deduped.join(" | ");
+
+    if (cookingValues.length > 0) finalParts.push(`Cuisson: ${cookingValues.join(", ")}`);
+    if (optionValues.length > 0) finalParts.push(`Options: ${optionValues.join(", ")}`);
+    if (accompanimentValues.length > 0) finalParts.push(`Accompagnement: ${accompanimentValues.join(", ")}`);
+    if (remarkValues.length > 0) finalParts.push(`Remarque: ${remarkValues.join(" | ")}`);
+    return finalParts.join(" | ");
   };
 
   const fetchCatalogNames = async () => {
@@ -1418,6 +1464,7 @@ export default function KitchenPage() {
                     onClick={() => void handleReadyGroup(group.groupKey, group.orderIds)}
                     disabled={isSubmitting}
                     className="w-full bg-green-600 hover:bg-green-700 text-white font-black py-5 text-2xl border-2 border-black shadow-[5px_5px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-x-[2px] active:translate-y-[2px] transition-all disabled:cursor-not-allowed disabled:opacity-60"
+                    style={{ width: "100%", padding: "20px", fontSize: "1.5rem" }}
                   >
                     {isSubmitting ? "MISE À JOUR..." : "TOUT EST PRÊT"}
                   </button>
