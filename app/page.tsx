@@ -1879,7 +1879,7 @@ function buildInstructionText(
       optionPriceRaw == null || !Number.isFinite(Number(optionPriceRaw))
         ? null
         : Number(optionPriceRaw);
-    parts.push(optionPrice != null ? `Option: ${optionLabel} (${PRICE_FORMATTER_EUR.format(optionPrice)})` : `Option: ${optionLabel}`);
+    parts.push(optionPrice != null && optionPrice > 0 ? `Option: ${optionLabel} (${PRICE_FORMATTER_EUR.format(optionPrice)})` : `Option: ${optionLabel}`);
   }
   if (selectedCooking) parts.push(`${labels.cookingLabel}: ${selectedCooking}`);
   if (selectedExtras && selectedExtras.length > 0) {
@@ -3616,11 +3616,43 @@ export default function MenuDigital() {
       const hasCookingChoice = Boolean(item?.dish?.ask_cooking);
       const cookingLabelFr = cookingKey ? getCookingLabelFr(cookingKey) : hasCookingChoice ? "Saignant" : null;
       const stableCookingValue = (cookingKey || "") || (cookingLabelFr || "") || "";
+      const selectedOptionId = String(item.selectedProductOption?.id || "").trim() || null;
+      const selectedOptionName = getProductOptionLabel(item.selectedProductOption, lang) || null;
+      const selectedOptionPriceRaw = item.selectedProductOption?.price_override;
+      const selectedOptionPrice =
+        selectedOptionPriceRaw == null || !Number.isFinite(Number(selectedOptionPriceRaw))
+          ? null
+          : Number(selectedOptionPriceRaw);
       const selectedExtras = (item.selectedExtras || []).map((extra, index) => ({
         id: buildStableExtraId(item.dish.id, extra, index),
         label_fr: String(extra.name_fr || extra.name || "").trim() || "Supplï¿½ment",
         price: Number(extra.price || 0),
       }));
+      const selectedOptionsPayload: Array<Record<string, unknown>> = [];
+      if (selectedOptionName) {
+        selectedOptionsPayload.push({
+          kind: "option",
+          id: selectedOptionId,
+          value: selectedOptionName,
+          label_fr: selectedOptionName,
+          price: selectedOptionPrice,
+        });
+      }
+      if (fallbackSideIds.length > 0) {
+        selectedOptionsPayload.push({
+          kind: "side",
+          ids: fallbackSideIds,
+          values: dedupeDisplayValues((item.selectedSides || []) as unknown[]),
+        });
+      }
+      if (stableCookingValue) {
+        selectedOptionsPayload.push({
+          kind: "cooking",
+          key: cookingKey || null,
+          value: stableCookingValue,
+          label_fr: cookingLabelFr || stableCookingValue,
+        });
+      }
         return {
           dish_id: String(item.dish.id || "").trim(),
           id: String(item.dish.id || "").trim(),
@@ -3628,9 +3660,12 @@ export default function MenuDigital() {
           is_drink: drinkItem,
           quantity: item.quantity,
         price: unitPrice + extrasPrice,
-        selected_option_id: String(item.selectedProductOption?.id || "").trim() || null,
-        selected_option_name: getProductOptionLabel(item.selectedProductOption, lang) || null,
-        selected_option_price: item.selectedProductOption?.price_override ?? null,
+        selected_option_id: selectedOptionId,
+        selected_option_name: selectedOptionName,
+        selected_option_price: selectedOptionPrice,
+        selected_option: selectedOptionsPayload.find((entry) => String(entry.kind || "").trim() === "option") || null,
+        selected_options: selectedOptionsPayload,
+        selectedOptions: selectedOptionsPayload,
         selected_side_ids: fallbackSideIds,
         selected_extra_ids: selectedExtraIds,
         selected_extras: selectedExtras,
@@ -5118,7 +5153,7 @@ export default function MenuDigital() {
                         />
                         <span>
                           {optionLabel}
-                          {optionPrice != null ? (
+                          {optionPrice != null && optionPrice > 0 ? (
                             <>
                               {" "}(+{optionPrice.toFixed(2)}&euro;)
                             </>

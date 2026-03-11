@@ -26,6 +26,11 @@ type Item = {
   sideDish?: unknown;
   selected_options?: unknown;
   options?: unknown;
+  selected_option?: unknown;
+  selected_option_id?: string | number | null;
+  selected_option_name?: string | null;
+  selected_option_price?: number | null;
+  selectedOptions?: unknown;
   selected_side_ids: Array<string | number>;
   selected_extra_ids: Array<string | number>;
   selected_extras: Array<{ id: string; label_fr: string; name: string; name_fr: string; price: number }>;
@@ -418,7 +423,7 @@ export default function KitchenPage() {
       }
       return [];
     };
-    const stripPrefixedValue = (entry: string, type: "side" | "cooking") => {
+    const stripPrefixedValue = (entry: string, type: "side" | "cooking" | "option") => {
       const text = String(entry || "").trim();
       if (!text) return "";
       if (type === "side") {
@@ -431,10 +436,15 @@ export default function KitchenPage() {
           return text.replace(/^[^:]+:\s*/i, "").trim();
         }
       }
+      if (type === "option") {
+        if (/^(option|options|variante|variantes|variant|variants|format|formats)\s*:/i.test(text)) {
+          return text.replace(/^[^:]+:\s*/i, "").trim();
+        }
+      }
       return text;
     };
-    const extractOptionValuesByKind = (value: unknown, kinds: Array<"side" | "cooking">) => {
-      const result: Record<"side" | "cooking", string[]> = { side: [], cooking: [] };
+    const extractOptionValuesByKind = (value: unknown, kinds: Array<"side" | "cooking" | "option">) => {
+      const result: Record<"side" | "cooking" | "option", string[]> = { side: [], cooking: [], option: [] };
       const entries = Array.isArray(value)
         ? value
         : value && typeof value === "object"
@@ -451,6 +461,10 @@ export default function KitchenPage() {
           }
           if (kinds.includes("cooking") && /^(cuisson|cooking|garstufe|cocci[oÃ³]n)\s*:/i.test(rawText)) {
             result.cooking.push(stripPrefixedValue(rawText, "cooking"));
+            return;
+          }
+          if (kinds.includes("option") && /^(option|options|variante|variantes|variant|variants|format|formats)\s*:/i.test(rawText)) {
+            result.option.push(stripPrefixedValue(rawText, "option"));
           }
           return;
         }
@@ -466,6 +480,10 @@ export default function KitchenPage() {
         }
         if (kinds.includes("cooking") && /(cooking|cuisson|garstufe|cocc)/.test(kind)) {
           result.cooking.push(...rawValues.map((v) => stripPrefixedValue(v, "cooking")));
+          return;
+        }
+        if (kinds.includes("option") && /(option|variant|variante|format|taille)/.test(kind)) {
+          result.option.push(...rawValues.map((v) => stripPrefixedValue(v, "option")));
         }
       });
       return result;
@@ -487,7 +505,10 @@ export default function KitchenPage() {
         .map((side) => resolveFrenchSideName(side))
         .filter(Boolean) as string[]
     );
-    const optionValues = extractOptionValuesByKind(itemRecord.selected_options ?? itemRecord.options, ["side", "cooking"]);
+    const optionValues = extractOptionValuesByKind(
+      itemRecord.selected_options ?? itemRecord.selectedOptions ?? itemRecord.options,
+      ["side", "cooking", "option"]
+    );
     const directSideValues = dedupeList(
       [
         String(itemRecord.selected_side_label_fr || "").trim(),
@@ -505,6 +526,15 @@ export default function KitchenPage() {
     );
     const selectedSides = dedupeList([...selectedSidesByIds, ...directSideValues]);
     if (selectedSides.length > 0) notes.push(`Accompagnements: ${selectedSides.join(", ")}`);
+
+    const selectedOptions = dedupeList(
+      [
+        String(itemRecord.selected_option_name || "").trim(),
+        ...toRawChoiceList(itemRecord.selected_option),
+        ...optionValues.option,
+      ].map((entry) => stripPrefixedValue(entry, "option"))
+    );
+    if (selectedOptions.length > 0) notes.push(`Option: ${selectedOptions.join(", ")}`);
 
     const selectedExtraIds = Array.isArray(item.selected_extra_ids) ? item.selected_extra_ids : [];
     const selectedExtrasById = dedupeList(
@@ -574,6 +604,7 @@ export default function KitchenPage() {
         if (/^(accompagnements|beilage(:n)|sides|acompa(:n|Ã±)amientos)\s*:/i.test(segment)) return "";
         if (/^(supplements?|extras?|suplementos?)\s*:/i.test(segment)) return "";
         if (/^(cuisson|cooking|garstufe|cocci[oÃ³]n)\s*:/i.test(segment)) return "";
+        if (/^(option|options|variante|variantes|variant|variants|format|formats)\s*:/i.test(segment)) return "";
         const normalized = translateClientTextToFrench(segment);
         if (!normalized || isUuidLike(normalized)) return "";
         return normalized;

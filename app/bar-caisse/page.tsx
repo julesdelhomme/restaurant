@@ -53,6 +53,11 @@ type OrderItem = {
   details?: unknown;
   detail?: unknown;
   selected_options?: unknown;
+  selected_option?: unknown;
+  selected_option_id?: string | number | null;
+  selected_option_name?: string | null;
+  selected_option_price?: number | null;
+  selectedOptions?: unknown;
   options?: unknown;
   selected_side_ids?: Array<string | number>;
   selectedSides?: Array<string | number | Record<string, unknown>>;
@@ -380,12 +385,59 @@ function getItemSideText(item: OrderItem) {
   return "";
 }
 
+function getItemSelectedOptionText(item: OrderItem) {
+  const record = item as unknown as Record<string, unknown>;
+  const extractOptionOnly = (value: unknown): string[] => {
+    if (value == null) return [];
+    if (Array.isArray(value)) return value.flatMap((entry) => extractOptionOnly(entry));
+    if (typeof value === "string" || typeof value === "number") {
+      const raw = String(value || "").trim();
+      if (!raw) return [];
+      if (/^(option|options|variante|variantes|variant|variants|format|formats)\s*:/i.test(raw)) {
+        return [raw.replace(/^[^:]+:\s*/i, "").trim()];
+      }
+      return [];
+    }
+    if (typeof value === "object") {
+      const rec = value as Record<string, unknown>;
+      const kind = String(rec.kind || rec.type || rec.key || rec.group || rec.category || "").toLowerCase().trim();
+      const optionLike = /(option|variant|variante|format|taille)/.test(kind);
+      if (optionLike) {
+        const direct = [
+          rec.label_fr,
+          rec.label,
+          rec.name_fr,
+          rec.name,
+          rec.value_fr,
+          rec.value,
+          rec.choice,
+          rec.selected,
+        ]
+          .map((entry) => String(entry || "").trim())
+          .filter(Boolean);
+        if (direct.length > 0) return direct;
+        return Object.values(rec).flatMap((entry) => flattenChoiceTextsForDisplay(entry));
+      }
+      return [];
+    }
+    return [];
+  };
+  const selectedOptionValues = normalizeUniqueTexts([
+    String(item.selected_option_name || "").trim(),
+    ...flattenChoiceTextsForDisplay(item.selected_option),
+    ...extractOptionOnly(record.selected_options ?? record.selectedOptions ?? record.options),
+  ].filter(Boolean));
+  return selectedOptionValues.join(", ");
+}
+
 function formatItemInlineDetails(item: OrderItem) {
   const cooking = getItemCookingText(item);
   const side = getItemSideText(item);
+  const selectedOption = getItemSelectedOptionText(item);
   const supplements = getItemExtras(item);
   const parts: string[] = [];
   if (cooking) parts.push(`(${cooking})`);
+  if (selectedOption) parts.push(`- Option: ${selectedOption}`);
   if (side) parts.push(`- Accompagnement: ${side}`);
   if (supplements.length > 0) parts.push(`+ ${supplements.join(", ")}`);
   return parts.join(" ").trim();
@@ -496,11 +548,14 @@ function getItemNotes(item: OrderItem) {
   const optionValues = normalizeUnique(
     flattenChoiceTexts(
       (item as unknown as Record<string, unknown>).selected_options ??
+        (item as unknown as Record<string, unknown>).selectedOptions ??
         (item as unknown as Record<string, unknown>).options
     )
   );
 
   return normalizeUnique([
+    String(item.selected_option_name || "").trim(),
+    ...flattenChoiceTexts(item.selected_option),
     String(item.cooking || item.cuisson || "").trim(),
     String(item.selected_cooking_label_fr || item.selected_cooking || "").trim(),
     ...flattenChoiceTexts(item.side),

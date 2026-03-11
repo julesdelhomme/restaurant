@@ -5244,8 +5244,8 @@ export default function MenuManager() {
     }
     const rawPrice = String(productOptionDraft.price_override || "").trim();
     const parsedPrice = rawPrice === "" ? null : Number.parseFloat(rawPrice.replace(",", "."));
-    if (parsedPrice == null || !Number.isFinite(parsedPrice as number) || Number(parsedPrice) <= 0) {
-      alert("Prix de variante obligatoire et supérieur à 0");
+    if (parsedPrice != null && (!Number.isFinite(parsedPrice as number) || Number(parsedPrice) < 0)) {
+      alert("Prix de variante invalide (laisser vide ou >= 0).");
       return;
     }
     const optionNamesI18n = Object.fromEntries(
@@ -5280,7 +5280,7 @@ export default function MenuManager() {
             Object.entries(optionNamesI18n).filter(([, value]) => Boolean(String(value || "").trim()))
           ),
         },
-        price_override: Number(parsedPrice.toFixed(2)),
+        price_override: parsedPrice == null ? null : Number(parsedPrice.toFixed(2)),
       };
       if (editingProductOptionId) {
         const targetIndex = nextOptions.findIndex((option) => String(option.id || "") === String(editingProductOptionId));
@@ -9461,11 +9461,11 @@ export default function MenuManager() {
                     <input
                       type="number"
                       step="0.01"
-                      min="0.01"
+                      min="0"
                       value={productOptionDraft.price_override}
                       onChange={(e) => setProductOptionDraft((prev) => ({ ...prev, price_override: e.target.value }))}
                       className="w-full px-3 py-2 bg-white text-black border border-gray-300"
-                      placeholder="+2.00"
+                      placeholder="Optionnel (ex: 0 ou 2.00)"
                     />
                   </div>
                   <div className="md:col-span-6">
@@ -9500,7 +9500,9 @@ export default function MenuManager() {
                     >
                       <div className="text-sm">
                         <span className="font-bold">{option.name_fr || option.name}</span>
-                        <span className="font-bold"> (+{Number(option.price_override || 0).toFixed(2)} {"\u20AC"})</span>
+                        {Number(option.price_override || 0) > 0 ? (
+                          <span className="font-bold"> (+{Number(option.price_override || 0).toFixed(2)} {"\u20AC"})</span>
+                        ) : null}
                         <span className="text-gray-600">
                           {" | "}
                           {activeLanguageCodes
