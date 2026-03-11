@@ -25,17 +25,27 @@ const PRICE_FORMATTER_EUR = new Intl.NumberFormat("fr-FR", {
   maximumFractionDigits: 2,
 });
 
-function parseAddonPrice(raw: unknown): number {
+function parsePriceNumber(raw: unknown): number {
   if (raw == null) return 0;
+  if (typeof raw === "number") {
+    return Number.isFinite(raw) ? Number(raw.toFixed(2)) : 0;
+  }
   const text = String(raw).trim();
   if (!text) return 0;
-  const parsed = Number.parseFloat(text.replace(",", "."));
-  if (!Number.isFinite(parsed) || parsed <= 0) return 0;
+  const cleaned = text.replace(/\s+/g, "").replace(",", ".").replace(/[^0-9.-]/g, "");
+  if (!cleaned || cleaned === "-" || cleaned === ".") return 0;
+  const parsed = Number.parseFloat(cleaned);
+  if (!Number.isFinite(parsed)) return 0;
   return Number(parsed.toFixed(2));
 }
 
+function parseAddonPrice(raw: unknown): number {
+  const parsed = parsePriceNumber(raw);
+  return parsed > 0 ? parsed : 0;
+}
+
 function formatPriceTwoDecimals(value: number): string {
-  const safe = Number.isFinite(Number(value)) ? Number(value) : 0;
+  const safe = parsePriceNumber(value);
   return `${safe.toFixed(2)} €`;
 }
 
@@ -1031,7 +1041,7 @@ function buildStableExtraId(dishId: unknown, extra: ExtrasItem, index: number) {
   if (explicit) return explicit;
   const dishKey = String(dishId || "").trim();
   const nameKey = normalizeLookupText(extra.name_fr || extra.name_en || extra.name_es || extra.name_de || "");
-  const priceKey = Number(extra.price || 0).toFixed(2);
+  const priceKey = parsePriceNumber(extra.price).toFixed(2);
   return `extra:${dishKey}:${nameKey || "option"}:${priceKey}:${index}`;
 }
 
@@ -2088,8 +2098,9 @@ export default function MenuDigital() {
     return uiText.labels[key] || t(lang, key);
   };
   const toFinitePrice = (raw: unknown) => {
-    const parsed = Number(raw);
-    return Number.isFinite(parsed) ? parsed : null;
+    if (raw == null) return null;
+    if (typeof raw === "string" && raw.trim() === "") return null;
+    return parsePriceNumber(raw);
   };
   const getPromoPriceForDish = (dish: Dish) => {
     const source = dish as unknown as Record<string, unknown>;
@@ -2098,7 +2109,7 @@ export default function MenuDigital() {
     if (promo == null || promo <= 0) return null;
     return promo;
   };
-  const getDishBasePrice = (dish: Dish) => Number(dish.price || 0);
+  const getDishBasePrice = (dish: Dish) => parsePriceNumber(dish.price);
   const getDishOptionSupplement = (option?: ProductOptionItem | null) =>
     option ? parseAddonPrice(option.price_override) : 0;
   const getDishUnitPrice = (dish: Dish, option?: ProductOptionItem | null) => {
@@ -2119,7 +2130,7 @@ export default function MenuDigital() {
   const modalUnitPrice = selectedDish ? getDishUnitPrice(selectedDish, modalSelectedProductOption) : 0;
   const modalTotalPrice =
     modalUnitPrice * Math.max(1, dishModalQuantity) +
-    (selectedExtras || []).reduce((sum, extra) => sum + Number(extra.price || 0), 0) * Math.max(1, dishModalQuantity);
+    (selectedExtras || []).reduce((sum, extra) => sum + parsePriceNumber(extra.price), 0) * Math.max(1, dishModalQuantity);
   const clickDetailsLabel =
     String(
       mergedUiDictionary.click_details ||
@@ -2960,11 +2971,7 @@ export default function MenuDigital() {
             };
             const optionName = String(row.name_fr || optionNames.fr || row.name || "").trim();
             if (!dishId || !optionName) return;
-            const optionPriceRaw = row.price_override;
-            const optionPrice =
-              optionPriceRaw == null || String(optionPriceRaw).trim() === ""
-                ? null
-                : Number.parseFloat(String(optionPriceRaw).replace(",", "."));
+            const optionPrice = parsePriceNumber(row.price_override);
             const current = optionsByDishId.get(dishId) || [];
             current.push({
               id: String(row.id || ""),
@@ -2982,7 +2989,7 @@ export default function MenuDigital() {
                     .filter(([lang, value]) => Boolean(lang) && Boolean(value))
                 ),
               },
-              price_override: Number.isFinite(optionPrice as number) ? Number(optionPrice) : null,
+              price_override: optionPrice > 0 ? optionPrice : 0,
             });
             optionsByDishId.set(dishId, current);
           });
@@ -3601,7 +3608,7 @@ export default function MenuDigital() {
 
     const orderItems = cart.map((item) => {
       const extrasPrice = (item.selectedExtras || []).reduce(
-        (sum, extra) => sum + Number(extra.price || 0),
+        (sum, extra) => sum + parsePriceNumber(extra.price),
         0
       );
       const unitPrice = getDishUnitPrice(item.dish, item.selectedProductOption);
@@ -3629,7 +3636,7 @@ export default function MenuDigital() {
       const selectedExtras = (item.selectedExtras || []).map((extra, index) => ({
         id: buildStableExtraId(item.dish.id, extra, index),
         label_fr: String(extra.name_fr || extra.name || "").trim() || "Supplï¿½ment",
-        price: Number(extra.price || 0),
+        price: parsePriceNumber(extra.price),
       }));
       const selectedOptionsPayload: Array<Record<string, unknown>> = [];
       if (selectedOptionName) {
@@ -3682,7 +3689,7 @@ export default function MenuDigital() {
 
     const totalPrice = cart.reduce((sum, item) => {
       const extrasPrice = (item.selectedExtras || []).reduce(
-        (acc, extra) => acc + Number(extra.price || 0),
+        (acc, extra) => acc + parsePriceNumber(extra.price),
         0
       );
       return sum + (getDishUnitPrice(item.dish, item.selectedProductOption) + extrasPrice) * item.quantity;
@@ -5154,13 +5161,7 @@ export default function MenuDigital() {
                         />
                         <span>
                           {optionLabel}
-                          {optionPrice > 0 ? (
-                            <>
-                              {" "}(+{optionPrice.toFixed(2)} &euro;)
-                            </>
-                          ) : (
-                            ""
-                          )}
+                          {optionPrice > 0 ? ` (+ ${optionPrice.toFixed(2)} \u20AC)` : null}
                         </span>
                       </label>
                     );
@@ -5174,9 +5175,9 @@ export default function MenuDigital() {
                 <label className="font-bold text-black mb-1 block">{uiText.extrasLabel} :</label>
                 <div className="flex flex-col gap-2">
                   {modalExtrasOptions.map((extra) => {
-                    const extraKey = `${extra.name_fr}-${Number(extra.price || 0)}`;
+                    const extraKey = `${extra.name_fr}-${parsePriceNumber(extra.price)}`;
                     const checked = selectedExtras.some(
-                      (e) => `${e.name_fr}-${Number(e.price || 0)}` === extraKey
+                      (e) => `${e.name_fr}-${parsePriceNumber(e.price)}` === extraKey
                     );
                     return (
                       <label key={extraKey} className="flex items-center gap-2 text-black font-bold">
@@ -5189,13 +5190,13 @@ export default function MenuDigital() {
                             } else {
                               setSelectedExtras(
                                 selectedExtras.filter(
-                                  (x) => `${x.name_fr}-${Number(x.price || 0)}` !== extraKey
+                                  (x) => `${x.name_fr}-${parsePriceNumber(x.price)}` !== extraKey
                                 )
                               );
                             }
                           }}
                         />
-                        {uiText.extraLabel}: {getExtraLabel(extra, lang)} (+{Number(extra.price || 0).toFixed(2)} <Euro size={14} className="inline-block" />)
+                        {uiText.extraLabel}: {getExtraLabel(extra, lang)} (+{parsePriceNumber(extra.price).toFixed(2)} <Euro size={14} className="inline-block" />)
                       </label>
                     );
                   })}
@@ -5381,7 +5382,7 @@ export default function MenuDigital() {
                           uiText
                         );
                         const extrasPrice = (item.selectedExtras || []).reduce(
-                          (sum, extra) => sum + Number(extra.price || 0),
+                          (sum, extra) => sum + parsePriceNumber(extra.price),
                           0
                         );
                         const itemUnitPrice = getDishUnitPrice(item.dish, item.selectedProductOption);
@@ -5448,7 +5449,7 @@ export default function MenuDigital() {
                       {cart
                         .reduce((sum, item) => {
                           const extrasPrice = (item.selectedExtras || []).reduce(
-                            (acc, extra) => acc + Number(extra.price || 0),
+                            (acc, extra) => acc + parsePriceNumber(extra.price),
                             0
                           );
                           return sum + (getDishUnitPrice(item.dish, item.selectedProductOption) + extrasPrice) * item.quantity;
