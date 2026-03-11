@@ -2258,7 +2258,7 @@ function AdminContent() {
 
         let waitingMinutes: number | null = null;
         if (!allServed) {
-          const oldestPendingItemTimestamp = tableOrders
+          const latestPendingItemTimestamp = tableOrders
             .flatMap((order) => {
               const status = normalizeOrderStatus(order.status);
               if (["served", "servi", "servie"].includes(status)) return [];
@@ -2289,9 +2289,9 @@ function AdminContent() {
               return Number.isFinite(orderTimestamp) ? [orderTimestamp] : [];
             })
             .filter((value) => Number.isFinite(value))
-            .sort((a, b) => a - b)[0];
-          if (Number.isFinite(oldestPendingItemTimestamp)) {
-            waitingMinutes = Math.max(0, Math.floor((waitClockMs - oldestPendingItemTimestamp) / 60000));
+            .sort((a, b) => b - a)[0];
+          if (Number.isFinite(latestPendingItemTimestamp)) {
+            waitingMinutes = Math.max(0, Math.floor((waitClockMs - latestPendingItemTimestamp) / 60000));
           }
         }
 
