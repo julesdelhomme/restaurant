@@ -25,6 +25,20 @@ const PRICE_FORMATTER_EUR = new Intl.NumberFormat("fr-FR", {
   maximumFractionDigits: 2,
 });
 
+function parseAddonPrice(raw: unknown): number {
+  if (raw == null) return 0;
+  const text = String(raw).trim();
+  if (!text) return 0;
+  const parsed = Number.parseFloat(text.replace(",", "."));
+  if (!Number.isFinite(parsed) || parsed <= 0) return 0;
+  return Number(parsed.toFixed(2));
+}
+
+function formatPriceTwoDecimals(value: number): string {
+  const safe = Number.isFinite(Number(value)) ? Number(value) : 0;
+  return `${safe.toFixed(2)} €`;
+}
+
 const supabaseUrl = "https://ezzetspsjqgylsqkukdp.supabase.co";
 const supabaseKey = "sb_publishable_ckJLAlKTmQN1KJw4m2Bk9A_k2Aij-Xd";
 const BACKGROUND_URL = "";
@@ -1874,12 +1888,8 @@ function buildInstructionText(
   }
   const optionLabel = getProductOptionLabel(selectedProductOption, lang);
   if (selectedProductOption && optionLabel) {
-    const optionPriceRaw = selectedProductOption.price_override;
-    const optionPrice =
-      optionPriceRaw == null || !Number.isFinite(Number(optionPriceRaw))
-        ? null
-        : Number(optionPriceRaw);
-    parts.push(optionPrice != null && optionPrice > 0 ? `Option: ${optionLabel} (${PRICE_FORMATTER_EUR.format(optionPrice)})` : `Option: ${optionLabel}`);
+    const optionPrice = parseAddonPrice(selectedProductOption.price_override);
+    parts.push(optionPrice > 0 ? `Option: ${optionLabel} (+${formatPriceTwoDecimals(optionPrice)})` : `Option: ${optionLabel}`);
   }
   if (selectedCooking) parts.push(`${labels.cookingLabel}: ${selectedCooking}`);
   if (selectedExtras && selectedExtras.length > 0) {
@@ -2089,11 +2099,8 @@ export default function MenuDigital() {
     return promo;
   };
   const getDishBasePrice = (dish: Dish) => Number(dish.price || 0);
-  const getDishOptionSupplement = (option?: ProductOptionItem | null) => {
-    const optionPrice = option ? toFinitePrice(option.price_override) : null;
-    if (optionPrice == null || optionPrice <= 0) return 0;
-    return optionPrice;
-  };
+  const getDishOptionSupplement = (option?: ProductOptionItem | null) =>
+    option ? parseAddonPrice(option.price_override) : 0;
   const getDishUnitPrice = (dish: Dish, option?: ProductOptionItem | null) => {
     const basePrice = getDishBasePrice(dish);
     const optionSupplement = getDishOptionSupplement(option);
@@ -2106,11 +2113,8 @@ export default function MenuDigital() {
     return Boolean(source.is_suggestion || source.is_chef_suggestion || source.is_featured);
   };
   const modalSelectedProductOption = useMemo(() => {
-    if (!modalProductOptions.length) return null;
-    return (
-      modalProductOptions.find((option) => String(option.id || "") === String(selectedProductOptionId || "")) ||
-      modalProductOptions[0]
-    );
+    if (!modalProductOptions.length || !selectedProductOptionId) return null;
+    return modalProductOptions.find((option) => String(option.id || "") === String(selectedProductOptionId || "")) || null;
   }, [modalProductOptions, selectedProductOptionId]);
   const modalUnitPrice = selectedDish ? getDishUnitPrice(selectedDish, modalSelectedProductOption) : 0;
   const modalTotalPrice =
@@ -3621,10 +3625,7 @@ export default function MenuDigital() {
       const selectedOptionId = String(item.selectedProductOption?.id || "").trim() || null;
       const selectedOptionName = getProductOptionLabel(item.selectedProductOption, lang) || null;
       const selectedOptionPriceRaw = item.selectedProductOption?.price_override;
-      const selectedOptionPrice =
-        selectedOptionPriceRaw == null || !Number.isFinite(Number(selectedOptionPriceRaw))
-          ? 0
-          : Math.max(0, Number(selectedOptionPriceRaw));
+      const selectedOptionPrice = parseAddonPrice(selectedOptionPriceRaw);
       const selectedExtras = (item.selectedExtras || []).map((extra, index) => ({
         id: buildStableExtraId(item.dish.id, extra, index),
         label_fr: String(extra.name_fr || extra.name || "").trim() || "Supplï¿½ment",
@@ -3776,11 +3777,11 @@ export default function MenuDigital() {
     setSelectedCooking("");
     setSelectedExtras([]);
     setModalProductOptions(productOptions);
-    setSelectedProductOptionId(String(productOptions[0]?.id || ""));
     setModalSidesOptions(sideOptionsFromLibrary);
     setModalExtrasOptions(parsed.extrasList || []);
     setModalAskCooking(!!(sourceDish.ask_cooking || parsed.askCooking));
     setSideError("");
+    setSelectedProductOptionId("");
   };
 
   const dishNeedsQuickAddModal = (dish: Dish) => {
@@ -5140,10 +5141,8 @@ export default function MenuDigital() {
                 <div className="flex flex-col gap-2">
                   {modalProductOptions.map((option, optionIndex) => {
                     const optionId = String(option.id || `option-${optionIndex}`);
-                    const checked =
-                      (selectedProductOptionId && selectedProductOptionId === optionId) ||
-                      (!selectedProductOptionId && optionIndex === 0);
-                    const optionPrice = toFinitePrice(option.price_override);
+                    const checked = selectedProductOptionId === optionId;
+                    const optionPrice = parseAddonPrice(option.price_override);
                     const optionLabel = getProductOptionLabel(option, lang);
                     return (
                       <label key={optionId} className="flex items-center gap-2 text-black font-bold">
@@ -5155,9 +5154,9 @@ export default function MenuDigital() {
                         />
                         <span>
                           {optionLabel}
-                          {optionPrice != null && optionPrice > 0 ? (
+                          {optionPrice > 0 ? (
                             <>
-                              {" "}(+{optionPrice.toFixed(2)}&euro;)
+                              {" "}(+{optionPrice.toFixed(2)} &euro;)
                             </>
                           ) : (
                             ""
