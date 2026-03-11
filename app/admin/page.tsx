@@ -1903,17 +1903,19 @@ function AdminContent() {
     return "pending";
   };
 
-  const handleServeItem = async (orderId: string, itemIndex: number) => {
+  const handleServeItems = async (orderId: string, itemIndexes: number[]) => {
     const targetOrder = orders.find((order) => String(order.id) === String(orderId));
     if (!targetOrder) {
       await fetchOrders();
       return;
     }
+    const normalizedIndexes = Array.from(new Set(itemIndexes.filter((idx) => Number.isInteger(idx) && idx >= 0)));
+    if (normalizedIndexes.length === 0) return;
     const currentItems = parseItems(targetOrder.items);
-    if (itemIndex < 0 || itemIndex >= currentItems.length) return;
+    const indexSet = new Set<number>(normalizedIndexes);
 
     const nextItems = currentItems.map((item, idx) =>
-      idx === itemIndex ? { ...(item || {}), status: "served" } : item
+      indexSet.has(idx) ? { ...(item || {}), status: "served" } : item
     );
     const nextStatus = deriveOrderStatusFromItems(nextItems);
 
@@ -1931,7 +1933,7 @@ function AdminContent() {
       .eq("id", orderId);
 
     if (error) {
-      console.error("Erreur service article:", error);
+      console.error("Erreur service articles:", error);
       await fetchOrders();
     }
   };
@@ -3325,12 +3327,53 @@ function AdminContent() {
                 readyOrders.map((order) => {
                   const readyEntries = getReadyItemEntries(order);
                   if (readyEntries.length === 0) return null;
+                  const readyFoodEntries = readyEntries.filter((entry) => !isDrink(entry.item));
+                  const readyDrinkEntries = readyEntries.filter((entry) => isDrink(entry.item));
                   const covers =
                     normalizeCoversValue((order as unknown as Record<string, unknown>).covers) ??
                     normalizeCoversValue((order as unknown as Record<string, unknown>).guest_count) ??
                     normalizeCoversValue((order as unknown as Record<string, unknown>).customer_count) ??
                     tableCoversByNumber.get(Number(order.table_number)) ??
                     null;
+                  const renderReadyBlock = (
+                    title: "PLATS" | "BOISSONS",
+                    entries: Array<{ item: Item; index: number }>
+                  ) => {
+                    if (entries.length === 0) return null;
+                    const isFoodBlock = title === "PLATS";
+                    return (
+                      <div className={`border-2 p-2 ${isFoodBlock ? "border-orange-300 bg-orange-50" : "border-blue-300 bg-blue-50"}`}>
+                        <div className="mb-2 text-xs font-black uppercase">{title}</div>
+                        <div className="space-y-2">
+                          {entries.map(({ item, index }) => (
+                            <div key={`ready-line-${order.id}-${title}-${index}`} className="border border-gray-300 bg-white p-2">
+                              <div className="font-bold text-sm">
+                                <span className="bg-black text-white px-2 mr-2 rounded">{Number(item.quantity) || 1}x</span>
+                                <span className="notranslate" translate="no">
+                                  {resolveOrderItemLabel(item)}
+                                </span>
+                              </div>
+                              {String(item.instructions || "").trim() ? (
+                                <div className="mt-1 text-xs italic text-gray-700 notranslate" translate="no">
+                                  {String(item.instructions || "").trim()}
+                                </div>
+                              ) : null}
+                            </div>
+                          ))}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => void handleServeItems(String(order.id), entries.map((entry) => entry.index))}
+                          className={`mt-3 w-full border-2 border-black text-black shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none ${
+                            isFoodBlock ? "bg-yellow-400" : "bg-blue-200"
+                          }`}
+                          style={{ width: "100%", padding: "15px", fontWeight: 800 }}
+                        >
+                          {isFoodBlock ? "TOUT SERVIR" : "TOUT SERVIR BOISSONS"}
+                        </button>
+                      </div>
+                    );
+                  };
                   return (
                     <div
                       key={`ready-items-${order.id}`}
@@ -3343,31 +3386,9 @@ function AdminContent() {
                         </div>
                         <div className="text-xs font-mono text-gray-500">#{String(order.id).slice(0, 4)}</div>
                       </div>
-                      <div className="space-y-2">
-                        {readyEntries.map(({ item, index }) => (
-                          <div key={`ready-line-${order.id}-${index}`} className="border border-gray-300 bg-green-50 p-2">
-                            <div className="flex items-start justify-between gap-2">
-                              <div className="font-bold text-sm">
-                                <span className="bg-black text-white px-2 mr-2 rounded">{Number(item.quantity) || 1}x</span>
-                                <span className="notranslate" translate="no">
-                                  {resolveOrderItemLabel(item)}
-                                </span>
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() => void handleServeItem(String(order.id), index)}
-                                className="border-2 border-black bg-yellow-400 px-2 py-1 text-xs font-black text-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none"
-                              >
-                                MARQUER SERVI
-                              </button>
-                            </div>
-                            {String(item.instructions || "").trim() ? (
-                              <div className="mt-1 text-xs italic text-gray-700 notranslate" translate="no">
-                                {String(item.instructions || "").trim()}
-                              </div>
-                            ) : null}
-                          </div>
-                        ))}
+                      <div className="space-y-3">
+                        {renderReadyBlock("PLATS", readyFoodEntries)}
+                        {renderReadyBlock("BOISSONS", readyDrinkEntries)}
                       </div>
                     </div>
                   );
