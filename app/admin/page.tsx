@@ -145,6 +145,11 @@ type Item = {
   side_dish?: unknown;
   sideDish?: unknown;
   selected_options?: unknown;
+  selected_option?: unknown;
+  selected_option_id?: string | number | null;
+  selected_option_name?: string | null;
+  selected_option_price?: number | null;
+  selectedOptions?: unknown;
   options?: unknown;
   supplement?: unknown;
   supplements?: unknown;
@@ -249,6 +254,13 @@ type ExtraChoice = {
   price: number;
 };
 
+type ProductOptionChoice = {
+  id: string;
+  name: string;
+  price: number;
+  required: boolean;
+};
+
 type FastOrderLine = {
   lineId: string;
   dishId: string;
@@ -259,6 +271,9 @@ type FastOrderLine = {
   unitPrice: number;
   selectedSides: string[];
   selectedExtras: ExtraChoice[];
+  selectedProductOptionId: string | null;
+  selectedProductOptionName: string | null;
+  selectedProductOptionPrice: number;
   selectedCooking: string;
   specialRequest: string;
   isDrink: boolean;
@@ -270,6 +285,47 @@ interface ParsedDishOptions {
   sideIds: Array<string | number>;
   extrasList: ExtraChoice[];
   askCooking: boolean;
+}
+
+function readBooleanFlag(raw: unknown, fallback = false): boolean {
+  if (typeof raw === "boolean") return raw;
+  if (typeof raw === "number") return raw !== 0;
+  if (typeof raw === "string") {
+    const value = raw.trim().toLowerCase();
+    if (["true", "1", "yes", "oui", "required", "obligatoire", "mandatory"].includes(value)) return true;
+    if (["false", "0", "no", "non"].includes(value)) return false;
+  }
+  return fallback;
+}
+
+function normalizeProductOptionRows(rows: Array<Record<string, unknown>>): ProductOptionChoice[] {
+  const seen = new Set<string>();
+  return rows
+    .map((row, index) => {
+      const namesI18n = parseJsonObject(row.names_i18n);
+      const label =
+        String(row.name_fr || row.name || row.label_fr || row.label || namesI18n?.fr || "").trim() || "";
+      if (!label) return null;
+      const id = String(row.id || `option-${index}`).trim();
+      const key = `${id}::${normalizeLookupText(label)}`;
+      if (seen.has(key)) return null;
+      seen.add(key);
+      return {
+        id,
+        name: label,
+        price: parsePriceNumber(row.price_override ?? row.option_price ?? row.price ?? row.amount ?? 0),
+        required: readBooleanFlag(
+          row.is_required ??
+            row.required ??
+            row.mandatory ??
+            row.is_mandatory ??
+            row.obligatoire ??
+            row.is_obligatoire,
+          false
+        ),
+      } as ProductOptionChoice;
+    })
+    .filter(Boolean) as ProductOptionChoice[];
 }
 
 function parseItems(items: unknown): Item[] {
@@ -403,6 +459,8 @@ function AdminContent() {
   const [modalQty, setModalQty] = useState(1);
   const [modalSideChoices, setModalSideChoices] = useState<string[]>([]);
   const [modalSelectedSides, setModalSelectedSides] = useState<string[]>([]);
+  const [modalProductOptions, setModalProductOptions] = useState<ProductOptionChoice[]>([]);
+  const [modalSelectedProductOptionId, setModalSelectedProductOptionId] = useState("");
   const [modalExtraChoices, setModalExtraChoices] = useState<ExtraChoice[]>([]);
   const [modalSelectedExtras, setModalSelectedExtras] = useState<ExtraChoice[]>([]);
   const [modalCooking, setModalCooking] = useState("");
@@ -1068,6 +1126,85 @@ function AdminContent() {
 
   const dishNeedsCooking = (dish: DishItem) => parseDescriptionOptions(getDishOptionsSource(dish)).askCooking;
 
+  const parseDishProductOptions = (dish: DishItem): ProductOptionChoice[] => {
+    const record = dish as unknown as Record<string, unknown>;
+    const directCandidates: unknown[] = [record.product_options, record.productOptions, record.variants];
+    for (const candidate of directCandidates) {
+      if (!candidate) continue;
+      if (Array.isArray(candidate)) {
+        const normalized = normalizeProductOptionRows(candidate as Array<Record<string, unknown>>);
+        if (normalized.length > 0) return normalized;
+        continue;
+      }
+      if (typeof candidate === "string") {
+        try {
+          const parsed = JSON.parse(candidate);
+          if (Array.isArray(parsed)) {
+            const normalized = normalizeProductOptionRows(parsed as Array<Record<string, unknown>>);
+            if (normalized.length > 0) return normalized;
+          }
+        } catch {
+          // ignore parse errors and try next source
+        }
+      }
+    }
+    const looseOptions = record.options;
+    if (Array.isArray(looseOptions)) {
+      const variantLikeRows = (looseOptions as Array<Record<string, unknown>>).filter((row) =>
+        Boolean(row && typeof row === "object" && (row.price_override != null || row.is_required != null || row.required != null))
+      );
+      if (variantLikeRows.length > 0) {
+        return normalizeProductOptionRows(variantLikeRows);
+      }
+    }
+    return [];
+  };
+
+  const isSideSelectionRequired = (dish: DishItem, choices: string[]) => {
+    if (choices.length === 0) return false;
+    const row = dish as unknown as Record<string, unknown>;
+    const explicit = row.side_required ?? row.sides_required ?? row.is_side_required ?? row.requires_side ?? row.required_side;
+    if (explicit != null) return readBooleanFlag(explicit, false);
+    if (row.has_sides != null) return readBooleanFlag(row.has_sides, false);
+    const maxOptions = Number(row.max_options ?? 0);
+    return Number.isFinite(maxOptions) && maxOptions > 0;
+  };
+
+  const isProductOptionSelectionRequired = (dish: DishItem, options: ProductOptionChoice[]) => {
+    if (options.length === 0) return false;
+    const row = dish as unknown as Record<string, unknown>;
+    const explicit =
+      row.option_required ??
+      row.options_required ??
+      row.is_option_required ??
+      row.requires_option ??
+      row.required_option;
+    if (explicit != null) return readBooleanFlag(explicit, false);
+    return options.some((option) => option.required);
+  };
+
+  const loadDishProductOptionsFromDatabase = async (dishId: string | number): Promise<ProductOptionChoice[]> => {
+    const normalizedDishId = String(dishId || "").trim();
+    if (!normalizedDishId) return [];
+    const queryByColumn = async (column: "product_id" | "dish_id") =>
+      supabase
+        .from("product_options")
+        .select("*")
+        .eq(column, normalizedDishId);
+
+    const first = await queryByColumn("product_id");
+    if (!first.error && Array.isArray(first.data) && first.data.length > 0) {
+      return normalizeProductOptionRows(first.data as Array<Record<string, unknown>>);
+    }
+
+    const firstMissingColumn = String((first.error as { code?: string } | null)?.code || "") === "42703";
+    if (first.error && !firstMissingColumn) return [];
+
+    const second = await queryByColumn("dish_id");
+    if (second.error || !Array.isArray(second.data)) return [];
+    return normalizeProductOptionRows(second.data as Array<Record<string, unknown>>);
+  };
+
   const parseExtraChoicesFromRows = (rows: Array<Record<string, unknown>>) => {
     const parsed = rows
       .map((row) => {
@@ -1161,6 +1298,10 @@ function AdminContent() {
 
   const buildLineInstructions = (line: FastOrderLine) => {
     const parts: string[] = [];
+    if (line.selectedProductOptionName) {
+      const optionPrice = parsePriceNumber(line.selectedProductOptionPrice);
+      parts.push(optionPrice > 0 ? `Option: ${line.selectedProductOptionName} (+${optionPrice.toFixed(2)}\u20AC)` : `Option: ${line.selectedProductOptionName}`);
+    }
     if (line.selectedSides.length > 0) {
       parts.push(`Accompagnements: ${line.selectedSides.join(", ")}`);
     }
@@ -1690,6 +1831,9 @@ function AdminContent() {
         unitPrice: getDishPrice(dish),
         selectedSides: [],
         selectedExtras: [],
+        selectedProductOptionId: null,
+        selectedProductOptionName: null,
+        selectedProductOptionPrice: 0,
         selectedCooking: "",
         specialRequest: String(baseLineComments[dishId] || ""),
         isDrink: isDrink({ category }),
@@ -1820,6 +1964,13 @@ function AdminContent() {
     setModalQty(1);
     setModalSideChoices(sideIds.map((id) => sideMap.get(String(id)) || String(id)));
     setModalSelectedSides([]);
+    const inlineProductOptions = parseDishProductOptions(sourceDish);
+    const dbProductOptions =
+      inlineProductOptions.length === 0 && sourceDish.id != null
+        ? await loadDishProductOptionsFromDatabase(sourceDish.id)
+        : [];
+    setModalProductOptions(inlineProductOptions.length > 0 ? inlineProductOptions : dbProductOptions);
+    setModalSelectedProductOptionId("");
     const parsedExtras = parseDishExtras(sourceDish);
     const relationExtras =
       parsedExtras.length === 0 && sourceDish.id != null ? await loadDishExtrasFromRelations(sourceDish.id) : [];
@@ -1832,8 +1983,17 @@ function AdminContent() {
 
   const handleAddOptionLine = () => {
     if (!modalDish) return;
-    if (modalSideChoices.length > 0 && modalSelectedSides.length === 0) {
+    const selectedProductOption =
+      modalProductOptions.find((option) => String(option.id) === String(modalSelectedProductOptionId)) || null;
+    const sideRequired = isSideSelectionRequired(modalDish, modalSideChoices);
+    const optionRequired = isProductOptionSelectionRequired(modalDish, modalProductOptions);
+
+    if (sideRequired && modalSelectedSides.length === 0) {
       alert("Veuillez choisir au moins un accompagnement.");
+      return;
+    }
+    if (optionRequired && !selectedProductOption) {
+      alert("Veuillez choisir une option obligatoire.");
       return;
     }
     if (dishNeedsCooking(modalDish) && !modalCooking.trim()) {
@@ -1841,6 +2001,7 @@ function AdminContent() {
       return;
     }
     const category = getDishCategoryLabel(modalDish);
+    const optionUnit = parsePriceNumber(selectedProductOption?.price ?? 0);
     const extrasUnit = modalSelectedExtras.reduce((sum, extra) => sum + parsePriceNumber(extra.price), 0);
     const line: FastOrderLine = {
       lineId: makeLineId(),
@@ -1849,9 +2010,12 @@ function AdminContent() {
       category,
       categoryId: modalDish.category_id ?? null,
       quantity: modalQty,
-      unitPrice: Number((getDishPrice(modalDish) + extrasUnit).toFixed(2)),
+      unitPrice: Number((getDishPrice(modalDish) + optionUnit + extrasUnit).toFixed(2)),
       selectedSides: modalSelectedSides,
       selectedExtras: modalSelectedExtras,
+      selectedProductOptionId: selectedProductOption?.id || null,
+      selectedProductOptionName: selectedProductOption?.name || null,
+      selectedProductOptionPrice: optionUnit,
       selectedCooking: modalCooking,
       specialRequest: modalKitchenComment,
       isDrink: isDrink({ category }),
@@ -1859,6 +2023,8 @@ function AdminContent() {
     setFastOptionLines((prev) => [...prev, line]);
     setModalOpen(false);
     setModalDish(null);
+    setModalProductOptions([]);
+    setModalSelectedProductOptionId("");
   };
 
   const removeFastLine = (lineId: string) => {
@@ -1980,6 +2146,8 @@ function AdminContent() {
       setModalQty(1);
       setModalSideChoices([]);
       setModalSelectedSides([]);
+      setModalProductOptions([]);
+      setModalSelectedProductOptionId("");
       setModalExtraChoices([]);
       setModalSelectedExtras([]);
       setModalCooking("");
@@ -2005,13 +2173,41 @@ function AdminContent() {
       .map((line) => {
         const quantity = Number(line.quantity || 0);
         const unitPrice = Number(line.unitPrice || 0);
+        const optionPrice = parsePriceNumber(line.selectedProductOptionPrice);
         const extrasPrice = (line.selectedExtras || []).reduce((sum, extra) => sum + parsePriceNumber(extra.price), 0);
-        const baseUnitPrice = Number((unitPrice - extrasPrice).toFixed(2));
+        const baseUnitPrice = Number((unitPrice - extrasPrice - optionPrice).toFixed(2));
         const selectedSideIds = (line.selectedSides || [])
           .map((label) => sideIdByAlias.get(normalizeLookupText(label)) || "")
           .filter(Boolean);
         const cookingLabel = String(line.selectedCooking || "").trim();
         const cookingKey = toCookingKeyFromLabel(cookingLabel);
+        const selectedOptionId = String(line.selectedProductOptionId || "").trim() || null;
+        const selectedOptionName = String(line.selectedProductOptionName || "").trim() || null;
+        const selectedOptionsPayload: Array<Record<string, unknown>> = [];
+        if (selectedOptionName) {
+          selectedOptionsPayload.push({
+            kind: "option",
+            id: selectedOptionId,
+            value: selectedOptionName,
+            label_fr: selectedOptionName,
+            price: optionPrice,
+          });
+        }
+        if (selectedSideIds.length > 0) {
+          selectedOptionsPayload.push({
+            kind: "side",
+            ids: selectedSideIds,
+            values: line.selectedSides,
+          });
+        }
+        if (cookingLabel) {
+          selectedOptionsPayload.push({
+            kind: "cooking",
+            key: cookingKey || null,
+            value: cookingLabel,
+            label_fr: cookingLabel,
+          });
+        }
         if (!line.dishId || !line.dishName || !Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(unitPrice)) {
           return null;
         }
@@ -2025,6 +2221,13 @@ function AdminContent() {
           base_price: Number.isFinite(baseUnitPrice) ? baseUnitPrice : Number(unitPrice.toFixed(2)),
           extras_price: Number(extrasPrice.toFixed(2)),
           unit_total_price: Number(unitPrice.toFixed(2)),
+          selected_option_id: selectedOptionId,
+          selected_option_name: selectedOptionName,
+          selected_option_price: optionPrice,
+          selected_option: selectedOptionsPayload.find((entry) => String(entry.kind || "").trim() === "option") || null,
+          selected_options: selectedOptionsPayload,
+          selectedOptions: selectedOptionsPayload,
+          options: selectedOptionsPayload,
           selectedSides: line.selectedSides,
           selected_side_ids: selectedSideIds,
           side: line.selectedSides.length > 0 ? line.selectedSides[0] : null,
@@ -2743,6 +2946,7 @@ function AdminContent() {
               console.log("Plat:", dish.name, "Options trouvées:", linkedDishOptions);
               const hasOptions =
                 dishNeedsCooking(dish) ||
+                parseDishProductOptions(dish).length > 0 ||
                 parseDishExtras(dish).length > 0 ||
                 linkedDishOptions.length > 0 ||
                 dishIdsWithLinkedExtras.has(dishId) ||
@@ -2976,19 +3180,76 @@ function AdminContent() {
             <div className="mb-3 text-sm font-bold">
               {(() => {
                 const basePrice = getDishPrice(modalDish);
+                const selectedOption =
+                  modalProductOptions.find((option) => String(option.id) === String(modalSelectedProductOptionId)) || null;
+                const optionPrice = parsePriceNumber(selectedOption?.price ?? 0);
                 const extrasPrice = modalSelectedExtras.reduce((sum, extra) => sum + parsePriceNumber(extra.price), 0);
-                const unitTotal = basePrice + extrasPrice;
+                const unitTotal = basePrice + optionPrice + extrasPrice;
                 const lineTotal = unitTotal * modalQty;
-                if (extrasPrice > 0) {
-                  return `Prix: ${basePrice.toFixed(2)}\u20AC + suppléments ${extrasPrice.toFixed(2)}\u20AC = ${unitTotal.toFixed(2)}\u20AC (x${modalQty} = ${lineTotal.toFixed(2)}\u20AC)`;
+                if (optionPrice > 0 || extrasPrice > 0) {
+                  return `Prix: ${basePrice.toFixed(2)}\u20AC + option ${optionPrice.toFixed(2)}\u20AC + suppléments ${extrasPrice.toFixed(2)}\u20AC = ${unitTotal.toFixed(2)}\u20AC (x${modalQty} = ${lineTotal.toFixed(2)}\u20AC)`;
                 }
                 return `Prix: ${unitTotal.toFixed(2)}\u20AC (x${modalQty} = ${lineTotal.toFixed(2)}\u20AC)`;
               })()}
             </div>
 
+            {modalProductOptions.length > 0 ? (
+              <div className="mb-3">
+                {(() => {
+                  const optionRequired = isProductOptionSelectionRequired(modalDish, modalProductOptions);
+                  return (
+                    <>
+                      <div className="font-black mb-1">
+                        Options / Variantes{" "}
+                        {optionRequired ? <span className="text-red-700 text-xs">(Obligatoire)</span> : <span className="text-gray-500 text-xs">(Facultatif)</span>}
+                      </div>
+                      <div className="space-y-1">
+                        {!optionRequired ? (
+                          <label className="flex items-center gap-2 text-sm">
+                            <input
+                              type="radio"
+                              name="modal-product-option"
+                              checked={!modalSelectedProductOptionId}
+                              onChange={() => setModalSelectedProductOptionId("")}
+                            />
+                            <span>Aucune option</span>
+                          </label>
+                        ) : null}
+                        {modalProductOptions.map((option) => {
+                          const checked = String(modalSelectedProductOptionId) === String(option.id);
+                          const optionPrice = parsePriceNumber(option.price);
+                          return (
+                            <label key={option.id} className="flex items-center gap-2 text-sm">
+                              <input
+                                type="radio"
+                                name="modal-product-option"
+                                checked={checked}
+                                onChange={() => setModalSelectedProductOptionId(String(option.id))}
+                              />
+                              <span>
+                                {option.name}
+                                {optionPrice > 0 ? ` (+${optionPrice.toFixed(2)}\u20AC)` : ""}
+                              </span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
+            ) : null}
+
             {modalSideChoices.length > 0 ? (
               <div className="mb-3">
-                <div className="font-black mb-1">Accompagnements</div>
+                <div className="font-black mb-1">
+                  Accompagnements{" "}
+                  {isSideSelectionRequired(modalDish, modalSideChoices) ? (
+                    <span className="text-red-700 text-xs">(Obligatoire)</span>
+                  ) : (
+                    <span className="text-gray-500 text-xs">(Facultatif)</span>
+                  )}
+                </div>
                 <div className="space-y-1">
                   {modalSideChoices.map((side) => {
                     const checked = modalSelectedSides.includes(side);
