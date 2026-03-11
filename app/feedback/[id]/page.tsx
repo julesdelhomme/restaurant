@@ -220,9 +220,32 @@ function normalizeOrderItemsToDishLines(
       ];
     }
   }
-  return lines.map((line, idx) => ({
+  const dedupedByDish = new Map<string, FeedbackDishLine>();
+  lines.forEach((line, idx) => {
+    const normalizedName = normalizeDisplayText(line.name || "");
+    if (!normalizedName) return;
+    const dedupeKey = line.dish_id ? `dish:${line.dish_id}` : `name:${normalizedName.toLowerCase()}`;
+    const quantity = Math.max(1, Number(line.quantity || 1));
+    const existing = dedupedByDish.get(dedupeKey);
+    if (!existing) {
+      dedupedByDish.set(dedupeKey, {
+        ...line,
+        name: normalizedName,
+        quantity,
+        key: `${dedupeKey}-${idx}`,
+      });
+      return;
+    }
+    dedupedByDish.set(dedupeKey, {
+      ...existing,
+      quantity: existing.quantity + quantity,
+      image_url: existing.image_url || line.image_url || null,
+    });
+  });
+
+  return Array.from(dedupedByDish.values()).map((line, idx) => ({
     ...line,
-    key: `${line.key || `${line.dish_id || "no-dish"}::${line.name}`}-${idx}`,
+    key: `${line.dish_id || normalizeDisplayText(line.name || "dish").toLowerCase()}-${idx}`,
   }));
 }
 

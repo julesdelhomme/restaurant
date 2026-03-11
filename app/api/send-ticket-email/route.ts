@@ -154,12 +154,33 @@ function buildFeedbackSectionHtml(origin: string, payload: TicketPayload) {
   const baseUrl = `${baseOrigin.replace(/\/+$/, "")}/feedback/${encodeURIComponent(orderId)}`;
 
   return `
-    <div style="margin-top:16px;border-top:1px solid #e5e7eb;padding-top:12px;">
-      <div style="font-size:15px;font-weight:700;margin-bottom:8px;">Donnez votre avis</div>
-      <a href="${escapeHtml(baseUrl)}" style="display:inline-block;text-decoration:none;background:#111827;color:#fff;padding:12px 16px;border-radius:8px;font-weight:700;font-size:14px;">
-        Donnez votre avis sur votre expérience du jour
-      </a>
+    <div style="margin-top:18px;">
+      <div style="border:2px solid #0f172a;border-radius:14px;background:linear-gradient(135deg,#0f172a 0%,#1d4ed8 100%);padding:16px;">
+        <div style="font-size:20px;font-weight:800;color:#ffffff;line-height:1.2;">Votre avis nous intéresse !</div>
+        <div style="margin-top:8px;font-size:14px;color:#e2e8f0;line-height:1.4;">
+          Cliquez ici pour noter vos plats et votre expérience.
+        </div>
+        <a href="${escapeHtml(baseUrl)}" style="display:block;margin-top:12px;text-decoration:none;background:#facc15;color:#111827;padding:14px 16px;border-radius:10px;font-weight:800;font-size:15px;text-align:center;border:2px solid #111827;">
+          Noter mes plats maintenant
+        </a>
+        <div style="margin-top:8px;font-size:12px;color:#cbd5e1;text-align:center;">
+          Your feedback helps us improve every day.
+        </div>
+      </div>
     </div>
+  `.trim();
+}
+
+function buildSocialButtonHtml(entry: { label: string; icon: string; color: string; url: string; text?: string }) {
+  return `
+    <a href="${escapeHtml(entry.url)}" target="_blank" rel="noopener noreferrer" style="display:inline-flex;align-items:center;gap:10px;text-decoration:none;border:2px solid #111827;border-radius:12px;padding:12px 14px;background:${entry.color};min-width:190px;">
+      <span style="display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:999px;background:#ffffff;color:#111827;font-size:14px;font-weight:900;">
+        ${escapeHtml(entry.icon)}
+      </span>
+      <span style="font-size:15px;font-weight:800;color:${entry.text || "#ffffff"};line-height:1.1;">
+        ${escapeHtml(entry.label)}
+      </span>
+    </a>
   `.trim();
 }
 
@@ -169,11 +190,11 @@ function buildSocialReceiptSectionHtml(restaurantRow: Record<string, unknown>, p
   if (!enabled) return "";
   const socialLinks = parseObjectRecord(tableConfig.social_links);
   const entries = [
-    { key: "instagram", label: "Instagram", icon: "IG", color: "#E1306C" },
-    { key: "snapchat", label: "Snapchat", icon: "SC", color: "#FFFC00", text: "#111" },
-    { key: "facebook", label: "Facebook", icon: "f", color: "#1877F2" },
-    { key: "x", label: "X", icon: "X", color: "#111111" },
-    { key: "website", label: "Site Web", icon: "WWW", color: "#2563EB" },
+    { key: "instagram", label: "Instagram", icon: "IG", color: "#E1306C", text: "#FFFFFF" },
+    { key: "facebook", label: "Facebook", icon: "f", color: "#1877F2", text: "#FFFFFF" },
+    { key: "snapchat", label: "Snapchat", icon: "SC", color: "#FFFC00", text: "#111111" },
+    { key: "x", label: "X", icon: "X", color: "#111111", text: "#FFFFFF" },
+    { key: "website", label: "Site Web", icon: "WWW", color: "#2563EB", text: "#FFFFFF" },
   ]
     .map((item) => {
       const url = String(socialLinks[item.key] || "").trim();
@@ -183,21 +204,12 @@ function buildSocialReceiptSectionHtml(restaurantRow: Record<string, unknown>, p
   if (entries.length === 0) return "";
 
   const prompt = getSocialPromptByLang(payload.lang);
-  const linksHtml = entries
-    .map(
-      (entry) => `
-      <a href="${escapeHtml(entry.url)}" target="_blank" rel="noopener noreferrer" style="display:inline-flex;align-items:center;gap:8px;text-decoration:none;border:1px solid #d1d5db;border-radius:999px;padding:6px 10px;background:#fff;">
-        <span style="display:inline-flex;align-items:center;justify-content:center;min-width:24px;height:24px;border-radius:999px;background:${entry.color};color:${entry.text || "#fff"};font-size:11px;font-weight:700;padding:0 6px;">${escapeHtml(entry.icon)}</span>
-        <span style="font-size:13px;font-weight:600;color:#111;">${escapeHtml(entry.label)}</span>
-      </a>
-    `.trim()
-    )
-    .join("\n");
+  const linksHtml = entries.map((entry) => buildSocialButtonHtml(entry)).join("\n");
 
   return `
-    <div style="margin-top:16px;border-top:1px solid #e5e7eb;padding-top:12px;">
-      <div style="font-size:14px;font-weight:700;margin-bottom:8px;">${escapeHtml(prompt)}</div>
-      <div style="display:flex;flex-wrap:wrap;gap:8px;">
+    <div style="margin-top:18px;border-top:1px solid #e5e7eb;padding-top:14px;">
+      <div style="font-size:15px;font-weight:800;margin-bottom:10px;color:#111827;">${escapeHtml(prompt)}</div>
+      <div style="display:flex;flex-wrap:wrap;gap:10px;">
         ${linksHtml}
       </div>
     </div>

@@ -3623,8 +3623,8 @@ export default function MenuDigital() {
       const selectedOptionPriceRaw = item.selectedProductOption?.price_override;
       const selectedOptionPrice =
         selectedOptionPriceRaw == null || !Number.isFinite(Number(selectedOptionPriceRaw))
-          ? null
-          : Number(selectedOptionPriceRaw);
+          ? 0
+          : Math.max(0, Number(selectedOptionPriceRaw));
       const selectedExtras = (item.selectedExtras || []).map((extra, index) => ({
         id: buildStableExtraId(item.dish.id, extra, index),
         label_fr: String(extra.name_fr || extra.name || "").trim() || "Supplï¿½ment",
