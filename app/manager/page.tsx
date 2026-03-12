@@ -6865,6 +6865,22 @@ export default function MenuManager() {
               </button>
             ))}
           </div>
+          {activeManagerTab === "appearance" ? (
+            <div className="rounded-xl border border-gray-300 bg-white p-3">
+              <div className="text-xs font-black uppercase text-gray-500 mb-2">Sidebar Réglages</div>
+              <div className="flex flex-wrap gap-2">
+                <a href="#manager-email-config" className="px-3 py-1 border border-black rounded font-bold text-sm bg-white">
+                  Configuration Email
+                </a>
+                <a href="#manager-google-review-config" className="px-3 py-1 border border-black rounded font-bold text-sm bg-white">
+                  Avis Google
+                </a>
+                <a href="#manager-social-config" className="px-3 py-1 border border-black rounded font-bold text-sm bg-white">
+                  Réseaux Sociaux
+                </a>
+              </div>
+            </div>
+          ) : null}
           {activeManagerTab === "staff" ? (
             <div className="rounded-xl border border-gray-300 bg-white p-4">
               <h2 className="text-lg font-black mb-2">Gestion du Staff</h2>
@@ -8293,7 +8309,7 @@ export default function MenuManager() {
                 </button>
               </div>
             </div>
-            <div className="hidden">
+            <div id="manager-google-review-config" className={activeManagerTab === "appearance" ? "" : "hidden"}>
               <label className="block mb-1 font-bold">Lien Google Review</label>
               <input
                 type="url"
@@ -8306,10 +8322,10 @@ export default function MenuManager() {
                 Utilisé pour le bouton Google affiché aux clients après un avis de 4 ou 5 étoiles.
               </p>
             </div>
-            <div className="hidden">
+            <div id="manager-email-config" className={activeManagerTab === "appearance" ? "md:col-span-2 border border-gray-200 rounded bg-white p-3" : "hidden"}>
               <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
                 <div>
-                  <div className="font-black">Configuration de l'envoi d'e-mails</div>
+                  <div className="font-black">Configuration Email</div>
                   <p className="text-sm text-gray-600 mt-1">
                     Utilisez un mot de passe d'application Gmail pour sécuriser l'envoi des tickets de caisse.
                   </p>
@@ -8375,6 +8391,7 @@ export default function MenuManager() {
                     rows={3}
                   />
                 </div>
+                <div id="manager-social-config" className="md:col-span-2 font-black">Réseaux Sociaux</div>
                 <div>
                   <label className="block mb-1 font-bold">Instagram</label>
                   <input

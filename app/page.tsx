@@ -2226,39 +2226,44 @@ export default function MenuDigital() {
         1
       );
   const restaurantSocialLinks = parseJsonObject(restaurantTableConfig.social_links);
+  const instagramUrl = String(restaurantSocialLinks.instagram || restaurantRecord?.instagram_url || "").trim();
+  const facebookUrl = String(restaurantSocialLinks.facebook || restaurantRecord?.facebook_url || "").trim();
+  const xUrl = String(restaurantSocialLinks.x || restaurantSocialLinks.twitter || restaurantRecord?.x_url || "").trim();
+  const snapchatUrl = String(restaurantSocialLinks.snapchat || restaurantRecord?.snapchat_url || "").trim();
+  const websiteUrl = String(restaurantSocialLinks.website || restaurantSocialLinks.site || restaurantRecord?.website_url || "").trim();
   const socialFooterEntries = [
     {
       key: "instagram",
       label: "Instagram",
-      url: String(restaurantSocialLinks.instagram || "").trim(),
+      url: instagramUrl,
       iconUrl: "https://cdn.simpleicons.org/instagram/E4405F",
       iconBg: "#ffffff",
     },
     {
       key: "facebook",
       label: "Facebook",
-      url: String(restaurantSocialLinks.facebook || "").trim(),
+      url: facebookUrl,
       iconUrl: "https://cdn.simpleicons.org/facebook/1877F2",
       iconBg: "#ffffff",
     },
     {
       key: "x",
       label: "X",
-      url: String(restaurantSocialLinks.x || restaurantSocialLinks.twitter || "").trim(),
+      url: xUrl,
       iconUrl: "https://cdn.simpleicons.org/x/111111",
       iconBg: "#ffffff",
     },
     {
       key: "snapchat",
       label: "Snapchat",
-      url: String(restaurantSocialLinks.snapchat || "").trim(),
+      url: snapchatUrl,
       iconUrl: "https://cdn.simpleicons.org/snapchat/111111",
       iconBg: "#FFFC00",
     },
     {
       key: "website",
       label: "Web",
-      url: String(restaurantSocialLinks.website || restaurantSocialLinks.site || "").trim(),
+      url: websiteUrl,
       iconUrl: "",
       iconBg: "#ffffff",
     },
