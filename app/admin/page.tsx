@@ -2234,6 +2234,30 @@ function AdminContent() {
   const ensureTableIsOrderableForServer = async (tableNumber: number, covers?: number | null) => {
     const targetRestaurantId = String(restaurantId || scopedRestaurantId || "").trim();
     if (!targetRestaurantId) return null;
+    const markTableAsOccupied = async () => {
+      const occupancyPayloads = [
+        { status: "occupied", occupied: true, restaurant_id: targetRestaurantId || undefined },
+        { status: "occupied", restaurant_id: targetRestaurantId || undefined },
+        { occupied: true, restaurant_id: targetRestaurantId || undefined },
+        { status: "occupied", occupied: true },
+        { status: "occupied" },
+        { occupied: true },
+      ];
+      let updateQuery = supabase.from("table_assignments").update(occupancyPayloads[0]).eq("table_number", tableNumber);
+      if (targetRestaurantId) updateQuery = updateQuery.eq("restaurant_id", targetRestaurantId);
+      let updated = await updateQuery;
+      for (let i = 1; updated.error && i < occupancyPayloads.length; i += 1) {
+        const code = String((updated.error as { code?: string })?.code || "");
+        const msg = String(updated.error.message || "").toLowerCase();
+        const missingColumn = code === "42703" || msg.includes("column") || msg.includes("schema cache");
+        if (!missingColumn) break;
+        let nextUpdateQuery = supabase.from("table_assignments").update(occupancyPayloads[i]).eq("table_number", tableNumber);
+        if (targetRestaurantId && i < 3) nextUpdateQuery = nextUpdateQuery.eq("restaurant_id", targetRestaurantId);
+        updated = await nextUpdateQuery;
+      }
+      return updated.error || null;
+    };
+
     let selectPrimaryQuery = supabase.from("table_assignments").select("table_number,pin_code").eq("table_number", tableNumber).limit(1);
     if (targetRestaurantId) selectPrimaryQuery = selectPrimaryQuery.eq("restaurant_id", targetRestaurantId);
     let selectPrimary = await selectPrimaryQuery;
@@ -2276,7 +2300,7 @@ function AdminContent() {
         inserted = await supabase.from("table_assignments").upsert([upsertPayloads[i]], { onConflict: "table_number" });
       }
       if (inserted.error) return inserted.error;
-      return null;
+      return await markTableAsOccupied();
     }
 
     if (!currentPin || currentPin === "0000" || normalizeCoversValue(covers)) {
@@ -2307,7 +2331,7 @@ function AdminContent() {
       if (updated.error) return updated.error;
     }
 
-    return null;
+    return await markTableAsOccupied();
   };
 
   const handleSubmitFastOrder = async () => {
