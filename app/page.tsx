@@ -124,38 +124,11 @@ const SMART_CALL_OPTION_META: Array<{
 ];
 
 const SERVER_CALL_THROTTLE_MS = 60_000;
+const LAST_SERVER_CALL_STORAGE_KEY = "last_server_call";
 
-const SERVER_CALL_COOLDOWN_COPY: Record<string, string> = {
-  fr: "Réessayer dans",
-  en: "Retry in",
-  es: "Reintentar en",
-  de: "Erneut in",
-  it: "Riprova tra",
-  nl: "Probeer opnieuw over",
-  pl: "Spróbuj ponownie za",
-  ro: "Reîncearcă în",
-  el: "Δοκιμάστε ξανά σε",
-  ja: "再試行まで",
-  zh: "请稍后再试",
-  ko: "다시 시도까지",
-  ru: "Повторить через",
-  ar: "أعد المحاولة خلال",
-};
-
-function formatCountdownClock(totalSeconds: number) {
-  const safeSeconds = Math.max(0, Math.ceil(totalSeconds));
-  const minutes = Math.floor(safeSeconds / 60);
-  const seconds = safeSeconds % 60;
-  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
-}
-
-function getServerCallCooldownText(languageCode: string, secondsLeft: number) {
-  const normalized = String(languageCode || "fr").trim().toLowerCase();
-  const prefix =
-    SERVER_CALL_COOLDOWN_COPY[normalized] ||
-    SERVER_CALL_COOLDOWN_COPY[normalized.slice(0, 2)] ||
-    SERVER_CALL_COOLDOWN_COPY.fr;
-  return `${prefix} ${formatCountdownClock(secondsLeft)}`.trim();
+function getServerCallCooldownText(secondsLeft: number) {
+  const safeSeconds = Math.max(1, Math.ceil(secondsLeft));
+  return `Attendez ${safeSeconds}s`;
 }
 
 const UI_TEXT = {
@@ -2086,7 +2059,7 @@ export default function MenuDigital() {
   const uiLang = toUiLang(lang);
   const normalizedLang = normalizeLanguageKey(lang);
   const isRtl = RTL_LANGUAGE_CODES.has(normalizedLang);
-  const serverCallThrottleLabel = getServerCallCooldownText(normalizedLang, serverCallSecondsLeft);
+  const serverCallThrottleLabel = getServerCallCooldownText(serverCallSecondsLeft);
   const triggerHaptic = (pattern: number | number[]) => {
     try {
       if (typeof navigator === "undefined" || typeof navigator.vibrate !== "function") return;
@@ -3531,40 +3504,42 @@ export default function MenuDigital() {
   const tablePinCode = normalizedTableKey ? tablePinCodesByNumber[normalizedTableKey] : "";
   const expectedValidationCode = normalizePinValue(tablePinCode);
   const typedValidationCode = normalizePinValue(orderValidationCodeInput || "");
-  const serverCallCooldownStorageKey = normalizedTableKey
-    ? `menuqr-server-call-throttle:${String(restaurant?.id ?? scopedRestaurantId ?? SETTINGS_ROW_ID)}:${normalizedTableKey}`
-    : "";
   const isServerCallThrottled = serverCallSecondsLeft > 0;
   const isValidationCodeValid =
     typedValidationCode.length > 0 && expectedValidationCode.length > 0 && typedValidationCode === expectedValidationCode;
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    if (!serverCallCooldownStorageKey) {
+    try {
+      const storedAt = Number(window.localStorage.getItem(LAST_SERVER_CALL_STORAGE_KEY) || "0");
+      const nextCooldownUntil = Number.isFinite(storedAt) && storedAt > 0 ? storedAt + SERVER_CALL_THROTTLE_MS : 0;
+      if (!nextCooldownUntil || nextCooldownUntil <= Date.now()) {
+        window.localStorage.removeItem(LAST_SERVER_CALL_STORAGE_KEY);
+        setServerCallCooldownUntil(0);
+        setServerCallSecondsLeft(0);
+        return;
+      }
+      setServerCallCooldownUntil(nextCooldownUntil);
+    } catch {
       setServerCallCooldownUntil(0);
       setServerCallSecondsLeft(0);
-      return;
     }
-    const storedValue = Number(window.localStorage.getItem(serverCallCooldownStorageKey) || "0");
-    if (!Number.isFinite(storedValue) || storedValue <= Date.now()) {
-      window.localStorage.removeItem(serverCallCooldownStorageKey);
-      setServerCallCooldownUntil(0);
-      setServerCallSecondsLeft(0);
-      return;
-    }
-    setServerCallCooldownUntil(storedValue);
-  }, [serverCallCooldownStorageKey]);
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    if (!serverCallCooldownUntil || !serverCallCooldownStorageKey) {
+    if (!serverCallCooldownUntil) {
       setServerCallSecondsLeft(0);
       return;
     }
     const syncCountdown = () => {
       const remainingMs = serverCallCooldownUntil - Date.now();
       if (remainingMs <= 0) {
-        window.localStorage.removeItem(serverCallCooldownStorageKey);
+        try {
+          window.localStorage.removeItem(LAST_SERVER_CALL_STORAGE_KEY);
+        } catch {
+          // localStorage unavailable: keep UI functional without persistence.
+        }
         setServerCallCooldownUntil(0);
         setServerCallSecondsLeft(0);
         return;
@@ -3574,13 +3549,17 @@ export default function MenuDigital() {
     syncCountdown();
     const intervalId = window.setInterval(syncCountdown, 250);
     return () => window.clearInterval(intervalId);
-  }, [serverCallCooldownStorageKey, serverCallCooldownUntil]);
+  }, [serverCallCooldownUntil]);
 
   const startServerCallCooldown = () => {
-    if (!serverCallCooldownStorageKey) return;
-    const nextCooldownUntil = Date.now() + SERVER_CALL_THROTTLE_MS;
+    const lastCallAt = Date.now();
+    const nextCooldownUntil = lastCallAt + SERVER_CALL_THROTTLE_MS;
     if (typeof window !== "undefined") {
-      window.localStorage.setItem(serverCallCooldownStorageKey, String(nextCooldownUntil));
+      try {
+        window.localStorage.setItem(LAST_SERVER_CALL_STORAGE_KEY, String(lastCallAt));
+      } catch {
+        // Ignore storage failures: the action itself must still work.
+      }
     }
     setServerCallCooldownUntil(nextCooldownUntil);
     setServerCallSecondsLeft(Math.ceil(SERVER_CALL_THROTTLE_MS / 1000));
@@ -3662,37 +3641,59 @@ export default function MenuDigital() {
         },
       ];
       let notificationSaved = false;
+      let notificationError: unknown = null;
       for (const payload of notificationPayloads) {
         const notifTry = await supabase.from("notifications").insert([payload as never]);
         if (!notifTry.error) {
           notificationSaved = true;
           break;
         }
+        notificationError = notifTry.error;
       }
 
+      let callSaved = false;
+      let callError: unknown = null;
       const firstTry = await supabase
         .from("calls")
         .insert([{ ...payloadBase, table_number: tableNumText, table_id: tableNum }]);
 
-      if (firstTry.error) {
+      if (!firstTry.error) {
+        callSaved = true;
+      } else {
         const secondTry = await supabase
           .from("calls")
           .insert([{ ...payloadBase, table_number: tableNumText }]);
-        if (secondTry.error) {
+        if (!secondTry.error) {
+          callSaved = true;
+        } else {
           const thirdTry = await supabase
             .from("calls")
             .insert([{ ...payloadBase, table_id: tableNum }]);
-          if (thirdTry.error) throw thirdTry.error;
+          if (!thirdTry.error) {
+            callSaved = true;
+          } else {
+            callError = thirdTry.error;
+          }
         }
       }
-      void notificationSaved;
+
+      if (!notificationSaved) {
+        console.warn("Server call notification insert failed:", toLoggableSupabaseError(notificationError));
+      }
+      if (!callSaved) {
+        console.warn("Server call legacy calls insert failed:", toLoggableSupabaseError(callError || notificationError));
+      }
+      if (!notificationSaved && !callSaved) {
+        throw callError || notificationError || new Error("Server call insert failed");
+      }
+
       setShowCallModal(false);
       startServerCallCooldown();
       triggerHaptic([10, 50, 10]);
-      setServerCallMsg(smartCallUi.sent || tt("server_called_success"));
-      setTimeout(() => setServerCallMsg(""), 2000);
     } catch (e) {
-      setServerCallMsg(tt("generic_error"));
+      console.error("handleSubmitSmartCall failed:", toLoggableSupabaseError(e));
+      setServerCallMsg("Impossible d'appeler le serveur pour le moment.");
+      setTimeout(() => setServerCallMsg(""), 2500);
     } finally {
       setIsSendingCall(false);
     }
@@ -4496,7 +4497,7 @@ export default function MenuDigital() {
           >
             {isStickyActionsCompact ? (
               isServerCallThrottled ? (
-                <span className="text-[9px] leading-none text-center font-black px-1">{formatCountdownClock(serverCallSecondsLeft)}</span>
+                <span className="text-[10px] leading-none text-center font-black px-1">{Math.max(1, serverCallSecondsLeft)}s</span>
               ) : (
                 <PhoneCall className="h-5 w-5" />
               )
@@ -4557,11 +4558,6 @@ export default function MenuDigital() {
               </button>
             </div>
             <div className="p-4 grid grid-cols-1 gap-2">
-              {isServerCallThrottled ? (
-                <div className="rounded-xl border-2 border-gray-400 bg-gray-100 px-3 py-2 text-sm font-black text-gray-700">
-                  {serverCallThrottleLabel}
-                </div>
-              ) : null}
               {SMART_CALL_OPTION_META.map(({ key, icon: Icon, colorClass }) => (
                 <button
                   key={key}
@@ -5470,7 +5466,7 @@ export default function MenuDigital() {
       )}
 
       {serverCallMsg && (
-        <div className="fixed bottom-20 left-1/2 -translate-x-1/2 bg-green-200 border-2 border-black px-4 py-2 rounded-xl font-black text-black z-50">
+        <div className="fixed bottom-20 left-1/2 -translate-x-1/2 bg-black/90 text-white border border-white/20 px-4 py-2 rounded-full font-bold text-sm z-50 shadow-lg backdrop-blur-sm">
           {serverCallMsg}
         </div>
       )}
