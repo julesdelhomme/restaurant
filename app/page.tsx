@@ -123,6 +123,41 @@ const SMART_CALL_OPTION_META: Array<{
   { key: "report_problem", icon: AlertTriangle, colorClass: "text-red-600" },
 ];
 
+const SERVER_CALL_THROTTLE_MS = 60_000;
+
+const SERVER_CALL_COOLDOWN_COPY: Record<string, string> = {
+  fr: "Réessayer dans",
+  en: "Retry in",
+  es: "Reintentar en",
+  de: "Erneut in",
+  it: "Riprova tra",
+  nl: "Probeer opnieuw over",
+  pl: "Spróbuj ponownie za",
+  ro: "Reîncearcă în",
+  el: "Δοκιμάστε ξανά σε",
+  ja: "再試行まで",
+  zh: "请稍后再试",
+  ko: "다시 시도까지",
+  ru: "Повторить через",
+  ar: "أعد المحاولة خلال",
+};
+
+function formatCountdownClock(totalSeconds: number) {
+  const safeSeconds = Math.max(0, Math.ceil(totalSeconds));
+  const minutes = Math.floor(safeSeconds / 60);
+  const seconds = safeSeconds % 60;
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
+function getServerCallCooldownText(languageCode: string, secondsLeft: number) {
+  const normalized = String(languageCode || "fr").trim().toLowerCase();
+  const prefix =
+    SERVER_CALL_COOLDOWN_COPY[normalized] ||
+    SERVER_CALL_COOLDOWN_COPY[normalized.slice(0, 2)] ||
+    SERVER_CALL_COOLDOWN_COPY.fr;
+  return `${prefix} ${formatCountdownClock(secondsLeft)}`.trim();
+}
+
 const UI_TEXT = {
   fr: {
     categories: ["Tous", "Entrï¿½es", "Plats", "Desserts", "Boissons"],
@@ -801,11 +836,33 @@ interface Dish {
   name_en?: string;
   name_es?: string;
   name_de?: string;
+  name_el?: string;
+  name_nl?: string;
+  name_pl?: string;
+  name_ro?: string;
+  name_zh?: string;
+  name_ko?: string;
+  name_ru?: string;
+  name_ar?: string;
+  name_gr?: string;
+  name_cn?: string;
+  name_kr?: string;
   description?: string;
   description_fr?: string;
   description_en?: string;
   description_es?: string;
   description_de?: string;
+  description_el?: string;
+  description_nl?: string;
+  description_pl?: string;
+  description_ro?: string;
+  description_zh?: string;
+  description_ko?: string;
+  description_ru?: string;
+  description_ar?: string;
+  description_gr?: string;
+  description_cn?: string;
+  description_kr?: string;
   price: number;
   category_id?: string | number | null;
   subcategory_id?: string | number | null;
@@ -1444,9 +1501,13 @@ function getDishName(dish: Dish, lang: string) {
   const langColumnCandidates = [
     `name_${normalizedLang}`,
     `name_${uiLang}`,
+    normalizedLang === "ja" ? "name_ja" : "",
     normalizedLang === "ja" ? "name_jp" : "",
+    normalizedLang === "zh" ? "name_zh" : "",
     normalizedLang === "zh" ? "name_cn" : "",
+    normalizedLang === "ko" ? "name_ko" : "",
     normalizedLang === "ko" ? "name_kr" : "",
+    normalizedLang === "el" ? "name_el" : "",
     normalizedLang === "el" ? "name_gr" : "",
     normalizedLang === "ro" ? "name_ro" : "",
     normalizedLang === "pl" ? "name_pl" : "",
@@ -1515,9 +1576,13 @@ function getDescription(dish: Dish, lang: string) {
   const directDescriptionColumnCandidates = [
     `description_${langCode}`,
     `description_${uiLang}`,
+    langCode === "ja" ? "description_ja" : "",
     langCode === "ja" ? "description_jp" : "",
+    langCode === "zh" ? "description_zh" : "",
     langCode === "zh" ? "description_cn" : "",
+    langCode === "ko" ? "description_ko" : "",
     langCode === "ko" ? "description_kr" : "",
+    langCode === "el" ? "description_el" : "",
     langCode === "el" ? "description_gr" : "",
   ].filter(Boolean);
   for (const key of directDescriptionColumnCandidates) {
@@ -1965,6 +2030,8 @@ export default function MenuDigital() {
   const [serverCallMsg, setServerCallMsg] = useState("");
   const [showCallModal, setShowCallModal] = useState(false);
   const [isSendingCall, setIsSendingCall] = useState(false);
+  const [serverCallCooldownUntil, setServerCallCooldownUntil] = useState(0);
+  const [serverCallSecondsLeft, setServerCallSecondsLeft] = useState(0);
   const [loading, setLoading] = useState(true);
   const [isRestaurantOffline, setIsRestaurantOffline] = useState(false);
   const [offlineRestaurantName, setOfflineRestaurantName] = useState("");
@@ -2019,6 +2086,7 @@ export default function MenuDigital() {
   const uiLang = toUiLang(lang);
   const normalizedLang = normalizeLanguageKey(lang);
   const isRtl = RTL_LANGUAGE_CODES.has(normalizedLang);
+  const serverCallThrottleLabel = getServerCallCooldownText(normalizedLang, serverCallSecondsLeft);
   const triggerHaptic = (pattern: number | number[]) => {
     try {
       if (typeof navigator === "undefined" || typeof navigator.vibrate !== "function") return;
@@ -3463,8 +3531,60 @@ export default function MenuDigital() {
   const tablePinCode = normalizedTableKey ? tablePinCodesByNumber[normalizedTableKey] : "";
   const expectedValidationCode = normalizePinValue(tablePinCode);
   const typedValidationCode = normalizePinValue(orderValidationCodeInput || "");
+  const serverCallCooldownStorageKey = normalizedTableKey
+    ? `menuqr-server-call-throttle:${String(restaurant?.id ?? scopedRestaurantId ?? SETTINGS_ROW_ID)}:${normalizedTableKey}`
+    : "";
+  const isServerCallThrottled = serverCallSecondsLeft > 0;
   const isValidationCodeValid =
     typedValidationCode.length > 0 && expectedValidationCode.length > 0 && typedValidationCode === expectedValidationCode;
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!serverCallCooldownStorageKey) {
+      setServerCallCooldownUntil(0);
+      setServerCallSecondsLeft(0);
+      return;
+    }
+    const storedValue = Number(window.localStorage.getItem(serverCallCooldownStorageKey) || "0");
+    if (!Number.isFinite(storedValue) || storedValue <= Date.now()) {
+      window.localStorage.removeItem(serverCallCooldownStorageKey);
+      setServerCallCooldownUntil(0);
+      setServerCallSecondsLeft(0);
+      return;
+    }
+    setServerCallCooldownUntil(storedValue);
+  }, [serverCallCooldownStorageKey]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!serverCallCooldownUntil || !serverCallCooldownStorageKey) {
+      setServerCallSecondsLeft(0);
+      return;
+    }
+    const syncCountdown = () => {
+      const remainingMs = serverCallCooldownUntil - Date.now();
+      if (remainingMs <= 0) {
+        window.localStorage.removeItem(serverCallCooldownStorageKey);
+        setServerCallCooldownUntil(0);
+        setServerCallSecondsLeft(0);
+        return;
+      }
+      setServerCallSecondsLeft(Math.ceil(remainingMs / 1000));
+    };
+    syncCountdown();
+    const intervalId = window.setInterval(syncCountdown, 250);
+    return () => window.clearInterval(intervalId);
+  }, [serverCallCooldownStorageKey, serverCallCooldownUntil]);
+
+  const startServerCallCooldown = () => {
+    if (!serverCallCooldownStorageKey) return;
+    const nextCooldownUntil = Date.now() + SERVER_CALL_THROTTLE_MS;
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(serverCallCooldownStorageKey, String(nextCooldownUntil));
+    }
+    setServerCallCooldownUntil(nextCooldownUntil);
+    setServerCallSecondsLeft(Math.ceil(SERVER_CALL_THROTTLE_MS / 1000));
+  };
 
   const handleSubmitSmartCall = async (callType: SmartCallOptionKey) => {
     setServerCallMsg("");
@@ -3485,6 +3605,11 @@ export default function MenuDigital() {
     }
     if (!isValidationCodeValid) {
       setServerCallMsg(tt("validation_code_invalid"));
+      setTimeout(() => setServerCallMsg(""), 2000);
+      return;
+    }
+    if (isServerCallThrottled) {
+      setServerCallMsg(serverCallThrottleLabel);
       setTimeout(() => setServerCallMsg(""), 2000);
       return;
     }
@@ -3562,6 +3687,7 @@ export default function MenuDigital() {
       }
       void notificationSaved;
       setShowCallModal(false);
+      startServerCallCooldown();
       triggerHaptic([10, 50, 10]);
       setServerCallMsg(smartCallUi.sent || tt("server_called_success"));
       setTimeout(() => setServerCallMsg(""), 2000);
@@ -4357,17 +4483,28 @@ export default function MenuDigital() {
       >
         {!isVitrineMode && (
           <button
-            className={`${isStickyActionsCompact ? "pointer-events-auto w-12 h-12 border-4 rounded-full flex items-center justify-center p-0 shrink-0" : "flex-1 border-4 rounded-xl px-4 py-2"} font-black`}
+            className={`${isStickyActionsCompact ? "pointer-events-auto w-12 h-12 border-4 rounded-full flex items-center justify-center p-0 shrink-0" : "flex-1 border-4 rounded-xl px-4 py-2"} font-black disabled:opacity-100 disabled:cursor-not-allowed`}
             style={{
-              backgroundColor: darkMode ? "#000000" : "#FFFFFF",
-              color: darkMode ? "#F5F5F5" : "#111111",
-              borderColor: darkMode ? "#d99a2b" : "#000000",
+              backgroundColor: isServerCallThrottled ? (darkMode ? "#111827" : "#D1D5DB") : darkMode ? "#000000" : "#FFFFFF",
+              color: isServerCallThrottled ? (darkMode ? "#9CA3AF" : "#4B5563") : darkMode ? "#F5F5F5" : "#111111",
+              borderColor: isServerCallThrottled ? (darkMode ? "#4B5563" : "#9CA3AF") : darkMode ? "#d99a2b" : "#000000",
             }}
-            onClick={() => setShowCallModal(true)}
-            aria-label={uiText.callServer}
-            title={uiText.callServer}
+            onClick={() => !isServerCallThrottled && setShowCallModal(true)}
+            disabled={isServerCallThrottled}
+            aria-label={isServerCallThrottled ? serverCallThrottleLabel : uiText.callServer}
+            title={isServerCallThrottled ? serverCallThrottleLabel : uiText.callServer}
           >
-            {isStickyActionsCompact ? <PhoneCall className="h-5 w-5" /> : uiText.callServer}
+            {isStickyActionsCompact ? (
+              isServerCallThrottled ? (
+                <span className="text-[9px] leading-none text-center font-black px-1">{formatCountdownClock(serverCallSecondsLeft)}</span>
+              ) : (
+                <PhoneCall className="h-5 w-5" />
+              )
+            ) : isServerCallThrottled ? (
+              serverCallThrottleLabel
+            ) : (
+              uiText.callServer
+            )}
           </button>
         )}
         {!isInteractionDisabled && (
@@ -4420,11 +4557,16 @@ export default function MenuDigital() {
               </button>
             </div>
             <div className="p-4 grid grid-cols-1 gap-2">
+              {isServerCallThrottled ? (
+                <div className="rounded-xl border-2 border-gray-400 bg-gray-100 px-3 py-2 text-sm font-black text-gray-700">
+                  {serverCallThrottleLabel}
+                </div>
+              ) : null}
               {SMART_CALL_OPTION_META.map(({ key, icon: Icon, colorClass }) => (
                 <button
                   key={key}
                   type="button"
-                  disabled={isSendingCall}
+                  disabled={isSendingCall || isServerCallThrottled}
                   onClick={() => void handleSubmitSmartCall(key)}
                   className="w-full text-left border-2 border-black rounded-xl px-3 py-3 bg-white hover:bg-gray-50 disabled:opacity-60"
                 >
@@ -4530,18 +4672,18 @@ export default function MenuDigital() {
                   <div className={`grid grid-cols-1 md:grid-cols-2 gap-4 items-stretch`}>
                     {
                     <div
-                      className={`relative overflow-hidden rounded-lg border-2 border-black ${featuredOverlay ? "min-h-[280px]" : ""}`}
+                      className={`relative overflow-hidden rounded-lg border-2 border-black aspect-[4/3] ${featuredOverlay ? "min-h-[240px] sm:min-h-[280px]" : ""}`}
                       style={{ backgroundColor: cardImagePanelBg }}
                     >
                       {featuredDish.image_url ? (
                         <img
                           src={featuredDish.image_url}
                           alt={getDishName(featuredDish, lang)}
-                          className="w-full h-64 md:h-full object-cover"
+                          className="absolute inset-0 h-full w-full object-cover"
                           onError={hideBrokenImage}
                         />
                       ) : (
-                        <div className="w-full h-64 md:h-full bg-gray-100" />
+                        <div className="absolute inset-0 h-full w-full bg-gray-100" />
                       )}
                       <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/15 to-transparent pointer-events-none" />
                       <div className="absolute top-3 left-3 flex flex-wrap gap-2">
@@ -4768,7 +4910,7 @@ export default function MenuDigital() {
                       isOverlayCard
                         ? "p-0 flex items-end"
                         : isBicolorCard
-                          ? "p-0 flex flex-row items-stretch"
+                          ? "p-0 flex flex-col sm:flex-row items-stretch"
                           : `p-4 ${menuLayout === "modern_list" ? "flex flex-row gap-3 items-start" : "flex flex-col"}`
                     } w-full min-w-0`}
                     style={!isOverlayCard ? { backgroundColor: cardSurfaceBg, color: cardTextColorValue } : undefined}
@@ -4792,10 +4934,9 @@ export default function MenuDigital() {
                         alt={getDishName(dish, lang)}
                         className={`dish-card-media object-cover ${dishMediaRadiusClass} ${
                           menuLayout === "modern_list"
-                            ? "w-24 h-24 sm:w-28 sm:h-28 shrink-0"
-                            : "w-full h-44 md:h-52 mb-3"
+                            ? "w-24 sm:w-28 shrink-0 aspect-[4/3]"
+                            : "w-full aspect-[4/3] mb-3"
                         }`}
-                        style={{ aspectRatio: menuLayout === "modern_list" ? "1 / 1" : "4 / 3" }}
                         onError={hideBrokenImage}
                       />
                     ) : null}
@@ -4804,12 +4945,11 @@ export default function MenuDigital() {
                         <img
                           src={dish.image_url}
                           alt={getDishName(dish, lang)}
-                          className="dish-card-media w-1/2 h-auto aspect-square object-cover"
-                          style={{ aspectRatio: "1 / 1" }}
+                          className="dish-card-media w-full sm:w-[42%] aspect-[4/3] object-cover"
                           onError={hideBrokenImage}
                         />
                       ) : (
-                        <div className="dish-card-media w-1/2 aspect-square bg-gray-100 border-r-2 border-black" />
+                        <div className="dish-card-media w-full sm:w-[42%] aspect-[4/3] bg-gray-100 border-b-2 sm:border-b-0 sm:border-r-2 border-black" />
                       )
                     ) : null}
                     <div
@@ -4817,7 +4957,7 @@ export default function MenuDigital() {
                         isOverlayCard
                           ? "w-full p-4"
                           : isBicolorCard
-                            ? "w-1/2 min-w-0 p-4 border-l-2 border-black flex flex-col justify-between"
+                            ? "w-full sm:flex-1 min-w-0 p-4 sm:border-l-2 border-black flex flex-col justify-between"
                             : menuLayout === "modern_list"
                               ? "flex-1 min-w-0"
                               : ""
@@ -5010,8 +5150,8 @@ export default function MenuDigital() {
       </div>
 
       {selectedDish && (
-        <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center">
-          <div className={`${darkMode ? "bg-black border-[#d99a2b] text-[#F5F5F5]" : "bg-white border-black"} border-4 rounded-xl w-full max-w-md max-h-[92vh] shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] relative flex flex-col overflow-hidden`}>
+        <div className="fixed inset-0 bg-black/60 z-[100] flex items-end justify-center sm:items-center p-0 sm:p-4">
+          <div className={`${darkMode ? "bg-black border-[#d99a2b] text-[#F5F5F5]" : "bg-white border-black"} border-4 rounded-t-2xl sm:rounded-xl w-full max-w-md h-[100dvh] sm:h-auto sm:max-h-[92vh] shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] relative flex flex-col overflow-hidden`}>
             <button
               type="button"
               aria-label={uiText.close}
@@ -5028,57 +5168,57 @@ export default function MenuDigital() {
             >
               <XCircle size={18} className={darkMode ? "text-red-300" : "text-red-500"} />
             </button>
-            <div className="overflow-y-auto p-6 pt-14">
-            {selectedDish.image_url && (
-              <img
-                src={selectedDish.image_url}
-                alt={getDishName(selectedDish, lang)}
-                className="w-full h-40 object-cover rounded-lg mb-3"
-                onError={hideBrokenImage}
-              />
-            )}
-            <h2 className="text-2xl font-black text-black mb-2">
-              {getDishName(selectedDish, lang)}
-            </h2>
-            <p className="text-black mb-2">{getDescription(selectedDish, lang)}</p>
-            {(getHungerLevel(selectedDish, lang) || (showCaloriesClient && getCaloriesLabel(selectedDish, kcalLabel))) && (
-              <div className="flex flex-wrap gap-3 text-xs font-bold text-black mb-3">
-                {getHungerLevel(selectedDish, lang) && (
-                  <span className="inline-flex items-center gap-1 bg-gray-100 border border-gray-300 rounded-full px-2 py-1">
-                    <span className="inline-block w-2 h-2 rounded-full bg-red-500" />
-                    {getHungerLevel(selectedDish, lang)}
-                  </span>
-                )}
-                {showCaloriesClient && getCaloriesLabel(selectedDish, kcalLabel) && (
-                  <span className="inline-flex items-center gap-1 bg-gray-100 border border-gray-300 rounded-full px-2 py-1">
-                    <span className="inline-block w-2 h-2 rounded-full bg-orange-500" />
-                    {getCaloriesLabel(selectedDish, kcalLabel)}
-                  </span>
-                )}
-              </div>
-            )}
-            {getVisibleDishAllergenLabels(selectedDish).length > 0 && (
-              <div className="mb-3">
-                <label className="font-bold text-black mb-1 block">{uiText.allergensLabel} :</label>
-                <div className="flex flex-wrap gap-2">
-                  {getVisibleDishAllergenLabels(selectedDish).map((a, i) => (
-                    <span
-                      key={`${a}-${i}`}
-                      className={`px-2 py-1 rounded font-bold text-xs border-2 ${
-                        darkMode ? "bg-transparent border-yellow-400 text-yellow-300" : "bg-yellow-200 border-black text-black"
-                      }`}
-                    >
-                      {a}
+            <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-28 pt-14 sm:px-6 sm:pb-6">
+              {selectedDish.image_url && (
+                <img
+                  src={selectedDish.image_url}
+                  alt={getDishName(selectedDish, lang)}
+                  className="w-full aspect-[4/3] object-cover rounded-xl mb-4"
+                  onError={hideBrokenImage}
+                />
+              )}
+              <h2 className="text-2xl font-black text-black mb-2">
+                {getDishName(selectedDish, lang)}
+              </h2>
+              <p className="text-black mb-2">{getDescription(selectedDish, lang)}</p>
+              {(getHungerLevel(selectedDish, lang) || (showCaloriesClient && getCaloriesLabel(selectedDish, kcalLabel))) && (
+                <div className="flex flex-wrap gap-3 text-xs font-bold text-black mb-3">
+                  {getHungerLevel(selectedDish, lang) && (
+                    <span className="inline-flex items-center gap-1 bg-gray-100 border border-gray-300 rounded-full px-2 py-1">
+                      <span className="inline-block w-2 h-2 rounded-full bg-red-500" />
+                      {getHungerLevel(selectedDish, lang)}
                     </span>
-                  ))}
+                  )}
+                  {showCaloriesClient && getCaloriesLabel(selectedDish, kcalLabel) && (
+                    <span className="inline-flex items-center gap-1 bg-gray-100 border border-gray-300 rounded-full px-2 py-1">
+                      <span className="inline-block w-2 h-2 rounded-full bg-orange-500" />
+                      {getCaloriesLabel(selectedDish, kcalLabel)}
+                    </span>
+                  )}
                 </div>
-              </div>
-            )}
-            {isInteractionDisabled ? (
-              <div className="mb-3 rounded-lg border-2 border-black bg-gray-100 px-3 py-2 text-sm font-bold text-black">
-                {consultationModeBannerText}
-              </div>
-            ) : null}
+              )}
+              {getVisibleDishAllergenLabels(selectedDish).length > 0 && (
+                <div className="mb-3">
+                  <label className="font-bold text-black mb-1 block">{uiText.allergensLabel} :</label>
+                  <div className="flex flex-wrap gap-2">
+                    {getVisibleDishAllergenLabels(selectedDish).map((a, i) => (
+                      <span
+                        key={`${a}-${i}`}
+                        className={`px-2 py-1 rounded font-bold text-xs border-2 ${
+                          darkMode ? "bg-transparent border-yellow-400 text-yellow-300" : "bg-yellow-200 border-black text-black"
+                        }`}
+                      >
+                        {a}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {isInteractionDisabled ? (
+                <div className="mb-3 rounded-lg border-2 border-black bg-gray-100 px-3 py-2 text-sm font-bold text-black">
+                  {consultationModeBannerText}
+                </div>
+              ) : null}
 
             {(selectedDish.has_sides || modalSidesOptions.length > 0) && (
               <div className="mb-3">
@@ -5282,13 +5422,15 @@ export default function MenuDigital() {
             )}
             </div>
             {!isInteractionDisabled && (
-              <div className="p-4 border-t-2 border-black bg-white sticky bottom-0">
+              <div className={`shrink-0 border-t-2 p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] ${darkMode ? "border-[#d99a2b] bg-black" : "border-black bg-white"}`}>
                 <button
                   disabled={
                     (((!!selectedDish?.has_sides) || modalSidesOptions.length > 0) && selectedSides.length === 0) ||
                     (modalAskCooking && !selectedCooking)
                   }
-                  className="w-full py-3 bg-black text-white rounded-xl font-black border-4 border-black disabled:opacity-50 disabled:cursor-not-allowed"
+                  className={`w-full py-3 rounded-xl font-black border-4 disabled:opacity-50 disabled:cursor-not-allowed ${
+                    darkMode ? "bg-[#d99a2b] text-black border-[#d99a2b]" : "bg-black text-white border-black"
+                  }`}
                   onClick={() => {
                     if ((selectedDish.has_sides || modalSidesOptions.length > 0) && selectedSides.length === 0) {
                       setSideError(tt("side_required_error"));
