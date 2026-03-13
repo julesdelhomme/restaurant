@@ -16,7 +16,23 @@ alter table if exists public.dishes
   add column if not exists description_zh text,
   add column if not exists description_ko text,
   add column if not exists description_ru text,
-  add column if not exists description_ar text;
+  add column if not exists description_ar text,
+  add column if not exists suggestion_el text,
+  add column if not exists suggestion_nl text,
+  add column if not exists suggestion_pl text,
+  add column if not exists suggestion_ro text,
+  add column if not exists suggestion_zh text,
+  add column if not exists suggestion_ko text,
+  add column if not exists suggestion_ru text,
+  add column if not exists suggestion_ar text,
+  add column if not exists suggestion_message_el text,
+  add column if not exists suggestion_message_nl text,
+  add column if not exists suggestion_message_pl text,
+  add column if not exists suggestion_message_ro text,
+  add column if not exists suggestion_message_zh text,
+  add column if not exists suggestion_message_ko text,
+  add column if not exists suggestion_message_ru text,
+  add column if not exists suggestion_message_ar text;
 
 alter table if exists public.categories
   add column if not exists name_el text,
@@ -79,6 +95,48 @@ begin
     where table_schema = 'public' and table_name = 'dishes' and column_name = 'description_kr'
   ) then
     execute 'update public.dishes set description_ko = coalesce(nullif(description_ko, ''''), description_kr) where coalesce(description_kr, '''') <> '''';';
+  end if;
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public' and table_name = 'dishes' and column_name = 'suggestion_gr'
+  ) then
+    execute 'update public.dishes set suggestion_el = coalesce(nullif(suggestion_el, ''''), suggestion_gr) where coalesce(suggestion_gr, '''') <> '''';';
+  end if;
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public' and table_name = 'dishes' and column_name = 'suggestion_cn'
+  ) then
+    execute 'update public.dishes set suggestion_zh = coalesce(nullif(suggestion_zh, ''''), suggestion_cn) where coalesce(suggestion_cn, '''') <> '''';';
+  end if;
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public' and table_name = 'dishes' and column_name = 'suggestion_kr'
+  ) then
+    execute 'update public.dishes set suggestion_ko = coalesce(nullif(suggestion_ko, ''''), suggestion_kr) where coalesce(suggestion_kr, '''') <> '''';';
+  end if;
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public' and table_name = 'dishes' and column_name = 'suggestion_message_gr'
+  ) then
+    execute 'update public.dishes set suggestion_message_el = coalesce(nullif(suggestion_message_el, ''''), suggestion_message_gr) where coalesce(suggestion_message_gr, '''') <> '''';';
+  end if;
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public' and table_name = 'dishes' and column_name = 'suggestion_message_cn'
+  ) then
+    execute 'update public.dishes set suggestion_message_zh = coalesce(nullif(suggestion_message_zh, ''''), suggestion_message_cn) where coalesce(suggestion_message_cn, '''') <> '''';';
+  end if;
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public' and table_name = 'dishes' and column_name = 'suggestion_message_kr'
+  ) then
+    execute 'update public.dishes set suggestion_message_ko = coalesce(nullif(suggestion_message_ko, ''''), suggestion_message_kr) where coalesce(suggestion_message_kr, '''') <> '''';';
   end if;
 
   if exists (
