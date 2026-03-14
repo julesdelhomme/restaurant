@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getBearerToken, readAccessContextForUser, readUserFromAccessToken } from "@/lib/server/access-context";
-import { normalizeOtpScope } from "@/lib/server/login-otp";
-
-const OTP_DISABLED_FOR_TESTING = true;
+import { isOtpBypassEnabled, normalizeOtpScope, resolveOtpSessionId } from "@/lib/server/login-otp";
+import { createSupabaseAdminClient } from "@/lib/server/supabase-admin";
 
 export async function GET(request: NextRequest) {
   const accessToken = getBearerToken(request.headers.get("authorization"));
@@ -29,9 +28,37 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Acces OTP refuse." }, { status: 403 });
   }
 
-  if (OTP_DISABLED_FOR_TESTING) {
-    return NextResponse.json({ verified: true, bypassed: true, disabled: true }, { status: 200 });
+  const userEmail = String(user.email || "").trim().toLowerCase();
+  if (isOtpBypassEnabled(userEmail, scope)) {
+    return NextResponse.json({ verified: true, bypassed: true }, { status: 200 });
   }
 
-  return NextResponse.json({ verified: true }, { status: 200 });
+  const supabase = createSupabaseAdminClient();
+  const sessionId = resolveOtpSessionId(accessToken, user.id);
+  const twelveHoursAgo = new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString();
+
+  const result = await supabase
+    .from("auth_login_otps")
+    .select("id")
+    .eq("user_id", user.id)
+    .eq("session_id", sessionId)
+    .eq("scope", scope)
+    .not("consumed_at", "is", null)
+    .gte("created_at", twelveHoursAgo)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (result.error) {
+    const schemaHint =
+      String((result.error as { code?: string } | null)?.code || "") === "42P01"
+        ? " Executez la migration create_auth_login_otps.sql."
+        : "";
+    return NextResponse.json(
+      { error: `${result.error.message || "Impossible de verifier le statut OTP."}${schemaHint}` },
+      { status: 500 }
+    );
+  }
+
+  return NextResponse.json({ verified: Boolean(result.data) }, { status: 200 });
 }
