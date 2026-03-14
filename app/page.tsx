@@ -862,6 +862,7 @@ interface Dish {
   has_sides?: boolean;
   max_options?: number | null;
   has_extras?: boolean;
+  allow_multi_select?: boolean | null;
   ask_cooking?: boolean;
   calories_min?: number | null;
   calories_max?: number | null;
@@ -1349,6 +1350,7 @@ interface CartItem {
   selectedSides?: string[];
   selectedSideIds?: string[];
   selectedExtras?: ExtrasItem[];
+  selectedProductOptions?: ProductOptionItem[];
   selectedProductOption?: ProductOptionItem | null;
   selectedCooking?: string;
   specialRequest?: string;
@@ -1929,10 +1931,21 @@ function getProductOptionLabel(option: ProductOptionItem | null | undefined, lan
   return translated || fallbackFr;
 }
 
+function getSelectedProductOptionsList(
+  selectedProductOptions?: ProductOptionItem[] | null,
+  selectedProductOption?: ProductOptionItem | null
+) {
+  if (Array.isArray(selectedProductOptions) && selectedProductOptions.length > 0) {
+    return selectedProductOptions.filter(Boolean);
+  }
+  return selectedProductOption ? [selectedProductOption] : [];
+}
+
 function buildInstructionText(
   lang: string,
   selectedSides?: string[],
   selectedExtras?: ExtrasItem[],
+  selectedProductOptions?: ProductOptionItem[] | null,
   selectedProductOption?: ProductOptionItem | null,
   selectedCooking?: string,
   specialRequest?: string,
@@ -1945,10 +1958,15 @@ function buildInstructionText(
   if (uniqueSides.length > 0) {
     parts.push(`${labels.sidesLabel}: ${uniqueSides.join(", ")}`);
   }
-  const optionLabel = getProductOptionLabel(selectedProductOption, lang);
-  if (selectedProductOption && optionLabel) {
-    const optionPrice = parseAddonPrice(selectedProductOption.price_override);
-    parts.push(optionPrice > 0 ? `Option: ${optionLabel} (+${formatPriceTwoDecimals(optionPrice)})` : `Option: ${optionLabel}`);
+  const optionLabels = dedupeDisplayValues(
+    getSelectedProductOptionsList(selectedProductOptions, selectedProductOption).map((option) => {
+      const optionLabel = getProductOptionLabel(option, lang);
+      const optionPrice = parseAddonPrice(option.price_override);
+      return optionPrice > 0 ? `${optionLabel} (+${formatPriceTwoDecimals(optionPrice)})` : optionLabel;
+    })
+  );
+  if (optionLabels.length > 0) {
+    parts.push(`Option: ${optionLabels.join(", ")}`);
   }
   if (selectedCooking) parts.push(`${labels.cookingLabel}: ${selectedCooking}`);
   if (selectedExtras && selectedExtras.length > 0) {
@@ -2024,7 +2042,7 @@ export default function MenuDigital() {
   const [selectedCooking, setSelectedCooking] = useState("");
   const [selectedExtras, setSelectedExtras] = useState<ExtrasItem[]>([]);
   const [modalProductOptions, setModalProductOptions] = useState<ProductOptionItem[]>([]);
-  const [selectedProductOptionId, setSelectedProductOptionId] = useState("");
+  const [selectedProductOptionIds, setSelectedProductOptionIds] = useState<string[]>([]);
   const [modalSidesOptions, setModalSidesOptions] = useState<string[]>([]);
   const [modalExtrasOptions, setModalExtrasOptions] = useState<ExtrasItem[]>([]);
   const [modalAskCooking, setModalAskCooking] = useState(false);
@@ -2164,9 +2182,21 @@ export default function MenuDigital() {
   const getDishBasePrice = (dish: Dish) => parsePriceNumber(dish.price);
   const getDishOptionSupplement = (option?: ProductOptionItem | null) =>
     option ? parseAddonPrice(option.price_override) : 0;
-  const getDishUnitPrice = (dish: Dish, option?: ProductOptionItem | null) => {
+  const getDishOptionSupplementTotal = (
+    selectedProductOptions?: ProductOptionItem[] | null,
+    selectedProductOption?: ProductOptionItem | null
+  ) =>
+    getSelectedProductOptionsList(selectedProductOptions, selectedProductOption).reduce(
+      (sum, option) => sum + getDishOptionSupplement(option),
+      0
+    );
+  const getDishUnitPrice = (
+    dish: Dish,
+    selectedProductOptions?: ProductOptionItem[] | null,
+    selectedProductOption?: ProductOptionItem | null
+  ) => {
     const basePrice = getDishBasePrice(dish);
-    const optionSupplement = getDishOptionSupplement(option);
+    const optionSupplement = getDishOptionSupplementTotal(selectedProductOptions, selectedProductOption);
     const promoPrice = getPromoPriceForDish(dish);
     const discountedBase = promoPrice != null && promoPrice < basePrice ? promoPrice : basePrice;
     return discountedBase + optionSupplement;
@@ -2175,11 +2205,13 @@ export default function MenuDigital() {
     const source = dish as unknown as Record<string, unknown>;
     return Boolean(source.is_suggestion || source.is_chef_suggestion || source.is_featured);
   };
-  const modalSelectedProductOption = useMemo(() => {
-    if (!modalProductOptions.length || !selectedProductOptionId) return null;
-    return modalProductOptions.find((option) => String(option.id || "") === String(selectedProductOptionId || "")) || null;
-  }, [modalProductOptions, selectedProductOptionId]);
-  const modalUnitPrice = selectedDish ? getDishUnitPrice(selectedDish, modalSelectedProductOption) : 0;
+  const modalSelectedProductOptions = useMemo(() => {
+    if (!modalProductOptions.length || selectedProductOptionIds.length === 0) return [] as ProductOptionItem[];
+    const selectedIdSet = new Set(selectedProductOptionIds.map((value) => String(value || "")));
+    return modalProductOptions.filter((option) => selectedIdSet.has(String(option.id || "")));
+  }, [modalProductOptions, selectedProductOptionIds]);
+  const modalSelectedProductOption = modalSelectedProductOptions[0] || null;
+  const modalUnitPrice = selectedDish ? getDishUnitPrice(selectedDish, modalSelectedProductOptions, modalSelectedProductOption) : 0;
   const modalTotalPrice =
     modalUnitPrice * Math.max(1, dishModalQuantity) +
     (selectedExtras || []).reduce((sum, extra) => sum + parsePriceNumber(extra.price), 0) * Math.max(1, dishModalQuantity);
@@ -3484,7 +3516,16 @@ export default function MenuDigital() {
       const idx = prev.findIndex(
         (c) =>
           c.dish.id === item.dish.id &&
-          String(c.selectedProductOption?.id || "") === String(item.selectedProductOption?.id || "") &&
+          JSON.stringify(
+            getSelectedProductOptionsList(c.selectedProductOptions, c.selectedProductOption)
+              .map((option) => String(option.id || ""))
+              .sort()
+          ) ===
+            JSON.stringify(
+              getSelectedProductOptionsList(item.selectedProductOptions, item.selectedProductOption)
+                .map((option) => String(option.id || ""))
+                .sort()
+            ) &&
           JSON.stringify(c.selectedSides || []) === JSON.stringify(item.selectedSides || []) &&
           JSON.stringify(c.selectedSideIds || []) === JSON.stringify(item.selectedSideIds || []) &&
           JSON.stringify(c.selectedExtras || []) === JSON.stringify(item.selectedExtras || []) &&
@@ -3770,7 +3811,8 @@ export default function MenuDigital() {
         (sum, extra) => sum + parsePriceNumber(extra.price),
         0
       );
-      const unitPrice = getDishUnitPrice(item.dish, item.selectedProductOption);
+      const normalizedSelectedProductOptions = getSelectedProductOptionsList(item.selectedProductOptions, item.selectedProductOption);
+      const unitPrice = getDishUnitPrice(item.dish, normalizedSelectedProductOptions, item.selectedProductOption);
       const drinkItem = isDrinkCategory(item.dish.category_id);
       const selectedSideIds = Array.isArray(item.selectedSideIds)
         ? item.selectedSideIds.map((id) => String(id || "").trim()).filter(Boolean)
@@ -3788,25 +3830,34 @@ export default function MenuDigital() {
       const hasCookingChoice = Boolean(item?.dish?.ask_cooking);
       const cookingLabelFr = cookingKey ? getCookingLabelFr(cookingKey) : hasCookingChoice ? "Saignant" : null;
       const stableCookingValue = (cookingKey || "") || (cookingLabelFr || "") || "";
-      const selectedOptionId = String(item.selectedProductOption?.id || "").trim() || null;
-      const selectedOptionName = getProductOptionLabel(item.selectedProductOption, lang) || null;
-      const selectedOptionPriceRaw = item.selectedProductOption?.price_override;
-      const selectedOptionPrice = parseAddonPrice(selectedOptionPriceRaw);
+      const selectedOptionIds = normalizedSelectedProductOptions
+        .map((option) => String(option.id || "").trim())
+        .filter(Boolean);
+      const selectedOptionNames = normalizedSelectedProductOptions
+        .map((option) => getProductOptionLabel(option, lang))
+        .filter(Boolean);
+      const selectedOptionPrice = normalizedSelectedProductOptions.reduce(
+        (sum, option) => sum + parseAddonPrice(option.price_override),
+        0
+      );
       const selectedExtras = (item.selectedExtras || []).map((extra, index) => ({
         id: buildStableExtraId(item.dish.id, extra, index),
         label_fr: String(extra.name_fr || extra.name || "").trim() || "Supplï¿½ment",
         price: parsePriceNumber(extra.price),
       }));
       const selectedOptionsPayload: Array<Record<string, unknown>> = [];
-      if (selectedOptionName) {
+      normalizedSelectedProductOptions.forEach((option) => {
+        const optionId = String(option.id || "").trim() || null;
+        const optionName = getProductOptionLabel(option, lang) || null;
+        if (!optionName) return;
         selectedOptionsPayload.push({
           kind: "option",
-          id: selectedOptionId,
-          value: selectedOptionName,
-          label_fr: selectedOptionName,
-          price: selectedOptionPrice,
+          id: optionId,
+          value: optionName,
+          label_fr: optionName,
+          price: parseAddonPrice(option.price_override),
         });
-      }
+      });
       if (fallbackSideIds.length > 0) {
         selectedOptionsPayload.push({
           kind: "side",
@@ -3827,12 +3878,15 @@ export default function MenuDigital() {
           id: String(item.dish.id || "").trim(),
           category_id: item.dish.category_id ?? null,
           is_drink: drinkItem,
-          quantity: item.quantity,
+        quantity: item.quantity,
         price: unitPrice + extrasPrice,
-        selected_option_id: selectedOptionId,
-        selected_option_name: selectedOptionName,
+        selected_option_id: selectedOptionIds.length > 0 ? selectedOptionIds.join(",") : null,
+        selected_option_name: selectedOptionNames.length > 0 ? selectedOptionNames.join(", ") : null,
         selected_option_price: selectedOptionPrice,
-        selected_option: selectedOptionsPayload.find((entry) => String(entry.kind || "").trim() === "option") || null,
+        selected_option:
+          selectedOptionsPayload.filter((entry) => String(entry.kind || "").trim() === "option").length > 1
+            ? selectedOptionsPayload.filter((entry) => String(entry.kind || "").trim() === "option")
+            : selectedOptionsPayload.find((entry) => String(entry.kind || "").trim() === "option") || null,
         selected_options: selectedOptionsPayload,
         selectedOptions: selectedOptionsPayload,
         selected_side_ids: fallbackSideIds,
@@ -3851,7 +3905,12 @@ export default function MenuDigital() {
         (acc, extra) => acc + parsePriceNumber(extra.price),
         0
       );
-      return sum + (getDishUnitPrice(item.dish, item.selectedProductOption) + extrasPrice) * item.quantity;
+      return (
+        sum +
+        (getDishUnitPrice(item.dish, getSelectedProductOptionsList(item.selectedProductOptions, item.selectedProductOption), item.selectedProductOption) +
+          extrasPrice) *
+          item.quantity
+      );
     }, 0);
 
       const barItems = orderItems.filter((item) => item.is_drink === true);
@@ -3947,7 +4006,7 @@ export default function MenuDigital() {
     setModalExtrasOptions(parsed.extrasList || []);
     setModalAskCooking(!!(sourceDish.ask_cooking || parsed.askCooking));
     setSideError("");
-    setSelectedProductOptionId("");
+    setSelectedProductOptionIds([]);
   };
 
   const dishNeedsQuickAddModal = (dish: Dish) => {
@@ -3977,6 +4036,7 @@ export default function MenuDigital() {
       selectedSides: [],
       selectedSideIds: [],
       selectedExtras: [],
+      selectedProductOptions: [],
       selectedProductOption: null,
       selectedCooking: "",
       specialRequest: "",
@@ -3988,12 +4048,13 @@ export default function MenuDigital() {
       lang,
       selectedSides,
       selectedExtras,
+      modalSelectedProductOptions,
       modalSelectedProductOption,
       selectedCooking,
       specialRequest,
       uiText
     );
-  }, [lang, selectedSides, selectedExtras, modalSelectedProductOption, selectedCooking, specialRequest, uiText]);
+  }, [lang, selectedSides, selectedExtras, modalSelectedProductOptions, modalSelectedProductOption, selectedCooking, specialRequest, uiText]);
 
   const getSideMaxOptions = (dish?: Dish | null) => {
     if (!dish) return 1;
@@ -5182,7 +5243,7 @@ export default function MenuDigital() {
               onClick={() => {
                 setSelectedDish(null);
                 setModalProductOptions([]);
-                setSelectedProductOptionId("");
+                setSelectedProductOptionIds([]);
                 setRecommendationSourceDishId("");
               }}
               className={`absolute top-3 right-3 w-10 h-10 rounded-full font-bold flex items-center justify-center border-4 ${
@@ -5312,16 +5373,25 @@ export default function MenuDigital() {
                 <div className="flex flex-col gap-2">
                   {modalProductOptions.map((option, optionIndex) => {
                     const optionId = String(option.id || `option-${optionIndex}`);
-                    const checked = selectedProductOptionId === optionId;
+                    const allowMultiSelect = Boolean(selectedDish?.allow_multi_select);
+                    const checked = selectedProductOptionIds.includes(optionId);
                     const optionPrice = parseAddonPrice(option.price_override);
                     const optionLabel = getProductOptionLabel(option, lang);
                     return (
                       <label key={optionId} className="flex items-center gap-2 text-black font-bold">
                         <input
-                          type="radio"
-                          name="product-option"
+                          type={allowMultiSelect ? "checkbox" : "radio"}
+                          name={allowMultiSelect ? undefined : "product-option"}
                           checked={checked}
-                          onChange={() => setSelectedProductOptionId(optionId)}
+                          onChange={(event) => {
+                            if (allowMultiSelect) {
+                              setSelectedProductOptionIds((prev) =>
+                                event.target.checked ? [...prev, optionId] : prev.filter((id) => id !== optionId)
+                              );
+                              return;
+                            }
+                            setSelectedProductOptionIds(event.target.checked ? [optionId] : []);
+                          }}
                         />
                         <span>
                           {optionLabel}
@@ -5472,6 +5542,7 @@ export default function MenuDigital() {
                         .map((sideLabel) => sideIdByAlias.get(normalizeLookupText(sideLabel)) || "")
                         .filter(Boolean),
                       selectedExtras: selectedExtras,
+                      selectedProductOptions: modalSelectedProductOptions,
                       selectedProductOption: modalSelectedProductOption,
                       selectedCooking: selectedCooking,
                       specialRequest,
@@ -5479,7 +5550,7 @@ export default function MenuDigital() {
                     });
                     setSelectedDish(null);
                     setModalProductOptions([]);
-                    setSelectedProductOptionId("");
+                    setSelectedProductOptionIds([]);
                     setRecommendationSourceDishId("");
                     setSideError("");
                   }}
@@ -5546,6 +5617,7 @@ export default function MenuDigital() {
                           lang,
                           item.selectedSides,
                           item.selectedExtras,
+                          item.selectedProductOptions,
                           item.selectedProductOption,
                           item.selectedCooking,
                           item.specialRequest,
@@ -5555,7 +5627,11 @@ export default function MenuDigital() {
                           (sum, extra) => sum + parsePriceNumber(extra.price),
                           0
                         );
-                        const itemUnitPrice = getDishUnitPrice(item.dish, item.selectedProductOption);
+                        const itemUnitPrice = getDishUnitPrice(
+                          item.dish,
+                          getSelectedProductOptionsList(item.selectedProductOptions, item.selectedProductOption),
+                          item.selectedProductOption
+                        );
                         return (
                           <div
                             key={idx}
@@ -5622,7 +5698,16 @@ export default function MenuDigital() {
                             (acc, extra) => acc + parsePriceNumber(extra.price),
                             0
                           );
-                          return sum + (getDishUnitPrice(item.dish, item.selectedProductOption) + extrasPrice) * item.quantity;
+                          return (
+                            sum +
+                            (getDishUnitPrice(
+                              item.dish,
+                              getSelectedProductOptionsList(item.selectedProductOptions, item.selectedProductOption),
+                              item.selectedProductOption
+                            ) +
+                              extrasPrice) *
+                              item.quantity
+                          );
                         }, 0)
                         .toFixed(2)} <Euro size={16} className="inline-block align-text-bottom" />
                     </span>

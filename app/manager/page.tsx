@@ -466,6 +466,7 @@ interface Dish {
   active?: boolean;
   has_sides?: boolean;
   has_extras?: boolean;
+  allow_multi_select?: boolean | null;
   ask_cooking?: boolean;
   selected_sides?: Array<string | number> | null;
   max_options?: number | null;
@@ -903,6 +904,7 @@ interface DishForm {
   calories_max: string;
   has_sides: boolean;
   has_extras: boolean;
+  allow_multi_select: boolean;
   ask_cooking: boolean;
   is_vegetarian_badge: boolean;
   is_spicy_badge: boolean;
@@ -1593,6 +1595,7 @@ export default function MenuManager() {
     calories_max: "",
     has_sides: false,
     has_extras: false,
+    allow_multi_select: false,
     ask_cooking: false,
     is_vegetarian_badge: false,
     is_spicy_badge: false,
@@ -3313,7 +3316,8 @@ export default function MenuManager() {
       calories_max: "",
       has_sides: false,
       has_extras: false,
-    ask_cooking: false,
+      allow_multi_select: false,
+      ask_cooking: false,
     is_vegetarian_badge: false,
     is_spicy_badge: false,
     is_new_badge: false,
@@ -3576,6 +3580,7 @@ export default function MenuManager() {
       calories_max: dish.calories_max?.toString() || "",
       has_sides: !!dish.has_sides,
       has_extras: initialExtras.length > 0 ? true : !!dish.has_extras,
+      allow_multi_select: !!(dish as unknown as Record<string, unknown>).allow_multi_select,
       ask_cooking: dish.ask_cooking ?? !!parsed.askCooking,
       is_vegetarian_badge: toBoolean(
         (dish as unknown as Record<string, unknown>).is_vegetarian ??
@@ -4072,6 +4077,7 @@ export default function MenuManager() {
       suggestion_message: resolvedSalesTipFr || null,
       has_sides: !!formData.has_sides,
       has_extras: extrasToPersist.length > 0,
+      allow_multi_select: !!formData.allow_multi_select,
       dietary_tag: {
         ...dietaryTag,
         allergens_selected: selectedAllergens,
@@ -9663,6 +9669,23 @@ export default function MenuManager() {
                   />
                   Demander la cuisson ?
                 </label>
+                <div className="flex items-start gap-2 text-black font-bold">
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={formData.allow_multi_select}
+                      onChange={(e) => setFormData({ ...formData, allow_multi_select: e.target.checked })}
+                    />
+                    Autoriser la sélection multiple
+                  </label>
+                  <span
+                    className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-gray-400 bg-white text-xs font-black text-gray-700 cursor-help"
+                    title="Si coché, le client pourra sélectionner plusieurs suppléments ou options. Si décoché, il ne pourra en choisir qu'un seul (boutons radio)."
+                    aria-label="Aide sélection multiple"
+                  >
+                    ?
+                  </span>
+                </div>
                 <label className="flex items-center gap-2 text-black font-bold">
                   <input
                     type="checkbox"
