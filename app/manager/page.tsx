@@ -6752,9 +6752,9 @@ export default function MenuManager() {
   const currentRestaurantVitrineUrl = currentRestaurantQrId ? buildRestaurantVitrineUrl(currentRestaurantQrId) : "";
   const printFrameRef = useRef<HTMLIFrameElement | null>(null);
   const handleGeneratePrintableMenu = () => {
-    const printFrame = printFrameRef.current;
-    if (!printFrame) {
-      alert("Impossible de préparer l'impression pour le moment.");
+    const previewWindow = window.open("", "_blank");
+    if (!previewWindow) {
+      alert("Impossible d'ouvrir la previsualisation. Autorisez les pop-ups puis reessayez.");
       return;
     }
 
@@ -6781,19 +6781,17 @@ export default function MenuManager() {
           ""
       ).trim();
 
-    const buildDishMetaLines = (dish: Dish) => {
-      const lines: string[] = [];
+    const buildDishPrintableMeta = (dish: Dish) => {
       const parsedDescription = parseOptionsFromDescription(String(dish.description || ""));
       const sideIds = Array.isArray(dish.selected_sides) ? dish.selected_sides : parsedDescription.sideIds;
       const sideLabels = sideIds
         .map((sideId) => sideNameById.get(String(sideId || "").trim()) || "")
         .map((label) => String(label || "").trim())
         .filter(Boolean);
-      if (sideLabels.length > 0) {
-        lines.push(`Accompagnements: ${sideLabels.join(", ")}`);
-      } else if (dish.has_sides) {
-        lines.push("Accompagnements: selon disponibilité");
-      }
+      const allergenLabels = String(dish.allergens || "")
+        .split(",")
+        .map((value) => String(value || "").trim())
+        .filter(Boolean);
 
       const extrasMergedMap = new Map<string, ExtrasItem>();
       const addExtra = (extra: ExtrasItem) => {
@@ -6805,46 +6803,11 @@ export default function MenuManager() {
         parseExtrasFromUnknown(rawValue).forEach(addExtra);
       });
       parsedDescription.extrasList.forEach(addExtra);
-      const extras = Array.from(extrasMergedMap.values());
-      if (extras.length > 0) {
-        const extrasText = extras
-          .map((extra) => {
-            const price = Number(extra.price || 0);
-            const label = getPrintableExtraLabel(extra) || extra.name_fr;
-            return Number.isFinite(price) && price > 0 ? `${label} (+${formatEuro(price)})` : label;
-          })
-          .join(", ");
-        lines.push(`Suppléments: ${extrasText}`);
-      }
-
-      const rawOptions = rawDish.product_options ?? rawDish.options ?? rawDish.variants ?? [];
-      const parsedRawOptions =
-        Array.isArray(rawOptions)
-          ? rawOptions
-          : typeof rawOptions === "string"
-            ? (() => {
-                try {
-                  const parsed = JSON.parse(rawOptions);
-                  return Array.isArray(parsed) ? parsed : [];
-                } catch {
-                  return [];
-                }
-              })()
-            : [];
-      const options = parsedRawOptions as ProductOptionItem[];
-      if (options.length > 0) {
-        const optionsText = options
-          .map((option) => {
-            const label = String(option.name_fr || option.name || "Variante").trim();
-            const parsed = Number(option.price_override || 0);
-            const price = Number.isFinite(parsed) && parsed > 0 ? ` (${formatEuro(parsed)})` : "";
-            return `${label}${price}`;
-          })
-          .join(", ");
-        lines.push(`Variantes: ${optionsText}`);
-      }
-
-      return lines;
+      return {
+        sideLabels,
+        allergenLabels,
+        supplements: Array.from(extrasMergedMap.values()),
+      };
     };
     preparedDishes.forEach((dish) => {
       const categoryLabel =
@@ -6861,7 +6824,26 @@ export default function MenuManager() {
           .map((dish) => {
             const description = getDishDisplayDescription(dish);
             const dishImageUrl = normalizePrintableUrl((dish as unknown as Record<string, unknown>).image_url, DISH_IMAGES_BUCKET);
-            const details = buildDishMetaLines(dish);
+            const printableMeta = buildDishPrintableMeta(dish);
+            const supplementsHtml =
+              printableMeta.supplements.length > 0
+                ? `<div class="dish-supplements">${printableMeta.supplements
+                    .map((extra) => {
+                      const price = Number(extra.price || 0);
+                      const label = getPrintableExtraLabel(extra) || extra.name_fr;
+                      const priceText = Number.isFinite(price) && price > 0 ? ` (${formatEuro(price)})` : "";
+                      return `<div class="dish-supplement">+ ${escapeHtml(label)}${escapeHtml(priceText)}</div>`;
+                    })
+                    .join("")}</div>`
+                : "";
+            const allergensHtml =
+              printableMeta.allergenLabels.length > 0
+                ? `<div class="dish-allergens">Allergènes : ${escapeHtml(printableMeta.allergenLabels.join(", "))}</div>`
+                : "";
+            const sidesHtml =
+              printableMeta.sideLabels.length > 0
+                ? `<div class="dish-accompaniments">Accompagnements : ${escapeHtml(printableMeta.sideLabels.join(", "))}</div>`
+                : "";
             return `
               <article class="dish-row">
                 ${
@@ -6872,11 +6854,9 @@ export default function MenuManager() {
                 <div class="dish-main">
                   <div class="dish-name">${escapeHtml(dish.name || "Plat")}</div>
                   ${description ? `<div class="dish-description">${escapeHtml(description)}</div>` : ""}
-                  ${
-                    details.length > 0
-                      ? `<ul class="dish-details">${details.map((line) => `<li>${escapeHtml(line)}</li>`).join("")}</ul>`
-                      : ""
-                  }
+                  ${supplementsHtml}
+                  ${allergensHtml}
+                  ${sidesHtml}
                 </div>
                 <div class="dish-price">${escapeHtml(formatEuro(Number(dish.price || 0)))}</div>
               </article>
@@ -6954,6 +6934,34 @@ export default function MenuManager() {
             body {
               background: transparent;
             }
+            .preview-actions {
+              position: sticky;
+              top: 0;
+              z-index: 3;
+              display: flex;
+              justify-content: center;
+              gap: 10px;
+              padding: 14px 16px;
+              background: rgba(17, 24, 39, 0.92);
+              backdrop-filter: blur(6px);
+            }
+            .preview-actions button {
+              border: 0;
+              border-radius: 999px;
+              padding: 10px 18px;
+              font: inherit;
+              font-weight: 700;
+              cursor: pointer;
+            }
+            .preview-actions .primary {
+              background: #ffffff;
+              color: #111827;
+            }
+            .preview-actions .secondary {
+              background: transparent;
+              color: #ffffff;
+              border: 1px solid rgba(255,255,255,0.35);
+            }
             .print-page-bg {
               position: fixed;
               inset: 0;
@@ -7002,13 +7010,21 @@ export default function MenuManager() {
             .dish-main { min-width: 0; }
             .dish-name { font-size: 17px; font-weight: 700; margin-bottom: 2px; }
             .dish-description { font-size: 13px; color: ${printMutedTextColor}; line-height: 1.45; white-space: pre-wrap; }
-            .dish-details { margin: 6px 0 0; padding-left: 16px; font-size: 12px; color: ${printSubtleTextColor}; }
-            .dish-details li { margin: 2px 0; }
+            .dish-supplements,
+            .dish-allergens,
+            .dish-accompaniments {
+              margin-top: 6px;
+              font-size: 12px;
+              line-height: 1.45;
+              color: ${printSubtleTextColor};
+            }
+            .dish-supplement { margin-top: 2px; }
             .dish-price { white-space: nowrap; font-size: 18px; font-weight: 800; }
             @media print {
               @page { margin: 0; }
               html, body { width: auto; min-height: auto; }
               body { margin: 1.6cm !important; }
+              .preview-actions { display: none !important; }
               .print-page-bg {
                 position: fixed;
                 inset: 0;
@@ -7023,6 +7039,10 @@ export default function MenuManager() {
           </style>
         </head>
         <body>
+          <div class="preview-actions">
+            <button class="primary" type="button" onclick="window.print()">Imprimer / Enregistrer en PDF</button>
+            <button class="secondary" type="button" onclick="window.close()">Fermer</button>
+          </div>
           <div class="print-page-bg" aria-hidden="true"></div>
           <main class="sheet">
             <header class="header">
@@ -7034,29 +7054,9 @@ export default function MenuManager() {
         </body>
       </html>
     `;
-
-    const frameDocument = printFrame.contentDocument;
-    const frameWindow = printFrame.contentWindow;
-    if (!frameDocument || !frameWindow) {
-      alert("Impossible de préparer l'impression pour le moment.");
-      return;
-    }
-
-    const triggerPrint = () => {
-      window.setTimeout(() => {
-        frameWindow.focus();
-        frameWindow.print();
-      }, 200);
-    };
-
-    printFrame.onload = () => {
-      triggerPrint();
-      printFrame.onload = null;
-    };
-
-    frameDocument.open();
-    frameDocument.write(html);
-    frameDocument.close();
+    previewWindow.document.open();
+    previewWindow.document.write(html);
+    previewWindow.document.close();
   };
 
   const handleExportMonthlyReportPdfArchive = async () => {
@@ -8381,7 +8381,7 @@ export default function MenuManager() {
               </button>
               <button
                 type="button"
-                onClick={() => void handleGeneratePrintableMenuPdf()}
+                onClick={handleGeneratePrintableMenu}
                 className="px-4 py-2 border-2 border-black font-black rounded-xl bg-white"
               >
                 Générer ma carte papier (PDF)
