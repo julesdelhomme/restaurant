@@ -26,6 +26,13 @@ type StaffItem = {
   email: string;
 };
 
+type GlobalNotificationItem = {
+  id: string;
+  message: string;
+  created_at?: string;
+  is_active?: boolean;
+};
+
 function formatDate(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "-";
@@ -51,6 +58,10 @@ export default function SuperAdminPage() {
   const [creatingStaff, setCreatingStaff] = useState(false);
   const [staffMessage, setStaffMessage] = useState("");
   const [staffItems, setStaffItems] = useState<StaffItem[]>([]);
+  const [globalNotificationMessage, setGlobalNotificationMessage] = useState("");
+  const [globalNotificationStatus, setGlobalNotificationStatus] = useState("");
+  const [sendingGlobalNotification, setSendingGlobalNotification] = useState(false);
+  const [activeGlobalNotification, setActiveGlobalNotification] = useState<GlobalNotificationItem | null>(null);
 
   const selectedRestaurantLabel = useMemo(() => {
     const match = items.find((entry) => entry.id === selectedRestaurantId);
@@ -60,6 +71,24 @@ export default function SuperAdminPage() {
   const getAccessToken = async () => {
     const { data } = await supabase.auth.getSession();
     return String(data.session?.access_token || "").trim();
+  };
+
+  const fetchActiveGlobalNotification = async () => {
+    const result = await supabase
+      .from("global_notifications")
+      .select("id,message,created_at,is_active")
+      .eq("is_active", true)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const errorCode = String((result.error as { code?: string } | null)?.code || "");
+    if (result.error && errorCode !== "42P01") {
+      setGlobalNotificationStatus(result.error.message || "Impossible de charger la bannière globale.");
+      return;
+    }
+
+    setActiveGlobalNotification(result.data ? (result.data as GlobalNotificationItem) : null);
   };
 
   const fetchRestaurants = async () => {
@@ -121,6 +150,10 @@ export default function SuperAdminPage() {
   useEffect(() => {
     void fetchRestaurants();
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    void fetchActiveGlobalNotification();
   }, []);
 
   useEffect(() => {
@@ -265,6 +298,75 @@ export default function SuperAdminPage() {
     await fetchStaffForRestaurant(selectedRestaurantId);
   };
 
+  const handleSendGlobalNotification = async (event: FormEvent) => {
+    event.preventDefault();
+    setGlobalNotificationStatus("");
+    const message = globalNotificationMessage.trim();
+    if (!message) {
+      setGlobalNotificationStatus("Saisissez un message à afficher aux managers.");
+      return;
+    }
+
+    setSendingGlobalNotification(true);
+    const { data: authData } = await supabase.auth.getUser();
+
+    const disablePrevious = await supabase
+      .from("global_notifications")
+      .update({ is_active: false } as never)
+      .eq("is_active", true);
+
+    const disableErrorCode = String((disablePrevious.error as { code?: string } | null)?.code || "");
+    if (disablePrevious.error && disableErrorCode !== "42P01") {
+      setSendingGlobalNotification(false);
+      setGlobalNotificationStatus(disablePrevious.error.message || "Impossible de préparer l'envoi de la bannière.");
+      return;
+    }
+
+    const insertResult = await supabase.from("global_notifications").insert([
+      {
+        message,
+        is_active: true,
+        created_by: authData.user?.id || null,
+      } as never,
+    ]);
+
+    if (insertResult.error) {
+      const schemaHint =
+        String((insertResult.error as { code?: string } | null)?.code || "") === "42P01"
+          ? " Exécutez la migration create_global_notifications.sql."
+          : "";
+      setSendingGlobalNotification(false);
+      setGlobalNotificationStatus(
+        `${insertResult.error.message || "Impossible d'envoyer la bannière globale."}${schemaHint}`
+      );
+      return;
+    }
+
+    setGlobalNotificationMessage("");
+    setSendingGlobalNotification(false);
+    setGlobalNotificationStatus("Bannière globale envoyée aux managers.");
+    await fetchActiveGlobalNotification();
+  };
+
+  const handleClearGlobalNotification = async () => {
+    setGlobalNotificationStatus("");
+    setSendingGlobalNotification(true);
+    const result = await supabase
+      .from("global_notifications")
+      .update({ is_active: false } as never)
+      .eq("is_active", true);
+
+    if (result.error) {
+      setSendingGlobalNotification(false);
+      setGlobalNotificationStatus(result.error.message || "Impossible de supprimer la bannière globale.");
+      return;
+    }
+
+    setSendingGlobalNotification(false);
+    setActiveGlobalNotification(null);
+    setGlobalNotificationStatus("Bannière globale supprimée.");
+  };
+
   return (
     <ProAccessGuard requiredRole="super_admin" allowSuperAdmin>
       <div className="min-h-screen bg-gray-100 text-black p-6">
@@ -320,6 +422,49 @@ export default function SuperAdminPage() {
               </button>
             </form>
             {createMessage ? <p className="mt-2 text-sm font-bold text-blue-700">{createMessage}</p> : null}
+          </section>
+
+          <section className="rounded-xl border-2 border-black bg-white p-4">
+            <h2 className="text-xl font-black mb-3">Notification globale managers</h2>
+            <form onSubmit={handleSendGlobalNotification} className="space-y-3">
+              <textarea
+                value={globalNotificationMessage}
+                onChange={(event) => setGlobalNotificationMessage(event.target.value)}
+                className="min-h-[110px] w-full rounded border border-gray-300 px-3 py-2"
+                placeholder="Ex: Mise à jour plateforme ce soir à 23h00. Merci de sauvegarder vos changements avant cette heure."
+              />
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  type="submit"
+                  disabled={sendingGlobalNotification}
+                  className="px-4 py-2 rounded border-2 border-black bg-black text-white font-black disabled:opacity-60"
+                >
+                  {sendingGlobalNotification ? "Envoi..." : "Envoyer la bannière"}
+                </button>
+                <button
+                  type="button"
+                  disabled={sendingGlobalNotification || !activeGlobalNotification}
+                  onClick={() => void handleClearGlobalNotification()}
+                  className="px-4 py-2 rounded border-2 border-black bg-white font-black disabled:opacity-60"
+                >
+                  Retirer la bannière
+                </button>
+                {globalNotificationStatus ? (
+                  <span className="text-sm font-bold text-blue-700">{globalNotificationStatus}</span>
+                ) : null}
+              </div>
+            </form>
+            {activeGlobalNotification ? (
+              <div className="mt-4 rounded-lg border border-amber-300 bg-amber-50 p-3">
+                <div className="text-sm font-black text-amber-900">Bannière active</div>
+                <p className="mt-1 text-sm text-amber-900">{activeGlobalNotification.message}</p>
+                <p className="mt-2 text-xs text-amber-800">
+                  Dernier envoi : {activeGlobalNotification.created_at ? formatDate(activeGlobalNotification.created_at) : "-"}
+                </p>
+              </div>
+            ) : (
+              <p className="mt-2 text-sm text-gray-600">Aucune bannière globale active.</p>
+            )}
           </section>
 
           <section className="rounded-xl border-2 border-black bg-white p-4">

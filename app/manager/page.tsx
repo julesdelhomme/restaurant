@@ -1477,6 +1477,7 @@ export default function MenuManager() {
   const [emailTestMessage, setEmailTestMessage] = useState("");
   const [managerUserEmail, setManagerUserEmail] = useState("");
   const [passwordForm, setPasswordForm] = useState({
+    oldPassword: "",
     newPassword: "",
     confirmPassword: "",
   });
@@ -1487,6 +1488,10 @@ export default function MenuManager() {
   const [isRestaurantLoading, setIsRestaurantLoading] = useState(true);
   const [isSuperAdminSession, setIsSuperAdminSession] = useState(false);
   const [managerAccessError, setManagerAccessError] = useState("");
+  const [globalManagerNotification, setGlobalManagerNotification] = useState<{
+    id: string;
+    message: string;
+  } | null>(null);
   const [openManagerPanels, setOpenManagerPanels] = useState({
     font: true,
     languages: false,
@@ -2319,6 +2324,48 @@ export default function MenuManager() {
     void loadManagerUser();
     return () => {
       mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+
+    const loadGlobalNotification = async () => {
+      const result = await supabase
+        .from("global_notifications")
+        .select("id,message")
+        .eq("is_active", true)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      const errorCode = String((result.error as { code?: string } | null)?.code || "");
+      if (result.error && errorCode !== "42P01") {
+        console.warn("global_notifications fetch failed (manager):", result.error.message);
+      }
+      if (!mounted) return;
+      setGlobalManagerNotification(
+        result.data && String(result.data.message || "").trim()
+          ? {
+              id: String(result.data.id || ""),
+              message: String(result.data.message || "").trim(),
+            }
+          : null
+      );
+    };
+
+    const channel = supabase
+      .channel("manager-global-notifications")
+      .on("postgres_changes", { event: "*", schema: "public", table: "global_notifications" }, () => {
+        void loadGlobalNotification();
+      })
+      .subscribe();
+
+    void loadGlobalNotification();
+
+    return () => {
+      mounted = false;
+      supabase.removeChannel(channel);
     };
   }, []);
 
@@ -4827,10 +4874,11 @@ export default function MenuManager() {
   const handleUpdateManagerPassword = async () => {
     setPasswordUpdateError("");
     setPasswordUpdateMessage("");
+    const oldPassword = String(passwordForm.oldPassword || "");
     const newPassword = String(passwordForm.newPassword || "");
     const confirmPassword = String(passwordForm.confirmPassword || "");
-    if (!newPassword || !confirmPassword) {
-      setPasswordUpdateError("Saisissez et confirmez le nouveau mot de passe.");
+    if (!oldPassword || !newPassword || !confirmPassword) {
+      setPasswordUpdateError("Saisissez l'ancien mot de passe, puis le nouveau mot de passe et sa confirmation.");
       return;
     }
     if (newPassword.length < 8) {
@@ -4843,6 +4891,22 @@ export default function MenuManager() {
     }
 
     setPasswordUpdateLoading(true);
+    if (!managerUserEmail) {
+      setPasswordUpdateLoading(false);
+      setPasswordUpdateError("Impossible de vérifier le compte connecté pour confirmer l'ancien mot de passe.");
+      return;
+    }
+
+    const verifyPasswordResult = await supabase.auth.signInWithPassword({
+      email: managerUserEmail,
+      password: oldPassword,
+    });
+    if (verifyPasswordResult.error) {
+      setPasswordUpdateLoading(false);
+      setPasswordUpdateError("Ancien mot de passe incorrect.");
+      return;
+    }
+
     const { error } = await supabase.auth.updateUser({ password: newPassword });
     if (error) {
       setPasswordUpdateLoading(false);
@@ -4863,7 +4927,7 @@ export default function MenuManager() {
     }
 
     setPasswordUpdateLoading(false);
-    setPasswordForm({ newPassword: "", confirmPassword: "" });
+    setPasswordForm({ oldPassword: "", newPassword: "", confirmPassword: "" });
     setPasswordUpdateMessage("Mot de passe mis ? jour.");
     setForceFirstLoginPasswordChange(false);
     setRestaurant((prev) =>
@@ -6596,7 +6660,7 @@ export default function MenuManager() {
         if (!extrasMergedMap.has(key)) extrasMergedMap.set(key, extra);
       };
       const rawDish = dish as unknown as Record<string, unknown>;
-      [dish.extras_list, rawDish.extras, rawDish.extras_json].forEach((rawValue) => {
+      [dish.extras_list, rawDish.dish_options, rawDish.extras, rawDish.extras_json].forEach((rawValue) => {
         parseExtrasFromUnknown(rawValue).forEach(addExtra);
       });
       parsedDescription.extrasList.forEach(addExtra);
@@ -6868,6 +6932,11 @@ export default function MenuManager() {
             {managerAccessError}
           </div>
         ) : null}
+        {globalManagerNotification?.message ? (
+          <div className="mb-4 rounded-xl border-2 border-amber-300 bg-amber-50 px-4 py-3 text-sm font-bold text-amber-900">
+            Mise à jour plateforme : {globalManagerNotification.message}
+          </div>
+        ) : null}
         <header className="mb-6 flex flex-col gap-4">
           <div className="flex items-center justify-between">
             <h1 className="text-3xl font-black">Dashboard Manager</h1>
@@ -6899,6 +6968,26 @@ export default function MenuManager() {
                 {tab.label}
               </button>
             ))}
+          </div>
+          <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
+            <div className="flex items-start gap-3">
+              <CircleHelp className="mt-0.5 h-5 w-5 shrink-0 text-blue-700" />
+              <div className="min-w-0">
+                <div className="font-black text-blue-950">Besoin d&apos;aide ?</div>
+                <p className="mt-1 text-sm text-blue-900">
+                  Pour toute question ou problème technique, contactez-nous :
+                </p>
+                <div className="mt-2 text-sm font-bold text-blue-950">
+                  <a href="mailto:julesdelhomme67@gmail.com" className="underline underline-offset-2">
+                    julesdelhomme67@gmail.com
+                  </a>
+                  {" · "}
+                  <a href="tel:0760888872" className="underline underline-offset-2">
+                    07 60 88 88 72
+                  </a>
+                </div>
+              </div>
+            </div>
           </div>
           {activeManagerTab === "staff" ? (
             <div className="rounded-xl border border-gray-300 bg-white p-4">
@@ -8482,7 +8571,22 @@ export default function MenuManager() {
                       ? `Compte connecté : ${managerUserEmail}`
                       : "Compte connecté via Supabase Auth"}
                   </p>
-                  <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div>
+                      <label className="block mb-1 font-bold">Ancien mot de passe</label>
+                      <input
+                        type="password"
+                        value={passwordForm.oldPassword}
+                        onChange={(e) =>
+                          setPasswordForm((prev) => ({
+                            ...prev,
+                            oldPassword: e.target.value,
+                          }))
+                        }
+                        placeholder="Mot de passe actuel"
+                        className="w-full px-3 py-2 bg-white text-black border border-gray-300"
+                      />
+                    </div>
                     <div>
                       <label className="block mb-1 font-bold">Nouveau mot de passe</label>
                       <input
@@ -9134,9 +9238,24 @@ export default function MenuManager() {
           <div className="w-full max-w-lg bg-white border-2 border-black rounded-xl p-6">
             <h2 className="text-2xl font-black">Sécurité du compte</h2>
             <p className="mt-2 text-sm text-gray-700">
-              Première connexion détectée. Vous devez définir un nouveau mot de passe pour continuer.
+              Première connexion détectée. Saisissez votre mot de passe actuel, puis définissez un nouveau mot de passe pour continuer.
             </p>
             <div className="mt-4 grid grid-cols-1 gap-3">
+              <div>
+                <label className="block mb-1 font-bold">Ancien mot de passe</label>
+                <input
+                  type="password"
+                  value={passwordForm.oldPassword}
+                  onChange={(e) =>
+                    setPasswordForm((prev) => ({
+                      ...prev,
+                      oldPassword: e.target.value,
+                    }))
+                  }
+                  placeholder="Mot de passe actuel"
+                  className="w-full px-3 py-2 bg-white text-black border border-gray-300"
+                />
+              </div>
               <div>
                 <label className="block mb-1 font-bold">Nouveau mot de passe</label>
                 <input
