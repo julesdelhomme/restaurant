@@ -6,7 +6,7 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "../lib/supabase";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
-import { ChevronDown, ChevronRight, CircleHelp, Pencil, Printer, Send, Star, Trash2, X } from "lucide-react";
+import { ChevronDown, ChevronRight, CircleHelp, Pencil, Printer, Star, Trash2, X } from "lucide-react";
 import { DEFAULT_ALLERGEN_TRANSLATIONS_EXTENDED, PREDEFINED_LANGUAGE_OPTIONS_EXTENDED } from "../lib/languagesConfig";
 import RestaurantQrCard from "../components/RestaurantQrCard";
 import DashboardOtpGate from "../components/DashboardOtpGate";
@@ -1486,8 +1486,6 @@ export default function MenuManager() {
   const [activeManagerTab, setActiveManagerTab] = useState<"menu" | "stats" | "staff" | "appearance" | "security">("menu");
   const [reportExportedRange, setReportExportedRange] = useState<"today" | "7d" | "30d" | null>(null);
   const [isPurgingHistory, setIsPurgingHistory] = useState(false);
-  const [emailTestLoading, setEmailTestLoading] = useState(false);
-  const [emailTestMessage, setEmailTestMessage] = useState("");
   const [managerUserEmail, setManagerUserEmail] = useState("");
   const [passwordForm, setPasswordForm] = useState({
     oldPassword: "",
@@ -4950,6 +4948,56 @@ export default function MenuManager() {
         return;
       }
 
+      const emailPayload: Record<string, unknown> = {
+        smtp_user: safeSmtpUser || null,
+        email_subject: safeEmailSubject,
+        email_body_header: safeEmailBodyHeader,
+        email_footer: safeEmailFooter,
+      };
+      if (safeSmtpPassword) {
+        emailPayload.smtp_password = safeSmtpPassword;
+      }
+
+      if (isSuperAdminSession && impersonateMode) {
+        const emailUpdateResponse = await fetch("/api/super-admin/restaurants", {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${superAdminAccessToken}`,
+          },
+          body: JSON.stringify({
+            restaurantId: String(restaurant.id || "").trim(),
+            restaurantPayload: emailPayload,
+          }),
+        });
+        const emailUpdatePayload = (await emailUpdateResponse.json().catch(() => ({}))) as {
+          error?: string;
+          restaurant?: Record<string, unknown>;
+        };
+        if (!emailUpdateResponse.ok) {
+          alert(String(emailUpdatePayload.error || "Impossible de sauvegarder la configuration email."));
+          return;
+        }
+        if (emailUpdatePayload.restaurant && typeof emailUpdatePayload.restaurant === "object") {
+          confirmedRestaurantRow = emailUpdatePayload.restaurant;
+        }
+      } else {
+        const emailUpdateResult = await supabase
+          .from("restaurants")
+          .update(emailPayload as never)
+          .eq("id", restaurant.id)
+          .select("*")
+          .maybeSingle();
+        if (emailUpdateResult.error) {
+          console.error("[manager.save] Erreur update email restaurants", emailUpdateResult.error);
+          alert(emailUpdateResult.error.message || "Impossible de sauvegarder la configuration email.");
+          return;
+        }
+        if (emailUpdateResult.data && typeof emailUpdateResult.data === "object") {
+          confirmedRestaurantRow = emailUpdateResult.data as Record<string, unknown>;
+        }
+      }
+
       const persistedErrorMessage = await persistDisplaySettings(
         showCaloriesClient,
         enabledLangs,
@@ -5127,49 +5175,6 @@ export default function MenuManager() {
   const handleManagerSignOut = async () => {
     await supabase.auth.signOut();
     router.replace("/login");
-  };
-
-  const handleSendTestEmail = async () => {
-    const to = String(restaurantForm.smtp_user || "").trim();
-    if (!to) {
-      setEmailTestMessage("Renseignez d'abord l'adresse Gmail SMTP.");
-      return;
-    }
-    if (!restaurant?.id) {
-      setEmailTestMessage("Restaurant introuvable.");
-      return;
-    }
-    setEmailTestLoading(true);
-    setEmailTestMessage("");
-    try {
-      const response = await fetch("/api/send-ticket", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          to,
-          restaurant_id: String(restaurant.id),
-          ticketPayload: {
-            restaurantName: String(restaurantForm.name || restaurant?.name || DEFAULT_RESTAURANT_NAME),
-            tableNumber: "TEST",
-            paidAt: new Date().toISOString(),
-            paymentMethod: "Test",
-            countryCode: "FR",
-            totalTtc: 0,
-            lines: [],
-          },
-        }),
-      });
-      const data = (await response.json().catch(() => ({}))) as Record<string, unknown>;
-      if (!response.ok) {
-        setEmailTestMessage(String(data.error || "Echec de l'envoi du mail de test."));
-        return;
-      }
-      setEmailTestMessage("Email de test envoy?. Cliquez sur Sauvegarder si vous avez modifié les identifiants.");
-    } catch (error: any) {
-      setEmailTestMessage(String(error?.message || "Erreur réseau lors du test email."));
-    } finally {
-      setEmailTestLoading(false);
-    }
   };
 
   const handleCreateSubCategory = async () => {
@@ -6451,7 +6456,9 @@ export default function MenuManager() {
         id: String(order.id ?? ""),
         tableLabel: String(order.table_number ?? "").trim() || "Sans table",
         covers: readOrderCovers(order),
-        total: readOrderTotal(order),
+        total: readOrderTotal(order) + readOrderTip(order),
+        orderTotal: readOrderTotal(order),
+        tipAmount: readOrderTip(order),
         status: String(order.status || "").trim() || "-",
         createdAtLabel: Number.isFinite(readOrderDateLocal(order).getTime())
           ? readOrderDateLocal(order).toLocaleString("fr-FR")
@@ -8226,6 +8233,8 @@ export default function MenuManager() {
                                 tableLabel: string;
                                 covers: number;
                                 total: number;
+                                orderTotal: number;
+                                tipAmount: number;
                                 status: string;
                                 createdAtLabel: string;
                               },
@@ -8236,7 +8245,14 @@ export default function MenuManager() {
                                 <td className="py-2 pr-3">{row.tableLabel}</td>
                                 <td className="py-2 pr-3 font-bold">{row.covers > 0 ? row.covers : "-"}</td>
                                 <td className="py-2 pr-3">{row.status}</td>
-                                <td className="py-2 whitespace-nowrap">{formatEuro(row.total)}</td>
+                                <td className="py-2 whitespace-nowrap">
+                                  <div className="font-bold">{formatEuro(row.total)}</div>
+                                  {Number(row.tipAmount || 0) > 0 ? (
+                                    <div className="text-xs text-gray-600">
+                                      Commande {formatEuro(row.orderTotal)} + Pourboire {formatEuro(row.tipAmount)}
+                                    </div>
+                                  ) : null}
+                                </td>
                               </tr>
                             )
                           )}
@@ -8779,7 +8795,7 @@ export default function MenuManager() {
             </div>
             <div className={activeManagerTab === "appearance" ? "" : "hidden"}>
               <label className="block mb-1 font-bold">Image de fond (upload)</label>
-              <p className="mb-1 text-xs text-gray-600">Format Portrait conseillé (ex: 1080x1920px) pour remplir tout l'écran du téléphone.</p>
+              <p className="mb-1 text-xs text-gray-600">Format Portrait conseillé (ex: 1080x1920px) pour remplir tout l&apos;écran du téléphone.</p>
               <input
                 type="file"
                 accept="image/*"
@@ -9072,22 +9088,13 @@ export default function MenuManager() {
               </p>
             </div>
             <div id="manager-email-config" className={activeManagerTab === "appearance" ? "md:col-span-2 border border-gray-200 rounded bg-white p-3" : "hidden"}>
-              <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+              <div className="mb-3">
                 <div>
                   <div className="font-black">Configuration Email</div>
                   <p className="text-sm text-gray-600 mt-1">
-                    Utilisez un mot de passe d'application Gmail pour sécuriser l'envoi des tickets de caisse.
+                    Utilisez un mot de passe d&apos;application Gmail pour sécuriser l&apos;envoi des tickets de caisse.
                   </p>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => void handleSendTestEmail()}
-                  disabled={emailTestLoading}
-                  className="inline-flex items-center gap-2 px-3 py-2 border-2 border-black bg-white font-black rounded disabled:opacity-60"
-                >
-                  <Send className="h-4 w-4" />
-                  {emailTestLoading ? "Test en cours..." : "Test Email"}
-                </button>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
@@ -9101,17 +9108,17 @@ export default function MenuManager() {
                   />
                 </div>
                 <div>
-                  <label className="block mb-1 font-bold">Mot de passe d'application Gmail (16 caractères)</label>
+                  <label className="block mb-1 font-bold">Mot de passe d&apos;application Gmail (16 caractères)</label>
                   <input
                     type="password"
                     value={restaurantForm.smtp_password}
                     onChange={(e) => setRestaurantForm({ ...restaurantForm, smtp_password: e.target.value })}
-                    placeholder="Laisser vide pour conserver l'existant"
+                    placeholder="Laisser vide pour conserver l&apos;existant"
                     className="w-full px-3 py-2 bg-white text-black border border-gray-300"
                   />
                 </div>
                 <div>
-                  <label className="block mb-1 font-bold">Objet de l'e-mail</label>
+                  <label className="block mb-1 font-bold">Objet de l&apos;e-mail</label>
                   <input
                     type="text"
                     value={restaurantForm.email_subject}
@@ -9121,7 +9128,7 @@ export default function MenuManager() {
                   />
                 </div>
                 <div>
-                  <label className="block mb-1 font-bold">Message (début de l'e-mail)</label>
+                  <label className="block mb-1 font-bold">Message (début de l&apos;e-mail)</label>
                   <textarea
                     value={restaurantForm.email_body_header}
                     onChange={(e) => setRestaurantForm({ ...restaurantForm, email_body_header: e.target.value })}
@@ -9140,8 +9147,10 @@ export default function MenuManager() {
                     rows={3}
                   />
                 </div>
-                <div className="md:col-span-2 rounded-xl border border-blue-200 bg-blue-50 p-4">
-                  <div className="font-black text-blue-950">Comment configurer votre envoi de mails ?</div>
+                <details className="md:col-span-2 rounded-xl border border-blue-200 bg-blue-50 p-4">
+                  <summary className="cursor-pointer font-black text-blue-950">
+                    Comment configurer votre envoi de mail ?
+                  </summary>
                   <div className="mt-3 space-y-2 text-sm text-blue-950">
                     <p><strong>Étape 1 :</strong> Créez une adresse Gmail dédiée à votre restaurant.</p>
                     <p><strong>Étape 2 :</strong> Activez la &apos;Validation en deux étapes&apos; dans les paramètres de sécurité Google.</p>
@@ -9152,7 +9161,7 @@ export default function MenuManager() {
                       <strong>Note :</strong> Cela permet à l&apos;application d&apos;envoyer les codes de sécurité à vos clients en toute sécurité.
                     </p>
                   </div>
-                </div>
+                </details>
                 <div id="manager-social-config" className="md:col-span-2 font-black">Réseaux Sociaux</div>
                 <div>
                   <label className="block mb-1 font-bold">Instagram</label>
@@ -9293,7 +9302,7 @@ export default function MenuManager() {
                     onChange={(e) => setTotalTables(normalizeTotalTables(e.target.value, totalTables))}
                     className="w-full px-3 py-2 border border-gray-300 bg-white text-black rounded"
                   />
-                  <p className="text-xs text-gray-600 mt-1">Utilisé pour l'état des tables sur le dashboard.</p>
+                  <p className="text-xs text-gray-600 mt-1">Utilisé pour l&apos;état des tables sur le dashboard.</p>
                 </div>
                 <div className="mt-1">
                   <div className="text-sm font-bold mb-1">Badge de mise en avant</div>
@@ -9709,7 +9718,7 @@ export default function MenuManager() {
                 <div className="text-2xl font-black mt-1">{reviewAverage > 0 ? `${reviewAverage}/5` : "-"}</div>
               </div>
               <div className="bg-white border border-gray-200 rounded p-3">
-                <div className="text-xs font-bold text-gray-500 uppercase">Nombre total d'avis</div>
+                <div className="text-xs font-bold text-gray-500 uppercase">Nombre total d&apos;avis</div>
                 <div className="text-2xl font-black mt-1">{reviews.length}</div>
               </div>
               <div className="bg-white border border-gray-200 rounded p-3">

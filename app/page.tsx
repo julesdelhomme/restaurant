@@ -3610,7 +3610,11 @@ export default function MenuDigital() {
     ].filter(Boolean);
     const directSuggestionByColumns =
       suggestionColumnCandidates.map((key) => String(dishRecord[key] || "").trim()).find(Boolean) || "";
+    const frenchSuggestion =
+      String(dishRecord.suggestion_fr || "").trim() ||
+      String(dishRecord.suggestion_message_fr || "").trim();
     const explicitByColumn =
+      (normalizedLang === "fr" ? frenchSuggestion : "") ||
       directSuggestionByColumns ||
       String(
         (lang === "en"
