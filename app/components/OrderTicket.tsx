@@ -75,7 +75,7 @@ export default function OrderTicket({ order }: { order: OrderTicketOrder | null 
               const cat = String(item["catégorie"] || item.categorie || item.category || "")
                 .toLowerCase()
                 .trim();
-              return cat !== "boisson" && cat !== "boissons" && cat !== "bar";
+              return !["boisson", "boissons", "vin", "vins", "bar", "drink", "drinks", "wine", "wines"].includes(cat);
             })
               .map((item, idx) => (
               <div key={idx} style={{ fontSize: 22, fontWeight: "bold", marginBottom: 4 }}>

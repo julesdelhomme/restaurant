@@ -214,6 +214,7 @@ type CategoryItem = {
   name?: string | null;
   label?: string | null;
   category?: string | null;
+  destination?: string | null;
 };
 
 type DishItem = {

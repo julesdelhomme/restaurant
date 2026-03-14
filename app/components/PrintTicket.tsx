@@ -374,7 +374,15 @@ export default function PrintTicket({ order, isVisible, logoUrl, restaurantName,
     return parsedItems.filter((item) => {
       if (!categoryFilter) return true;
       const category = (item?.categorie || item?.category || "").toLowerCase();
-      const isDrink = category === "boisson" || category === "boissons";
+      const isDrink =
+        category === "boisson" ||
+        category === "boissons" ||
+        category === "vin" ||
+        category === "vins" ||
+        category === "drink" ||
+        category === "drinks" ||
+        category === "wine" ||
+        category === "wines";
       return categoryFilter === 'drinks' ? isDrink : !isDrink;
     });
   }, [parsedItems, categoryFilter]);

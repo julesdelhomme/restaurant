@@ -9,6 +9,7 @@ import { supabase } from "../lib/supabase";
 type OrderItem = {
   id?: string | number;
   dish_id?: string | number;
+  category_id?: string | number | null;
   name?: string;
   display_name?: string;
   name_fr?: string;
@@ -305,6 +306,27 @@ function isDrink(item: OrderItem) {
   return ["boisson", "boissons", "vin", "vins", "bar", "drink", "drinks", "wine", "wines", "beverage", "beverages"].includes(c);
 }
 
+function resolveStaffDestination(
+  item: OrderItem,
+  categoryDestinationById: Record<string, "cuisine" | "bar">,
+  dishCategoryIdByDishId: Record<string, string>
+) {
+  const record = item as unknown as Record<string, unknown>;
+  const nestedDish =
+    record.dish && typeof record.dish === "object"
+      ? (record.dish as Record<string, unknown>)
+      : null;
+  const categoryId = String(
+    item.category_id ??
+      record.categoryId ??
+      nestedDish?.category_id ??
+      (item.dish_id != null ? dishCategoryIdByDishId[String(item.dish_id)] || "" : "")
+  )
+    .trim();
+  if (categoryId) return categoryDestinationById[categoryId] || "cuisine";
+  return isDrink(item) ? "bar" : "cuisine";
+}
+
 function normalizePrepItemStatus(raw: unknown): "pending" | "preparing" | "ready" {
   const normalized = String(raw || "")
     .normalize("NFD")
@@ -372,8 +394,15 @@ function deriveOrderStatusFromItems(items: OrderItem[]): string {
   return "pending";
 }
 
-function orderHasPendingDrinkItems(order: Order) {
-  return parseItems(order.items).some((item) => isDrink(item) && !isItemReady(item));
+function orderHasPendingDrinkItems(
+  order: Order,
+  categoryDestinationById: Record<string, "cuisine" | "bar">,
+  dishCategoryIdByDishId: Record<string, string>
+) {
+  return parseItems(order.items).some(
+    (item) =>
+      resolveStaffDestination(item, categoryDestinationById, dishCategoryIdByDishId) === "bar" && !isItemReady(item)
+  );
 }
 
 function detectUiLang() {
@@ -790,6 +819,8 @@ export default function BarCaissePage() {
   const scopedRestaurantId = String(scopedRestaurantIdFromPath || scopedRestaurantIdFromQuery || scopedRestaurantIdFromLocation || "").trim();
   const [orders, setOrders] = useState<Order[]>([]);
   const [inventory, setInventory] = useState<InventoryDish[]>([]);
+  const [dishCategoryIdByDishId, setDishCategoryIdByDishId] = useState<Record<string, string>>({});
+  const [categoryDestinationById, setCategoryDestinationById] = useState<Record<string, "cuisine" | "bar">>({});
   const [activeTab, setActiveTab] = useState<"boissons" | "caisse" | "inventaire">("boissons");
   const [expandedTables, setExpandedTables] = useState<Record<number, boolean>>({});
 
@@ -1005,6 +1036,14 @@ export default function BarCaissePage() {
       });
 
     const itemsByOrder = nextOrdersWithCovers.map((order) => parseItems(order.items));
+    const allDishIds = Array.from(
+      new Set(
+        itemsByOrder
+          .flatMap((items) => items)
+          .map((item) => getDishId(item))
+          .filter(Boolean)
+      )
+    );
     const missingDishIds = Array.from(
       new Set(
         itemsByOrder
@@ -1023,9 +1062,15 @@ export default function BarCaissePage() {
       )
     );
 
-    const [dishesLookup, sidesLookup] = await Promise.all([
-      missingDishIds.length > 0
-        ? supabase.from("dishes").select("id,name,name_fr,translations").in("id", missingDishIds)
+    const categoriesLookupPromise = (() => {
+      let query = supabase.from("categories").select("id,destination");
+      if (currentRestaurantId) query = query.eq("restaurant_id", currentRestaurantId);
+      return query;
+    })();
+
+    const [dishesLookup, sidesLookup, initialCategoriesLookup] = await Promise.all([
+      allDishIds.length > 0
+        ? supabase.from("dishes").select("id,name,name_fr,translations,category_id").in("id", allDishIds)
         : Promise.resolve({ data: [], error: null }),
       missingSideIds.length > 0
         ? supabase
@@ -1033,12 +1078,20 @@ export default function BarCaissePage() {
             .select("id,name,name_fr,name_en,name_es,name_de,label,title")
             .in("id", missingSideIds)
         : Promise.resolve({ data: [], error: null }),
+      categoriesLookupPromise,
     ]);
+    let categoriesLookup = initialCategoriesLookup;
+
+    if (categoriesLookup.error && currentRestaurantId && String((categoriesLookup.error as { code?: string })?.code || "") === "42703") {
+      categoriesLookup = await supabase.from("categories").select("id,destination").eq("id_restaurant", currentRestaurantId);
+    }
 
     if (dishesLookup.error) console.warn("Lookup noms plats bar-caisse échoué:", dishesLookup.error);
     if (sidesLookup.error) console.warn("Lookup accompagnements bar-caisse échoué:", sidesLookup.error);
+    if (categoriesLookup.error) console.warn("Lookup categories bar-caisse échoué:", categoriesLookup.error);
 
     const dishNameById: Record<string, string> = {};
+    const nextDishCategoryIdByDishId: Record<string, string> = {};
     ((dishesLookup.data || []) as Array<Record<string, unknown>>).forEach((row) => {
       const id = String(row.id ?? "").trim();
       const translations = row.translations && typeof row.translations === "object" ? (row.translations as Record<string, unknown>) : null;
@@ -1046,7 +1099,18 @@ export default function BarCaissePage() {
         String(translations?.fr ?? translations?.en ?? translations?.name_fr ?? translations?.name ?? "").trim();
       const name = String(row.name_fr || translated || row.name || "").trim();
       if (id && name) dishNameById[id] = name;
+      const categoryId = String(row.category_id ?? "").trim();
+      if (id && categoryId) nextDishCategoryIdByDishId[id] = categoryId;
     });
+    setDishCategoryIdByDishId(nextDishCategoryIdByDishId);
+
+    const nextCategoryDestinationById: Record<string, "cuisine" | "bar"> = {};
+    ((categoriesLookup.data || []) as Array<Record<string, unknown>>).forEach((row) => {
+      const id = String(row.id ?? "").trim();
+      if (!id) return;
+      nextCategoryDestinationById[id] = String(row.destination || "").trim().toLowerCase() === "bar" ? "bar" : "cuisine";
+    });
+    setCategoryDestinationById(nextCategoryDestinationById);
 
     const sideNameById: Record<string, string> = {};
     ((sidesLookup.data || []) as Array<Record<string, unknown>>).forEach((row) => {
@@ -1065,6 +1129,14 @@ export default function BarCaissePage() {
           const dishId = getDishId(item);
           if (dishId && dishNameById[dishId]) {
             nextItem.name = dishNameById[dishId];
+            nextItem.name_fr = dishNameById[dishId];
+          }
+        }
+
+        if (!String(nextItem.category_id || "").trim()) {
+          const dishId = getDishId(item);
+          if (dishId && nextDishCategoryIdByDishId[dishId]) {
+            nextItem.category_id = nextDishCategoryIdByDishId[dishId];
           }
         }
 
@@ -1155,7 +1227,10 @@ export default function BarCaissePage() {
         if (eventType === "INSERT" && sameRestaurant) {
           const insertedItems = parseItems(newRow.items);
           const insertedStatus = normalizeStatus(newRow.status);
-          if (DRINK_QUEUE_STATUSES.has(insertedStatus) && insertedItems.some((item) => isDrink(item))) {
+          if (
+            DRINK_QUEUE_STATUSES.has(insertedStatus) &&
+            insertedItems.some((item) => resolveStaffDestination(item, categoryDestinationById, dishCategoryIdByDishId) === "bar")
+          ) {
             setHasNewDrinkAlert(true);
             if (activeTab !== "boissons") playBarNotificationBeep();
           }
@@ -1166,7 +1241,7 @@ export default function BarCaissePage() {
     return () => {
       supabase.removeChannel(ordersChannel);
     };
-  }, [restaurantId, activeTab]);
+  }, [restaurantId, activeTab, categoryDestinationById, dishCategoryIdByDishId]);
 
   useEffect(() => {
     if (!ENABLE_ALERTS_ON_BAR_CAISSE) {
@@ -1224,7 +1299,10 @@ export default function BarCaissePage() {
     };
   }, []);
 
-  const pendingDrinkOrders = useMemo(() => orders.filter((order) => orderHasPendingDrinkItems(order)), [orders]);
+  const pendingDrinkOrders = useMemo(
+    () => orders.filter((order) => orderHasPendingDrinkItems(order, categoryDestinationById, dishCategoryIdByDishId)),
+    [orders, categoryDestinationById, dishCategoryIdByDishId]
+  );
 
   const activeOrders = useMemo(() => orders.filter((o) => !isPaidOrArchived(o)), [orders]);
 
@@ -1928,7 +2006,9 @@ export default function BarCaissePage() {
           <div className="space-y-4">
             {pendingDrinkOrders.length === 0 ? <p className="text-gray-500 italic">Aucune boisson en attente.</p> : null}
             {pendingDrinkOrders.map((order) => {
-              const drinks = parseItems(order.items).filter((i) => isDrink(i) && !isItemReady(i));
+              const drinks = parseItems(order.items).filter(
+                (i) => resolveStaffDestination(i, categoryDestinationById, dishCategoryIdByDishId) === "bar" && !isItemReady(i)
+              );
               if (drinks.length === 0) return null;
               return (
                 <div key={String(order.id)} className="bg-white border-2 border-black p-4 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] flex flex-col justify-between">

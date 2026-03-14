@@ -76,7 +76,7 @@ export default function ThermalTicket({ order, isVisible }: { order: TicketOrder
             {items
               .filter((item) => {
                 const cat = String(item.categorie || item.category || "").toLowerCase();
-                return cat !== "boisson" && cat !== "boissons" && cat !== "bar";
+                return !["boisson", "boissons", "vin", "vins", "bar", "drink", "drinks", "wine", "wines"].includes(cat);
               })
               .map((item, idx) => (
                 <div key={idx} style={{ marginBottom: 6 }}>

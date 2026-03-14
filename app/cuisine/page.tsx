@@ -8,6 +8,7 @@ import { BellRing } from "lucide-react";
 type Item = {
   id: string | number;
   dish_id: string | number;
+  category_id?: string | number | null;
   dish: { id: string | number; name_fr: string; name: string };
   name: string;
   name_fr?: string;
@@ -85,6 +86,8 @@ export default function KitchenPage() {
   ).trim();
   const [orders, setOrders] = useState<Order[]>([]);
   const [dishNamesFrById, setDishNamesFrById] = useState<Record<string, string>>({});
+  const [dishCategoryIdByDishId, setDishCategoryIdByDishId] = useState<Record<string, string>>({});
+  const [categoryDestinationById, setCategoryDestinationById] = useState<Record<string, "cuisine" | "bar">>({});
   const [sideNamesFrById, setSideNamesFrById] = useState<Record<string, string>>({});
   const [sideNamesFrByAlias, setSideNamesFrByAlias] = useState<Record<string, string>>({});
   const [extraNamesFrByDishAndId, setExtraNamesFrByDishAndId] = useState<Record<string, string>>({});
@@ -129,6 +132,17 @@ export default function KitchenPage() {
   };
 
   const isKitchenCourse = (item: any) => {
+    const record = item as Record<string, unknown>;
+    const itemCategoryId = normalizeEntityId(
+      record.category_id ??
+      record.categoryId ??
+      (record.dish && typeof record.dish === "object" ? (record.dish as Record<string, unknown>).category_id : null)
+    );
+    const dishId = normalizeEntityId(record.dish_id ?? record.id);
+    const resolvedCategoryId = itemCategoryId || (dishId ? dishCategoryIdByDishId[dishId] || "" : "");
+    if (resolvedCategoryId) {
+      return (categoryDestinationById[resolvedCategoryId] || "cuisine") === "cuisine";
+    }
     if (isDrink(item)) return false;
     const category = getCategory(item);
     if (!category) return true;
@@ -227,6 +241,7 @@ export default function KitchenPage() {
         ...(row || {}),
         id: row?.id ?? row?.dish_id ?? dishRow?.id ?? "",
         dish_id: row?.dish_id ?? dishRow?.id ?? "",
+        category_id: row?.category_id ?? dishRow?.category_id ?? null,
         dish: dishRow || undefined,
         name: String(row?.name_fr || dishRow?.name_fr || row?.name || row?.product_name || dishRow?.name || "").trim(),
         name_fr: String(row?.name_fr || dishRow?.name_fr || dishRow?.name || row?.name || "").trim(),
@@ -840,10 +855,12 @@ export default function KitchenPage() {
       .select("id,name,name_fr,translations,price,category_id,extras,sides,description")
       .order("id", { ascending: true });
     const sidesBaseQuery = supabase.from("sides_library").select("id,name_fr,name_en,name_es,name_de").order("id", { ascending: true });
+    const categoriesBaseQuery = supabase.from("categories").select("id,destination").order("id", { ascending: true });
 
-    const [primaryDishesQuery, primarySidesQuery] = await Promise.all([
+    const [primaryDishesQuery, primarySidesQuery, primaryCategoriesQuery] = await Promise.all([
       scopeId ? dishesBaseQuery.eq("restaurant_id", scopeId) : dishesBaseQuery,
       scopeId ? sidesBaseQuery.eq("restaurant_id", scopeId) : sidesBaseQuery,
+      scopeId ? categoriesBaseQuery.eq("restaurant_id", scopeId) : categoriesBaseQuery,
     ]);
     let dishesData = ((primaryDishesQuery.data || []) as Array<Record<string, unknown>>);
     let dishesError = primaryDishesQuery.error;
@@ -885,9 +902,42 @@ export default function KitchenPage() {
         sidesError = null;
       }
     }
+    let categoriesData = ((primaryCategoriesQuery.data || []) as Array<Record<string, unknown>>);
+    let categoriesError = primaryCategoriesQuery.error;
+    if (categoriesError) {
+      const missingColumn = String((categoriesError as { code?: string }).code || "") === "42703";
+      if (scopeId && missingColumn) {
+        const retryWithoutScope = await supabase.from("categories").select("id,destination").eq("id_restaurant", scopeId);
+        if (!retryWithoutScope.error) {
+          categoriesData = ((retryWithoutScope.data || []) as Array<Record<string, unknown>>);
+          categoriesError = null;
+        }
+      }
+      const fallbackCategoriesQuery = await supabase
+        .from("categories")
+        .select("id,destination")
+        .order("id", { ascending: true });
+      if (!fallbackCategoriesQuery.error) {
+        categoriesData = ((fallbackCategoriesQuery.data || []) as Array<Record<string, unknown>>);
+        categoriesError = null;
+      }
+    }
+
+    if (!categoriesError) {
+      const byId: Record<string, "cuisine" | "bar"> = {};
+      categoriesData.forEach((row) => {
+        const key = normalizeEntityId(row.id);
+        if (!key) return;
+        byId[key] = String(row.destination || "").trim().toLowerCase() === "bar" ? "bar" : "cuisine";
+      });
+      setCategoryDestinationById(byId);
+    } else {
+      setCategoryDestinationById({});
+    }
 
     if (!dishesError) {
       const byId: Record<string, string> = {};
+      const dishToCategory: Record<string, string> = {};
       const extrasByDishAndId: Record<string, string> = {};
       dishesData.forEach((row) => {
         const source = row as {
@@ -897,9 +947,12 @@ export default function KitchenPage() {
           extras: unknown;
           description: unknown;
           translations: unknown;
+          category_id: unknown;
         };
         const key = normalizeEntityId(source.id);
         if (!key) return;
+        const categoryId = normalizeEntityId(source.category_id);
+        if (categoryId) dishToCategory[key] = categoryId;
         byId[key] = resolveDishNameFrFromRow(source as Record<string, unknown>);
 
         const descriptionSource = String(source.description || "").trim();
@@ -969,9 +1022,11 @@ export default function KitchenPage() {
         });
       });
       setDishNamesFrById(byId);
+      setDishCategoryIdByDishId(dishToCategory);
       setExtraNamesFrByDishAndId(extrasByDishAndId);
     } else {
       setDishNamesFrById({});
+      setDishCategoryIdByDishId({});
       setExtraNamesFrByDishAndId({});
     }
 

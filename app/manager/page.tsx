@@ -882,6 +882,7 @@ interface CategoryItem {
   name_en?: string | null;
   name_es?: string | null;
   name_de?: string | null;
+  destination?: string | null;
 }
 
 interface SubCategoryItem {
@@ -1575,6 +1576,7 @@ export default function MenuManager() {
     name_en: "",
     name_es: "",
     name_de: "",
+    destination: "cuisine",
   });
   const [categoryFormI18n, setCategoryFormI18n] = useState<Record<string, string>>({});
 
@@ -5267,6 +5269,7 @@ export default function MenuManager() {
       name_en: buildI18nToken(categoryI18n),
       name_es: (categoryI18n.es || "").trim() || null,
       name_de: (categoryI18n.de || "").trim() || null,
+      destination: normalizeCategoryDestination(categoryForm.destination),
     };
     let error: { message?: string; code?: string } | null = null;
     if (editingCategoryId) {
@@ -5294,6 +5297,7 @@ export default function MenuManager() {
           name_en: buildI18nToken(categoryI18n),
           name_es: (categoryI18n.es || "").trim() || null,
           name_de: (categoryI18n.de || "").trim() || null,
+          destination: normalizeCategoryDestination(categoryForm.destination),
         };
         const legacyInsert = await supabase.from("categories").insert([legacyPayload]);
         error = legacyInsert.error as { message?: string; code?: string } | null;
@@ -5303,7 +5307,7 @@ export default function MenuManager() {
       alert(error.message);
       return;
     }
-    setCategoryForm({ name_fr: "", name_en: "", name_es: "", name_de: "" });
+    setCategoryForm({ name_fr: "", name_en: "", name_es: "", name_de: "", destination: "cuisine" });
     setCategoryFormI18n({});
     setEditingCategoryId(null);
     setShowCategoryModal(false);
@@ -5325,6 +5329,37 @@ export default function MenuManager() {
     setCategories((prev) => prev.filter((category) => category.id !== id));
     setSubCategoryRows((prev) => prev.filter((sub) => String(sub.category_id) !== String(id)));
     fetchSubCategories();
+  };
+
+  const handleUpdateCategoryDestination = async (id: string | number, destination: "cuisine" | "bar") => {
+    if (!scopedRestaurantId) return;
+
+    const updateResult = await supabase
+      .from("categories")
+      .update({ destination })
+      .eq("id", id)
+      .eq("restaurant_id", scopedRestaurantId);
+    let error = updateResult.error;
+
+    if (error && String((error as { code?: string })?.code || "") === "42703") {
+      const legacyUpdate = await supabase
+        .from("categories")
+        .update({ destination })
+        .eq("id", id)
+        .eq("id_restaurant", scopedRestaurantId);
+      error = legacyUpdate.error;
+    }
+
+    if (error) {
+      alert(error.message);
+      return;
+    }
+
+    setCategories((prev) =>
+      prev.map((category) =>
+        String(category.id) === String(id) ? { ...category, destination } : category
+      )
+    );
   };
 
   const handleDeleteSubCategory = async (id: string | number) => {
@@ -5711,6 +5746,10 @@ export default function MenuManager() {
 
   const getCategoryLabel = (category: CategoryItem) => {
     return category.name_fr || `Catégorie ${category.id}`;
+  };
+
+  const normalizeCategoryDestination = (value: unknown): "cuisine" | "bar" => {
+    return String(value || "").trim().toLowerCase() === "bar" ? "bar" : "cuisine";
   };
 
   const sides = sidesLibrary;
@@ -7654,6 +7693,18 @@ export default function MenuManager() {
                       className="px-3 py-1 rounded-full border border-gray-300 font-bold text-sm flex items-center gap-2"
                     >
                       {getCategoryLabel(cat)}
+                      <select
+                        value={normalizeCategoryDestination(cat.destination)}
+                        onChange={(e) => {
+                          e.stopPropagation();
+                          void handleUpdateCategoryDestination(cat.id, normalizeCategoryDestination(e.target.value));
+                        }}
+                        className="rounded border border-gray-300 bg-white px-2 py-1 text-xs font-bold"
+                        title="Envoyer vers"
+                      >
+                        <option value="cuisine">Cuisine</option>
+                        <option value="bar">Bar/Caisse</option>
+                      </select>
                       <button
                         type="button"
                         onClick={() => {
@@ -7664,6 +7715,7 @@ export default function MenuManager() {
                             name_en: cat.name_en || "",
                             name_es: cat.name_es || "",
                             name_de: cat.name_de || "",
+                            destination: normalizeCategoryDestination(cat.destination),
                           });
                           setCategoryFormI18n({
                             ...categoryToken,
@@ -7692,7 +7744,7 @@ export default function MenuManager() {
               type="button"
               onClick={() => {
                 setEditingCategoryId(null);
-                setCategoryForm({ name_fr: "", name_en: "", name_es: "", name_de: "" });
+                setCategoryForm({ name_fr: "", name_en: "", name_es: "", name_de: "", destination: "cuisine" });
                 setCategoryFormI18n({});
                 setShowCategoryModal(true);
               }}
@@ -10022,6 +10074,14 @@ export default function MenuManager() {
                 placeholder="Nom FR"
                 className="w-full px-3 py-2 bg-white text-black border border-gray-300"
               />
+              <select
+                value={categoryForm.destination}
+                onChange={(e) => setCategoryForm({ ...categoryForm, destination: normalizeCategoryDestination(e.target.value) })}
+                className="w-full px-3 py-2 bg-white text-black border border-gray-300"
+              >
+                <option value="cuisine">Envoyer vers : Cuisine</option>
+                <option value="bar">Envoyer vers : Bar/Caisse</option>
+              </select>
               {activeLanguageCodes
                 .filter((code) => code !== "fr")
                 .map((code) => (
@@ -10048,7 +10108,7 @@ export default function MenuManager() {
                 onClick={() => {
                   setShowCategoryModal(false);
                   setEditingCategoryId(null);
-                  setCategoryForm({ name_fr: "", name_en: "", name_es: "", name_de: "" });
+                  setCategoryForm({ name_fr: "", name_en: "", name_es: "", name_de: "", destination: "cuisine" });
                   setCategoryFormI18n({});
                 }}
                 className="px-5 py-2 font-black border-2 border-black"
