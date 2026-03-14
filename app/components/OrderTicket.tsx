@@ -29,6 +29,14 @@ function parseItems(items: unknown): OrderTicketItem[] {
   return [];
 }
 
+function keepStaffFrenchLabel(value: unknown) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  return (raw.split(/\s\/\s/).map((part) => part.trim()).filter(Boolean)[0] || raw)
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
 export default function OrderTicket({ order }: { order: OrderTicketOrder | null }) {
   if (!order) return null;
 
@@ -69,9 +77,9 @@ export default function OrderTicket({ order }: { order: OrderTicketOrder | null 
                 .trim();
               return cat !== "boisson" && cat !== "boissons" && cat !== "bar";
             })
-            .map((item, idx) => (
+              .map((item, idx) => (
               <div key={idx} style={{ fontSize: 22, fontWeight: "bold", marginBottom: 4 }}>
-                {Number(item.quantity || 1)}x {item.name || item.nom || "Plat inconnu"}
+                {Number(item.quantity || 1)}x {keepStaffFrenchLabel(item.name || item.nom || "Plat inconnu")}
               </div>
             ))}
         </div>

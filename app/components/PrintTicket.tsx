@@ -74,11 +74,19 @@ function uniqueTexts(values: string[]) {
     });
 }
 
+function keepStaffFrenchLabel(value: unknown) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  return (raw.split(/\s\/\s/).map((part) => part.trim()).filter(Boolean)[0] || raw)
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
 function flattenChoiceTexts(value: unknown): string[] {
   if (value == null) return [];
   if (Array.isArray(value)) return value.flatMap((entry) => flattenChoiceTexts(entry));
   if (typeof value === "string" || typeof value === "number") {
-    const text = String(value || "").trim();
+    const text = keepStaffFrenchLabel(value);
     return text ? [text] : [];
   }
   if (typeof value === "object") {
@@ -95,7 +103,7 @@ function flattenChoiceTexts(value: unknown): string[] {
       rec.text,
       rec.title,
     ]
-      .map((entry) => String(entry || "").trim())
+      .map((entry) => keepStaffFrenchLabel(entry))
       .filter(Boolean);
     if (direct.length > 0) return direct;
     return Object.values(rec).flatMap((entry) => flattenChoiceTexts(entry));
@@ -336,11 +344,11 @@ function buildTicketFinalDetailsLine(item: OrderItem) {
   });
 
   const chunks: string[] = [];
-  if (cVals.length > 0) chunks.push(`CUI : ${cVals.join(" / ")}`);
-  if (accVals.length > 0) chunks.push(`ACC : ${accVals.join(" / ")}`);
-  if (supVals.length > 0) chunks.push(`SUP : ${supVals.join(" / ")}`);
-  if (opVals.length > 0) chunks.push(`OP : ${opVals.join(" / ")}`);
-  if (rqVals.length > 0) chunks.push(`RQ : ${rqVals.join(" / ")}`);
+  if (cVals.length > 0) chunks.push(`CUI : ${cVals.join(", ")}`);
+  if (accVals.length > 0) chunks.push(`ACC : ${accVals.join(", ")}`);
+  if (supVals.length > 0) chunks.push(`SUP : ${supVals.join(", ")}`);
+  if (opVals.length > 0) chunks.push(`OP : ${opVals.join(", ")}`);
+  if (rqVals.length > 0) chunks.push(`RQ : ${rqVals.join(", ")}`);
   return chunks.join(", ");
 }
 
@@ -434,7 +442,7 @@ export default function PrintTicket({ order, isVisible, logoUrl, restaurantName,
                 <div style="border-bottom: 1px dashed #000; margin-bottom: 10px;"></div>
                 <div>
                   ${filteredItems.map((item, index) => {
-                    const itemName = item?.name || "Plat inconnu";
+                    const itemName = keepStaffFrenchLabel(item?.name || item?.dish?.name || "Plat inconnu");
                     const finalDetails = buildTicketFinalDetailsLine(item);
                     return `
                       <div style="margin-bottom: 5px;">

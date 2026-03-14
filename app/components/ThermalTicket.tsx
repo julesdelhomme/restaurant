@@ -26,6 +26,14 @@ export default function ThermalTicket({ order, isVisible }: { order: TicketOrder
 
   if (!order || !isVisible) return null;
 
+  const keepStaffFrenchLabel = (value: unknown) => {
+    const raw = String(value || "").trim();
+    if (!raw) return "";
+    return (raw.split(/\s\/\s/).map((part) => part.trim()).filter(Boolean)[0] || raw)
+      .replace(/\s{2,}/g, " ")
+      .trim();
+  };
+
   let items: TicketItem[] = Array.isArray(order.items) ? order.items : [];
   if (typeof order.items === "string") {
     try {
@@ -73,29 +81,29 @@ export default function ThermalTicket({ order, isVisible }: { order: TicketOrder
               .map((item, idx) => (
                 <div key={idx} style={{ marginBottom: 6 }}>
                   <div style={{ fontSize: 22, fontWeight: "bold" }}>
-                    {Number(item.quantity || 1)}x {item.name || item.nom || "Plat inconnu"}
+                    {Number(item.quantity || 1)}x {keepStaffFrenchLabel(item.name || item.nom || "Plat inconnu")}
                   </div>
                   {Array.isArray(item.selectedSides) && item.selectedSides.length > 0 ? (
                     <div style={{ marginLeft: 18, fontSize: 16 }}>
-                      - Accompagnement: {item.selectedSides.join(", ")}
+                      - Accompagnement: {item.selectedSides.map((entry) => keepStaffFrenchLabel(entry)).filter(Boolean).join(", ")}
                     </div>
                   ) : null}
                   {Array.isArray(item.selectedExtras) && item.selectedExtras.length > 0 ? (
                     <div style={{ marginLeft: 18, fontSize: 16 }}>
                       - Suppléments:{" "}
                       {item.selectedExtras
-                        .map((entry) => String(entry?.name_fr || entry?.name || "").trim())
+                        .map((entry) => keepStaffFrenchLabel(entry?.name_fr || entry?.name || ""))
                         .filter(Boolean)
                         .join(", ")}
                     </div>
                   ) : null}
-                  {item.specialRequest ? <div style={{ marginLeft: 18, fontSize: 16 }}>- {item.specialRequest}</div> : null}
+                  {item.specialRequest ? <div style={{ marginLeft: 18, fontSize: 16 }}>- {keepStaffFrenchLabel(item.specialRequest)}</div> : null}
                 </div>
               ))}
           </div>
           <div style={{ borderTop: "2px solid #000", margin: "12px 0 4px 0" }} />
           <div style={{ textAlign: "center", fontSize: 18 }}>
-            {new Date(order.created_at || Date.now()).toLocaleTimeString("fr-FR")}
+            {new Date(order.created_at || 0).toLocaleTimeString("fr-FR")}
           </div>
         </div>
       </div>

@@ -454,8 +454,16 @@ function normalizeUniqueTexts(values: string[]) {
   });
 }
 
+function keepStaffFrenchLabel(value: unknown) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  return (raw.split(/\s\/\s/).map((part) => part.trim()).filter(Boolean)[0] || raw)
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
 function getItemCookingText(item: OrderItem) {
-  const direct = String(item.cooking || item.cuisson || item.selected_cooking_label_fr || item.selected_cooking || "").trim();
+  const direct = keepStaffFrenchLabel(item.selected_cooking_label_fr || item.cooking || item.cuisson || item.selected_cooking || "");
   if (direct) return direct;
   return "";
 }
@@ -466,7 +474,7 @@ function getItemSideText(item: OrderItem) {
     ...flattenChoiceTextsForDisplay(item.accompaniment),
     ...flattenChoiceTextsForDisplay(item.accompagnement),
     ...flattenChoiceTextsForDisplay(item.accompaniments),
-  ]);
+  ].map((value) => keepStaffFrenchLabel(value)).filter(Boolean));
   if (directSide.length > 0) return directSide.join(", ");
   return "";
 }
@@ -477,10 +485,10 @@ function getItemSelectedOptionText(item: OrderItem) {
     if (value == null) return [];
     if (Array.isArray(value)) return value.flatMap((entry) => extractOptionOnly(entry));
     if (typeof value === "string" || typeof value === "number") {
-      const raw = String(value || "").trim();
+      const raw = keepStaffFrenchLabel(value);
       if (!raw) return [];
       if (/^(option|options|variante|variantes|variant|variants|format|formats)\s*:/i.test(raw)) {
-        return [raw.replace(/^[^:]+:\s*/i, "").trim()];
+        return [keepStaffFrenchLabel(raw.replace(/^[^:]+:\s*/i, "").trim())];
       }
       return [];
     }
@@ -499,7 +507,7 @@ function getItemSelectedOptionText(item: OrderItem) {
           rec.choice,
           rec.selected,
         ]
-          .map((entry) => String(entry || "").trim())
+          .map((entry) => keepStaffFrenchLabel(entry))
           .filter(Boolean);
         if (direct.length > 0) return direct;
         return Object.values(rec).flatMap((entry) => flattenChoiceTextsForDisplay(entry));
@@ -509,10 +517,10 @@ function getItemSelectedOptionText(item: OrderItem) {
     return [];
   };
   const selectedOptionValues = normalizeUniqueTexts([
-    String(item.selected_option_name || "").trim(),
+    keepStaffFrenchLabel(item.selected_option_name || ""),
     ...flattenChoiceTextsForDisplay(item.selected_option),
     ...extractOptionOnly(record.selected_options ?? record.selectedOptions ?? record.options),
-  ].filter(Boolean));
+  ].map((value) => keepStaffFrenchLabel(value)).filter(Boolean));
   return selectedOptionValues.join(", ");
 }
 
@@ -534,16 +542,19 @@ function getItemName(item: OrderItem) {
   const nestedDish = item.dish && typeof item.dish === "object" ? item.dish : null;
   const record = item as unknown as Record<string, unknown>;
   const resolved =
-    String(
-      item.name ||
+    keepStaffFrenchLabel(
+      item.name_fr ||
+        item.label_fr ||
+        nestedProduct?.name_fr ||
+        nestedProduct?.label_fr ||
+        nestedDish?.name_fr ||
+        item.name ||
         item.product_name ||
         item.label ||
         item.title ||
         item.display_name ||
         item.productName ||
-        item.name_fr ||
         item.item_name ||
-        item.label_fr ||
         item.dish_name ||
         item.dishName ||
         item.designation ||
@@ -555,17 +566,14 @@ function getItemName(item: OrderItem) {
         nestedProduct?.product_name ||
         nestedProduct?.display_name ||
         nestedProduct?.productName ||
-        nestedProduct?.name_fr ||
-        nestedProduct?.label_fr ||
         nestedProduct?.label ||
         nestedProduct?.title ||
-        nestedDish?.name_fr ||
         nestedDish?.name ||
         nestedDish?.display_name ||
         nestedDish?.label ||
         nestedDish?.title ||
         ""
-    ).trim();
+    );
   if (resolved) return resolved;
   console.log("BAR-CAISSE ITEM NAME MISSING:", item);
   return getUnknownItemLabel();
@@ -576,13 +584,13 @@ function getItemExtras(item: OrderItem) {
     if (value == null) return [];
     if (Array.isArray(value)) return value.flatMap((entry) => flattenChoiceTexts(entry));
     if (typeof value === "string" || typeof value === "number") {
-      const text = String(value || "").trim();
+      const text = keepStaffFrenchLabel(value);
       return text ? [text] : [];
     }
     if (typeof value === "object") {
       const rec = value as Record<string, unknown>;
       const direct = [rec.label_fr, rec.label, rec.name_fr, rec.name, rec.value_fr, rec.value, rec.choice, rec.selected]
-        .map((entry) => String(entry || "").trim())
+        .map((entry) => keepStaffFrenchLabel(entry))
         .filter(Boolean);
       return direct.length > 0 ? direct : Object.values(rec).flatMap((entry) => flattenChoiceTexts(entry));
     }
@@ -592,8 +600,8 @@ function getItemExtras(item: OrderItem) {
   const legacy = Array.isArray(item.selectedExtras) ? item.selectedExtras : [];
   const modern = Array.isArray(item.selected_extras) ? item.selected_extras : [];
   return normalizeUnique([
-    ...legacy.map((e) => String(e?.name_fr || e?.name || "").trim()),
-    ...modern.map((e) => String(e?.label_fr || e?.name_fr || e?.name || "").trim()),
+    ...legacy.map((e) => keepStaffFrenchLabel(e?.name_fr || e?.name || "")),
+    ...modern.map((e) => keepStaffFrenchLabel(e?.label_fr || e?.name_fr || e?.name || "")),
     ...flattenChoiceTexts(item.supplement),
     ...flattenChoiceTexts(item.supplements),
   ].filter(Boolean));
@@ -604,7 +612,7 @@ function getItemNotes(item: OrderItem) {
     if (value == null) return [];
     if (Array.isArray(value)) return value.flatMap((entry) => flattenChoiceTexts(entry));
     if (typeof value === "string" || typeof value === "number") {
-      const text = String(value || "").trim();
+      const text = keepStaffFrenchLabel(value);
       return text ? [text] : [];
     }
     if (typeof value === "object") {
@@ -621,7 +629,7 @@ function getItemNotes(item: OrderItem) {
         rec.text,
         rec.title,
       ]
-        .map((entry) => String(entry || "").trim())
+        .map((entry) => keepStaffFrenchLabel(entry))
         .filter(Boolean);
       if (direct.length > 0) return direct;
       return Object.values(rec).flatMap((entry) => flattenChoiceTexts(entry));
@@ -640,10 +648,10 @@ function getItemNotes(item: OrderItem) {
   );
 
   return normalizeUnique([
-    String(item.selected_option_name || "").trim(),
+    keepStaffFrenchLabel(item.selected_option_name || ""),
     ...flattenChoiceTexts(item.selected_option),
-    String(item.cooking || item.cuisson || "").trim(),
-    String(item.selected_cooking_label_fr || item.selected_cooking || "").trim(),
+    keepStaffFrenchLabel(item.cooking || item.cuisson || ""),
+    keepStaffFrenchLabel(item.selected_cooking_label_fr || item.selected_cooking || ""),
     ...flattenChoiceTexts(item.side),
     ...flattenChoiceTexts(item.accompaniment),
     ...flattenChoiceTexts(item.accompagnement),
@@ -651,8 +659,8 @@ function getItemNotes(item: OrderItem) {
     ...flattenChoiceTexts(item.detail),
     ...flattenChoiceTexts(item.details),
     ...optionValues,
-    String(item.special_request || "").trim(),
-    String(item.instructions || "").trim(),
+    keepStaffFrenchLabel(item.special_request || ""),
+    keepStaffFrenchLabel(item.instructions || ""),
   ]);
 }
 
@@ -1471,8 +1479,7 @@ export default function BarCaissePage() {
     tableOrders.forEach((order) => {
       parseItems(order.items).forEach((item) => {
         const breakdown = calcLineBreakdown(item);
-        const ticketItemName =
-          String(item.name || item.product_name || item.label || item.title || item.display_name || "").trim() || getItemName(item);
+        const ticketItemName = getItemName(item);
         totalTtc += breakdown.lineTotal;
         lines.push({
           dishId: (item.dish_id ?? item.id) as string | number | undefined,
@@ -1939,9 +1946,7 @@ export default function BarCaissePage() {
                         const itemExtras = getItemExtras(item);
                         const itemNotes = getItemNotes(item);
                         const inlineDetails = formatItemInlineDetails(item);
-                        const drinkLabel =
-                          String(item.name || item.product_name || item.label || item.title || item.display_name || "").trim() ||
-                          getItemName(item);
+                        const drinkLabel = getItemName(item);
                         return (
                           <div key={`${String(order.id)}-${idx}`} className="bg-gray-100 p-2">
                             <div className="flex justify-between items-center gap-2">
