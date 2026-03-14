@@ -9226,7 +9226,6 @@ export default function MenuManager() {
                   </label>
                 </div>
                 </div>
-              {emailTestMessage ? <p className="mt-3 text-sm font-semibold">{emailTestMessage}</p> : null}
             </div>
             <div className="hidden">
               <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">

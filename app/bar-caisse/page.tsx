@@ -2052,59 +2052,69 @@ export default function BarCaissePage() {
               </p>
             ) : (
               <div className="space-y-3">
-                {paidTablesHistory.map((entry) => (
-                  <details key={entry.id} className="border-2 border-black bg-gray-50 p-3">
-                    <summary className="cursor-pointer list-none">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <div className="font-black uppercase">
-                          T-{entry.tableNumber}
-                          {Number(entry.covers || 0) > 0 ? ` | 👥 ${Number(entry.covers || 0)}` : ""}
-                        </div>
-                        <div className="text-sm font-bold">
-                          {new Date(entry.closedAt).toLocaleString("fr-FR")} | {euro.format(Number(entry.total || 0))}
-                        </div>
-                      </div>
-                      <div className="mt-1 text-xs text-gray-700 font-semibold">
-                        Paiement : {entry.paymentMethod}
-                      </div>
-                    </summary>
-                    <div className="mt-3 space-y-2">
-                      {(Array.isArray(entry.items) ? entry.items : []).map((item, idx) => (
-                        <div key={`${entry.id}-item-${idx}`} className="flex items-start justify-between gap-2 bg-white border border-gray-200 p-2">
-                          <div className="min-w-0">
-                            <div className="font-bold">
-                              {Number(item.quantity) || 1}x {getItemName(item)}
-                              {formatItemInlineDetails(item) ? ` ${formatItemInlineDetails(item)}` : ""}
-                            </div>
-                            {getItemExtras(item).length > 0 ? (
-                              <div className="text-xs text-gray-700">Suppléments : {getItemExtras(item).join(", ")}</div>
-                            ) : null}
-                            {getItemNotes(item).length > 0 ? (
-                              <div className="text-xs text-gray-700">Notes : {getItemNotes(item).join(" | ")}</div>
-                            ) : null}
+                {paidTablesHistory.map((entry) => {
+                  const orderTotal = Number(entry.total || 0);
+                  const tipAmount = Number(entry.tipAmount || 0);
+                  const paidTotal = orderTotal + tipAmount;
+                  return (
+                    <details key={entry.id} className="border-2 border-black bg-gray-50 p-3">
+                      <summary className="cursor-pointer list-none">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="font-black uppercase">
+                            T-{entry.tableNumber}
+                            {Number(entry.covers || 0) > 0 ? ` | 👥 ${Number(entry.covers || 0)}` : ""}
                           </div>
-                          <div className="font-black whitespace-nowrap">{euro.format(calcLineTotal(item))}</div>
+                          <div className="text-sm font-bold">
+                            {new Date(entry.closedAt).toLocaleString("fr-FR")} | {euro.format(paidTotal)}
+                          </div>
                         </div>
-                      ))}
-                      <div className="flex justify-end gap-2 pt-1">
-                        <button
-                          type="button"
-                          onClick={() => void restorePaidTableFromHistory(entry)}
-                          className="px-3 py-2 border-2 border-black bg-blue-600 text-white font-black"
-                        >
-                          Restaurer
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setPaidTablesHistory((prev) => prev.filter((row) => row.id !== entry.id))}
-                          className="px-3 py-2 border-2 border-black bg-white font-black"
-                        >
-                          Supprimer
-                        </button>
+                        <div className="mt-1 text-xs text-gray-700 font-semibold">
+                          Paiement : {entry.paymentMethod}
+                        </div>
+                        <div className="mt-1 text-xs text-gray-700">
+                          {tipAmount > 0
+                            ? `${euro.format(paidTotal)} (dont ${euro.format(tipAmount)} de pourboire)`
+                            : euro.format(orderTotal)}
+                        </div>
+                      </summary>
+                      <div className="mt-3 space-y-2">
+                        {(Array.isArray(entry.items) ? entry.items : []).map((item, idx) => (
+                          <div key={`${entry.id}-item-${idx}`} className="flex items-start justify-between gap-2 bg-white border border-gray-200 p-2">
+                            <div className="min-w-0">
+                              <div className="font-bold">
+                                {Number(item.quantity) || 1}x {getItemName(item)}
+                                {formatItemInlineDetails(item) ? ` ${formatItemInlineDetails(item)}` : ""}
+                              </div>
+                              {getItemExtras(item).length > 0 ? (
+                                <div className="text-xs text-gray-700">Suppléments : {getItemExtras(item).join(", ")}</div>
+                              ) : null}
+                              {getItemNotes(item).length > 0 ? (
+                                <div className="text-xs text-gray-700">Notes : {getItemNotes(item).join(" | ")}</div>
+                              ) : null}
+                            </div>
+                            <div className="font-black whitespace-nowrap">{euro.format(calcLineTotal(item))}</div>
+                          </div>
+                        ))}
+                        <div className="flex justify-end gap-2 pt-1">
+                          <button
+                            type="button"
+                            onClick={() => void restorePaidTableFromHistory(entry)}
+                            className="px-3 py-2 border-2 border-black bg-blue-600 text-white font-black"
+                          >
+                            Restaurer
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setPaidTablesHistory((prev) => prev.filter((row) => row.id !== entry.id))}
+                            className="px-3 py-2 border-2 border-black bg-white font-black"
+                          >
+                            Supprimer
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                  </details>
-                ))}
+                    </details>
+                  );
+                })}
               </div>
             )}
           </div>
