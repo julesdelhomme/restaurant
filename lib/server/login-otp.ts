@@ -5,7 +5,7 @@ import nodemailer from "nodemailer";
 
 export type OtpScope = "manager" | "super_admin";
 
-const TEMP_OTP_BYPASS_EMAILS = new Set(["juju0067@outlook.fr"]);
+const TEMP_SUPER_ADMIN_OTP_BYPASS_EMAILS = new Set(["juju0067@outlook.fr"]);
 
 export function normalizeOtpScope(value: unknown): OtpScope | null {
   const normalized = String(value || "").trim().toLowerCase();
@@ -21,8 +21,9 @@ export function generateOtpCode() {
   return crypto.randomInt(0, 1_000_000).toString().padStart(6, "0");
 }
 
-export function isOtpBypassEmail(email: unknown) {
-  return TEMP_OTP_BYPASS_EMAILS.has(String(email || "").trim().toLowerCase());
+export function isOtpBypassEnabled(email: unknown, scope: OtpScope) {
+  if (scope !== "super_admin") return false;
+  return TEMP_SUPER_ADMIN_OTP_BYPASS_EMAILS.has(String(email || "").trim().toLowerCase());
 }
 
 export function resolveOtpSessionId(accessToken: string, userId: string) {

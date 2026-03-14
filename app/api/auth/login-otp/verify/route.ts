@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getBearerToken, readAccessContextForUser, readUserFromAccessToken } from "@/lib/server/access-context";
-import { hashOtpCode, isOtpBypassEmail, normalizeOtpScope, resolveOtpSessionId } from "@/lib/server/login-otp";
+import { hashOtpCode, isOtpBypassEnabled, normalizeOtpScope, resolveOtpSessionId } from "@/lib/server/login-otp";
 import { createSupabaseAdminClient } from "@/lib/server/supabase-admin";
 
 export async function POST(request: NextRequest) {
@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
   }
 
   const userEmail = String(user.email || "").trim().toLowerCase();
-  if (isOtpBypassEmail(userEmail) && code === "123456") {
+  if (isOtpBypassEnabled(userEmail, scope) && code === "123456") {
     return NextResponse.json({ success: true, bypassed: true }, { status: 200 });
   }
 

@@ -3,7 +3,7 @@ import { getBearerToken, readAccessContextForUser, readUserFromAccessToken } fro
 import {
   generateOtpCode,
   hashOtpCode,
-  isOtpBypassEmail,
+  isOtpBypassEnabled,
   normalizeOtpScope,
   resolveOtpSessionId,
   sendDashboardOtpEmail,
@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
   }
 
   const userEmail = String(user.email || "").trim().toLowerCase();
-  if (isOtpBypassEmail(userEmail)) {
+  if (isOtpBypassEnabled(userEmail, scope)) {
     return NextResponse.json({ success: true, bypassed: true }, { status: 200 });
   }
 
