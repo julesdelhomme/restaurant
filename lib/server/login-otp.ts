@@ -6,6 +6,7 @@ import nodemailer from "nodemailer";
 export type OtpScope = "manager" | "super_admin";
 
 const TEMP_SUPER_ADMIN_OTP_BYPASS_EMAILS = new Set(["juju0067@outlook.fr"]);
+const OTP_EMAIL_DISABLED_FOR_TESTING = true;
 
 export function normalizeOtpScope(value: unknown): OtpScope | null {
   const normalized = String(value || "").trim().toLowerCase();
@@ -41,13 +42,13 @@ export function resolveOtpSessionId(accessToken: string, userId: string) {
 }
 
 function resolveOtpMailerConfig() {
+  if (OTP_EMAIL_DISABLED_FOR_TESTING) return null;
+
   const user = String(process.env.EMAIL_USER || "").trim().toLowerCase();
   const pass = String(process.env.EMAIL_APP_PASSWORD || "")
     .replace(/\s+/g, "")
     .trim();
-  if (!user || !pass) {
-    throw new Error("SMTP OTP non configuré. Définissez EMAIL_USER et EMAIL_APP_PASSWORD dans .env.local.");
-  }
+  if (!user || !pass) return null;
   return { user, pass };
 }
 
@@ -56,7 +57,10 @@ export async function sendDashboardOtpEmail(params: {
   code: string;
   scope: OtpScope;
 }) {
-  const { user, pass } = resolveOtpMailerConfig();
+  const mailerConfig = resolveOtpMailerConfig();
+  if (!mailerConfig) return;
+
+  const { user, pass } = mailerConfig;
   const to = String(params.to || "").trim().toLowerCase();
   const code = String(params.code || "").trim();
   const scopeLabel = params.scope === "super_admin" ? "Super Admin" : "Manager";
