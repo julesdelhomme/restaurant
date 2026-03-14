@@ -410,6 +410,7 @@ interface Restaurant {
   name?: string;
   owner_id?: string | null;
   first_login?: boolean | null;
+  otp_enabled?: boolean | null;
   logo_url?: string;
   banner_image_url?: string | null;
   banner_url?: string | null;
@@ -1471,7 +1472,7 @@ export default function MenuManager() {
   const [tableAssignments, setTableAssignments] = useState<TableAssignment[]>([]);
   const [analyticsTab, setAnalyticsTab] = useState<"live" | "product" | "trends" | "ops">("live");
   const [analyticsRange, setAnalyticsRange] = useState<"today" | "7d" | "30d">("today");
-  const [activeManagerTab, setActiveManagerTab] = useState<"menu" | "stats" | "staff" | "appearance">("menu");
+  const [activeManagerTab, setActiveManagerTab] = useState<"menu" | "stats" | "staff" | "appearance" | "security">("menu");
   const [reportExportedRange, setReportExportedRange] = useState<"today" | "7d" | "30d" | null>(null);
   const [isPurgingHistory, setIsPurgingHistory] = useState(false);
   const [emailTestLoading, setEmailTestLoading] = useState(false);
@@ -1485,6 +1486,10 @@ export default function MenuManager() {
   const [passwordUpdateLoading, setPasswordUpdateLoading] = useState(false);
   const [passwordUpdateMessage, setPasswordUpdateMessage] = useState("");
   const [passwordUpdateError, setPasswordUpdateError] = useState("");
+  const [managerOtpEnabled, setManagerOtpEnabled] = useState(false);
+  const [managerOtpLoading, setManagerOtpLoading] = useState(false);
+  const [managerOtpMessage, setManagerOtpMessage] = useState("");
+  const [managerOtpError, setManagerOtpError] = useState("");
   const [forceFirstLoginPasswordChange, setForceFirstLoginPasswordChange] = useState(false);
   const [isRestaurantLoading, setIsRestaurantLoading] = useState(true);
   const [isSuperAdminSession, setIsSuperAdminSession] = useState(false);
@@ -2592,6 +2597,7 @@ export default function MenuManager() {
       const hydratedRestaurant = {
         ...row,
         name: String(row.name ?? "").trim(),
+        otp_enabled: toBoolean((row as Record<string, unknown>).otp_enabled, false),
         logo_url: String(row.logo_url || "").trim(),
         background_url:
           String(row.background_url || "").trim() ||
@@ -2635,6 +2641,8 @@ export default function MenuManager() {
         bg_opacity: resolvedBgOpacity,
       };
       setRestaurant(hydratedRestaurant as Restaurant);
+      setManagerOtpEnabled(toBoolean((row as Record<string, unknown>).otp_enabled, false));
+      setManagerOtpError("");
       setForceFirstLoginPasswordChange(toBoolean((row as Record<string, unknown>).first_login, false));
       const socialLinks = parseObjectRecord(tableConfig.social_links);
       const customTagsRaw = Array.isArray(row.custom_tags) ? row.custom_tags : [];
@@ -4941,6 +4949,44 @@ export default function MenuManager() {
     );
   };
 
+  const handleToggleManagerOtp = async (nextValue: boolean) => {
+    setManagerOtpError("");
+    setManagerOtpMessage("");
+
+    const restaurantId = String(restaurant?.id || scopedRestaurantId || "").trim();
+    if (!restaurantId) {
+      setManagerOtpError("Impossible d'identifier le restaurant pour mettre a jour la double securite.");
+      return;
+    }
+
+    setManagerOtpLoading(true);
+    const updateResult = await supabase
+      .from("restaurants")
+      .update({ otp_enabled: nextValue } as never)
+      .eq("id", restaurantId);
+
+    setManagerOtpLoading(false);
+    if (updateResult.error) {
+      if (hasMissingColumnError(updateResult.error, "otp_enabled")) {
+        setManagerOtpError("La colonne restaurants.otp_enabled est absente. Executez le SQL add_restaurants_otp_enabled.sql.");
+        return;
+      }
+      setManagerOtpError(updateResult.error.message || "Impossible de mettre a jour la double securite.");
+      return;
+    }
+
+    setManagerOtpEnabled(nextValue);
+    setManagerOtpMessage(nextValue ? "Double securite activee." : "Double securite desactivee.");
+    setRestaurant((prev) =>
+      prev
+        ? ({
+            ...(prev as Restaurant),
+            otp_enabled: nextValue,
+          } as Restaurant)
+        : prev
+    );
+  };
+
   const handleManagerSignOut = async () => {
     await supabase.auth.signOut();
     router.replace("/login");
@@ -6964,11 +7010,12 @@ export default function MenuManager() {
               { id: "stats", label: "Statistiques" },
               { id: "staff", label: "Staff" },
               { id: "appearance", label: "Apparence & Style" },
+              { id: "security", label: "Securite" },
             ].map((tab) => (
               <button
                 key={tab.id}
                 type="button"
-                onClick={() => setActiveManagerTab(tab.id as "menu" | "stats" | "staff" | "appearance")}
+                onClick={() => setActiveManagerTab(tab.id as "menu" | "stats" | "staff" | "appearance" | "security")}
                 className={`px-4 py-2 border-2 font-black rounded-xl ${
                   activeManagerTab === tab.id ? "bg-black text-white border-black" : "bg-white text-black border-gray-300"
                 }`}
@@ -8016,7 +8063,13 @@ export default function MenuManager() {
 
         <section className={activeManagerTab === "staff" ? "hidden" : "mb-10"}>
           <h2 className="text-xl font-black mb-3">
-            {activeManagerTab === "stats" ? "Statistiques" : activeManagerTab === "appearance" ? "Apparence & Style" : "Ma Carte"}
+            {activeManagerTab === "stats"
+              ? "Statistiques"
+              : activeManagerTab === "appearance"
+                ? "Apparence & Style"
+                : activeManagerTab === "security"
+                  ? "Parametres du compte"
+                  : "Ma Carte"}
           </h2>
           <div className={`mb-4 grid grid-cols-1 lg:grid-cols-2 gap-3 ${activeManagerTab === "stats" ? "" : "hidden"}`}>
             <div className="rounded-xl border border-gray-300 bg-white p-3">
@@ -8572,78 +8625,7 @@ export default function MenuManager() {
                     Afficher les réseaux sociaux sur le reçu digital
                   </label>
                 </div>
-                <div className="md:col-span-2 rounded-lg border border-gray-200 bg-white p-4">
-                  <div className="font-black">Sécurité du compte</div>
-                  <p className="mt-1 text-sm text-gray-600">
-                    {managerUserEmail
-                      ? `Compte connecté : ${managerUserEmail}`
-                      : "Compte connecté via Supabase Auth"}
-                  </p>
-                  <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3">
-                    <div>
-                      <label className="block mb-1 font-bold">Ancien mot de passe</label>
-                      <input
-                        type="password"
-                        value={passwordForm.oldPassword}
-                        onChange={(e) =>
-                          setPasswordForm((prev) => ({
-                            ...prev,
-                            oldPassword: e.target.value,
-                          }))
-                        }
-                        placeholder="Mot de passe actuel"
-                        className="w-full px-3 py-2 bg-white text-black border border-gray-300"
-                      />
-                    </div>
-                    <div>
-                      <label className="block mb-1 font-bold">Nouveau mot de passe</label>
-                      <input
-                        type="password"
-                        value={passwordForm.newPassword}
-                        onChange={(e) =>
-                          setPasswordForm((prev) => ({
-                            ...prev,
-                            newPassword: e.target.value,
-                          }))
-                        }
-                        placeholder="Minimum 8 caractères"
-                        className="w-full px-3 py-2 bg-white text-black border border-gray-300"
-                      />
-                    </div>
-                    <div>
-                      <label className="block mb-1 font-bold">Confirmer le mot de passe</label>
-                      <input
-                        type="password"
-                        value={passwordForm.confirmPassword}
-                        onChange={(e) =>
-                          setPasswordForm((prev) => ({
-                            ...prev,
-                            confirmPassword: e.target.value,
-                          }))
-                        }
-                        placeholder="Ressaisir le mot de passe"
-                        className="w-full px-3 py-2 bg-white text-black border border-gray-300"
-                      />
-                    </div>
-                  </div>
-                  <div className="mt-3 flex flex-wrap items-center gap-3">
-                    <button
-                      type="button"
-                      onClick={() => void handleUpdateManagerPassword()}
-                      disabled={passwordUpdateLoading}
-                      className="px-4 py-2 border-2 border-black bg-black text-white font-black rounded disabled:opacity-60"
-                    >
-                      {passwordUpdateLoading ? "Mise à jour..." : "Modifier mon mot de passe"}
-                    </button>
-                    {passwordUpdateError ? (
-                      <span className="text-sm font-bold text-red-600">{passwordUpdateError}</span>
-                    ) : null}
-                    {passwordUpdateMessage ? (
-                      <span className="text-sm font-bold text-green-700">{passwordUpdateMessage}</span>
-                    ) : null}
-                  </div>
                 </div>
-              </div>
               {emailTestMessage ? <p className="mt-3 text-sm font-semibold">{emailTestMessage}</p> : null}
             </div>
             <div className="hidden">
@@ -9238,6 +9220,124 @@ export default function MenuManager() {
           >
             Sauvegarder
           </button>
+          <div className={`${activeManagerTab === "security" ? "grid grid-cols-1 xl:grid-cols-3 gap-4" : "hidden"}`}>
+            <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+              <div className="text-xs font-black uppercase tracking-[0.2em] text-gray-500">Profil</div>
+              <h3 className="mt-2 text-lg font-black">Compte manager</h3>
+              <div className="mt-4 space-y-3">
+                <div>
+                  <div className="text-xs font-bold uppercase text-gray-500">Restaurant</div>
+                  <div className="mt-1 rounded-xl border border-gray-200 bg-gray-50 px-3 py-3 font-bold">
+                    {String(restaurant?.name || restaurantForm.name || "Restaurant").trim() || "Restaurant"}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs font-bold uppercase text-gray-500">Email</div>
+                  <div className="mt-1 rounded-xl border border-gray-200 bg-gray-50 px-3 py-3 font-bold break-all">
+                    {managerUserEmail || "Compte connecte via Supabase Auth"}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+              <div className="text-xs font-black uppercase tracking-[0.2em] text-gray-500">Securite</div>
+              <h3 className="mt-2 text-lg font-black">Double authentification</h3>
+              <p className="mt-2 text-sm text-gray-600">
+                Activez la verification par code email pour exiger un OTP a chaque connexion manager.
+              </p>
+              <div className="mt-4 flex items-center justify-between gap-3 rounded-2xl border border-gray-200 bg-gray-50 px-4 py-4">
+                <div>
+                  <div className="font-black">Activer la double securite</div>
+                  <div className="mt-1 text-sm text-gray-600">
+                    {managerOtpEnabled ? "Un code OTP sera demande a la connexion." : "Connexion directe apres le mot de passe."}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={managerOtpEnabled}
+                  disabled={managerOtpLoading}
+                  onClick={() => void handleToggleManagerOtp(!managerOtpEnabled)}
+                  className={`relative inline-flex h-7 w-12 items-center rounded-full border-2 transition ${
+                    managerOtpEnabled ? "bg-blue-600 border-blue-700" : "bg-gray-300 border-gray-400"
+                  } ${managerOtpLoading ? "opacity-60" : ""}`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition ${
+                      managerOtpEnabled ? "translate-x-6" : "translate-x-1"
+                    }`}
+                  />
+                </button>
+              </div>
+              {managerOtpError ? <p className="mt-3 text-sm font-bold text-red-600">{managerOtpError}</p> : null}
+              {managerOtpMessage ? <p className="mt-3 text-sm font-bold text-green-700">{managerOtpMessage}</p> : null}
+            </div>
+
+            <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+              <div className="text-xs font-black uppercase tracking-[0.2em] text-gray-500">Mot de passe</div>
+              <h3 className="mt-2 text-lg font-black">Modifier mon mot de passe</h3>
+              <div className="mt-4 grid grid-cols-1 gap-3">
+                <div>
+                  <label className="block mb-1 font-bold">Ancien mot de passe</label>
+                  <input
+                    type="password"
+                    value={passwordForm.oldPassword}
+                    onChange={(e) =>
+                      setPasswordForm((prev) => ({
+                        ...prev,
+                        oldPassword: e.target.value,
+                      }))
+                    }
+                    placeholder="Mot de passe actuel"
+                    className="w-full rounded-xl border border-gray-300 bg-white px-3 py-3 text-black"
+                  />
+                </div>
+                <div>
+                  <label className="block mb-1 font-bold">Nouveau mot de passe</label>
+                  <input
+                    type="password"
+                    value={passwordForm.newPassword}
+                    onChange={(e) =>
+                      setPasswordForm((prev) => ({
+                        ...prev,
+                        newPassword: e.target.value,
+                      }))
+                    }
+                    placeholder="Minimum 8 caracteres"
+                    className="w-full rounded-xl border border-gray-300 bg-white px-3 py-3 text-black"
+                  />
+                </div>
+                <div>
+                  <label className="block mb-1 font-bold">Confirmation</label>
+                  <input
+                    type="password"
+                    value={passwordForm.confirmPassword}
+                    onChange={(e) =>
+                      setPasswordForm((prev) => ({
+                        ...prev,
+                        confirmPassword: e.target.value,
+                      }))
+                    }
+                    placeholder="Ressaisir le mot de passe"
+                    className="w-full rounded-xl border border-gray-300 bg-white px-3 py-3 text-black"
+                  />
+                </div>
+              </div>
+              <div className="mt-4 flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => void handleUpdateManagerPassword()}
+                  disabled={passwordUpdateLoading}
+                  className="rounded-xl border-2 border-black bg-black px-4 py-2 font-black text-white disabled:opacity-60"
+                >
+                  {passwordUpdateLoading ? "Mise a jour..." : "Changer le mot de passe"}
+                </button>
+                {passwordUpdateError ? <span className="text-sm font-bold text-red-600">{passwordUpdateError}</span> : null}
+                {passwordUpdateMessage ? <span className="text-sm font-bold text-green-700">{passwordUpdateMessage}</span> : null}
+              </div>
+            </div>
+          </div>
         </section>
       </div>
 
