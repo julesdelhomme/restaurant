@@ -59,11 +59,22 @@ type CoreUiLang = "fr" | "en" | "es" | "de";
 
 const DEFAULT_LANGUAGE_LABELS: Record<string, string> = SHARED_LANGUAGE_LABELS;
 const DEFAULT_LANGUAGE_FLAGS: Record<string, string> = SHARED_LANGUAGE_FLAGS;
-const DEFAULT_SUGGESTION_LEADS: Record<CoreUiLang, string> = {
+const DEFAULT_SUGGESTION_LEADS: Record<string, string> = {
   fr: "Ce plat se marie tres bien avec",
   en: "This dish pairs perfectly with",
   es: "Este plato combina perfectamente con",
   de: "Dieses Gericht passt perfekt zu",
+  it: "Questo piatto si abbina molto bene con",
+  pt: "Este prato combina muito bem com",
+  ja: "Kono ryori to aisho ga yoi no wa",
+  nl: "Dit gerecht past heel goed bij",
+  pl: "To danie swietnie komponuje sie z",
+  ro: "Acest preparat se potriveste foarte bine cu",
+  el: "Auto to piato tairiazei poly kala me",
+  zh: "Zhe dao cai hen shihe dapei",
+  ko: "I yorineun daeumgwa aju jal eoullimnida",
+  ru: "Eto bliudo otlichno sochetaetsia s",
+  ar: "Hatha al tabaq yansajim jayyidan ma",
 };
 const MENU_FONT_OPTIONS = [
   "Inter",
@@ -3358,7 +3369,11 @@ export default function MenuDigital() {
       String(suggestionLeadByLang[fallbackLang] || "").trim() ||
       String(suggestionLeadByLang.fr || "").trim();
     if (configured) return configured;
-    return DEFAULT_SUGGESTION_LEADS[fallbackLang] || DEFAULT_SUGGESTION_LEADS.fr;
+    return (
+      DEFAULT_SUGGESTION_LEADS[normalizedLang] ||
+      DEFAULT_SUGGESTION_LEADS[fallbackLang] ||
+      DEFAULT_SUGGESTION_LEADS.fr
+    );
   };
 
   const getSalesAdvice = (dish: Dish) => {
@@ -3426,13 +3441,25 @@ export default function MenuDigital() {
         : typeof parsed.sales_tip_dish_id === "number"
           ? String(parsed.sales_tip_dish_id)
           : "";
-    if (explicitLocalizedMessage) return { message: explicitLocalizedMessage, linkedDishId };
-    if (!linkedDishId) return { message: "", linkedDishId: "" };
+    if (!linkedDishId && !explicitLocalizedMessage) return { message: "", linkedDishId: "" };
     const linkedDish = dishes.find((candidate) => String(candidate.id) === linkedDishId) || null;
     const linkedDishName = linkedDish ? getDishName(linkedDish, lang) : "";
-    const leadMessage = getSuggestionLeadMessage(lang);
+    const leadMessage = explicitLocalizedMessage || getSuggestionLeadMessage(lang);
+    const normalizedLead = normalizeLookupText(leadMessage);
+    const normalizedLinkedDishName = normalizeLookupText(linkedDishName);
+    const messageWithLinkedDish =
+      linkedDishName && normalizedLinkedDishName && !normalizedLead.includes(normalizedLinkedDishName)
+        ? `${leadMessage.replace(/[:.!\s]*$/, "").trim()} : ${linkedDishName}`.trim()
+        : leadMessage.trim();
+    if (messageWithLinkedDish) {
+      return {
+        message: messageWithLinkedDish.replace(/\s+/g, " ").trim(),
+        linkedDishId,
+      };
+    }
+    if (!linkedDishId) return { message: "", linkedDishId: "" };
     return {
-      message: linkedDishName ? `${leadMessage} ${linkedDishName}.` : leadMessage,
+      message: linkedDishName ? `${getSuggestionLeadMessage(lang)} : ${linkedDishName}` : "",
       linkedDishId,
     };
   };

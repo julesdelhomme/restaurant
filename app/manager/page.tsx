@@ -87,6 +87,23 @@ const DEFAULT_LANGUAGE_LABELS: Record<string, string> = {
   es: "Espa\u00f1ol",
   de: "Deutsch",
 };
+const DEFAULT_SUGGESTION_LEADS: Record<string, string> = {
+  fr: "Ce plat se marie tres bien avec",
+  en: "This dish pairs perfectly with",
+  es: "Este plato combina perfectamente con",
+  de: "Dieses Gericht passt perfekt zu",
+  it: "Questo piatto si abbina molto bene con",
+  pt: "Este prato combina muito bem com",
+  ja: "Kono ryori to aisho ga yoi no wa",
+  nl: "Dit gerecht past heel goed bij",
+  pl: "To danie swietnie komponuje sie z",
+  ro: "Acest preparat se potriveste foarte bine cu",
+  el: "Auto to piato tairiazei poly kala me",
+  zh: "Zhe dao cai hen shihe dapei",
+  ko: "I yorineun daeumgwa aju jal eoullimnida",
+  ru: "Eto bliudo otlichno sochetaetsia s",
+  ar: "Hatha al tabaq yansajim jayyidan ma",
+};
 const ALLERGEN_OPTIONS = ["Gluten", "Lactose", "Arachides", "\u0152ufs", "Lait", "Poisson", "Fruits de mer", "Soja", "S\u00e9same", "Moutarde", "C\u00e9leri"];
 const DEFAULT_ALLERGEN_TRANSLATIONS = DEFAULT_ALLERGEN_TRANSLATIONS_EXTENDED;
 const PREDEFINED_LANGUAGE_OPTIONS = PREDEFINED_LANGUAGE_OPTIONS_EXTENDED;
@@ -780,6 +797,11 @@ function formatLanguageLabel(raw: string, fallbackKey: string) {
   if (trimmed) return trimmed;
   if (DEFAULT_LANGUAGE_LABELS[fallbackKey]) return DEFAULT_LANGUAGE_LABELS[fallbackKey];
   return fallbackKey.toUpperCase();
+}
+
+function getDefaultSuggestionLead(languageCode: string) {
+  const normalized = normalizeLanguageKey(languageCode);
+  return DEFAULT_SUGGESTION_LEADS[normalized] || DEFAULT_SUGGESTION_LEADS.fr;
 }
 
 function parseEnabledLanguageEntries(raw: unknown) {
@@ -3951,6 +3973,8 @@ export default function MenuManager() {
       es: formData.description_es || "",
       de: formData.description_de || "",
     };
+    const hasLinkedSuggestionDish = Boolean(String(formData.sales_tip_dish_id || "").trim());
+    const resolvedSalesTipFr = String(formData.sales_tip || "").trim() || (hasLinkedSuggestionDish ? getDefaultSuggestionLead("fr") : "");
     const dietaryRaw = editingDish ? (editingDish as unknown as Record<string, unknown>).dietary_tag : null;
     const baseDietary =
       typeof dietaryRaw === "string"
@@ -3980,10 +4004,14 @@ export default function MenuManager() {
         name: mergedNameI18n,
         description: mergedDescriptionI18n,
       },
-      sales_tip: formData.sales_tip?.trim() || null,
+      sales_tip: resolvedSalesTipFr || null,
       sales_tip_i18n: Object.fromEntries(
         Object.entries(formData.sales_tip_i18n || {})
-          .map(([lang, value]) => [normalizeLanguageKey(lang), String(value || "").trim()])
+          .map(([lang, value]) => {
+            const normalizedLang = normalizeLanguageKey(lang);
+            const resolvedValue = String(value || "").trim() || (hasLinkedSuggestionDish ? getDefaultSuggestionLead(normalizedLang) : "");
+            return [normalizedLang, resolvedValue];
+          })
           .filter(([lang, value]) => Boolean(lang) && Boolean(value))
       ),
       sales_tip_dish_id: formData.sales_tip_dish_id?.trim() || null,
@@ -4041,7 +4069,7 @@ export default function MenuManager() {
       image_url: formData.image_url || null,
       calories_min: formData.calories_min ? parseInt(formData.calories_min) : null,
       calories_max: formData.calories_max ? parseInt(formData.calories_max) : null,
-      suggestion_message: formData.sales_tip?.trim() || null,
+      suggestion_message: resolvedSalesTipFr || null,
       has_sides: !!formData.has_sides,
       has_extras: extrasToPersist.length > 0,
       dietary_tag: {
@@ -4083,8 +4111,9 @@ export default function MenuManager() {
           : String(formData.description_i18n?.[code] || formData.description_i18n?.[normalizedCode] || "").trim();
       const suggestionValue =
         normalizedCode === "fr"
-          ? String(formData.sales_tip || "").trim()
-          : String(formData.sales_tip_i18n?.[code] || formData.sales_tip_i18n?.[normalizedCode] || "").trim();
+          ? resolvedSalesTipFr
+          : String(formData.sales_tip_i18n?.[code] || formData.sales_tip_i18n?.[normalizedCode] || "").trim() ||
+            (hasLinkedSuggestionDish ? getDefaultSuggestionLead(normalizedCode) : "");
       getLanguageColumnKeys("name", normalizedCode).forEach((columnKey) => {
         (dishData as Record<string, unknown>)[columnKey] = nameValue || null;
       });
@@ -4092,6 +4121,9 @@ export default function MenuManager() {
         (dishData as Record<string, unknown>)[columnKey] = descriptionValue || null;
       });
       getLanguageColumnKeys("suggestion", normalizedCode).forEach((columnKey) => {
+        (dishData as Record<string, unknown>)[columnKey] = suggestionValue || null;
+      });
+      getLanguageColumnKeys("suggestion_message", normalizedCode).forEach((columnKey) => {
         (dishData as Record<string, unknown>)[columnKey] = suggestionValue || null;
       });
     });
@@ -4171,8 +4203,8 @@ export default function MenuManager() {
           /suggestion_message/i.test(errorMessage)
         ) {
           alert(
-            "Erreur SQL: la colonne dishes.suggestion_message est absente.\n" +
-              "Exécutez:\nALTER TABLE dishes ADD COLUMN IF NOT EXISTS suggestion_message TEXT;"
+            "Erreur SQL: une colonne dishes.suggestion_message* est absente.\n" +
+              "Exécutez la migration add_suggestion_message_i18n_columns.sql."
           );
           return;
         }
@@ -9330,6 +9362,7 @@ export default function MenuManager() {
                                 ? formData.description_de
                                 : "");
                     const currentSalesTip = isFr ? formData.sales_tip : String(formData.sales_tip_i18n?.[code] || "").trim();
+                    const suggestionPlaceholder = `${getDefaultSuggestionLead(code)} :`;
                     return (
                       <div key={`dish-lang-accordion-${code}`} className="border border-gray-200 rounded bg-white">
                         <button
@@ -9380,7 +9413,10 @@ export default function MenuManager() {
                                 />
                               </div>
                               <div>
-                                <label className="block mb-1 font-bold">{isFr ? "Conseil / Suggestion de vente" : `Suggestion (${code.toUpperCase()})`}</label>
+                                <label className="block mb-1 font-bold">{isFr ? "Message de suggestion" : `Message de suggestion (${code.toUpperCase()})`}</label>
+                                <div className="mb-1 text-xs text-gray-500">
+                                  Laissez vide pour utiliser automatiquement : {suggestionPlaceholder}
+                                </div>
                                 <textarea
                                   value={currentSalesTip}
                                   onChange={(e) =>
@@ -9390,7 +9426,7 @@ export default function MenuManager() {
                                       sales_tip_i18n: isFr ? formData.sales_tip_i18n : { ...(formData.sales_tip_i18n || {}), [code]: e.target.value },
                                     })
                                   }
-                                  placeholder={isFr ? "Ex: Ce vin de Bourgogne se marie à merveille avec cette côte de bœuf !" : ""}
+                                  placeholder={suggestionPlaceholder}
                                   className="w-full px-3 py-2 bg-white text-black border border-gray-300"
                                   rows={2}
                                 />
