@@ -882,6 +882,7 @@ interface Dish {
   is_promo?: boolean | null;
   promo_price?: number | null;
   is_suggestion?: boolean | null;
+  dish_options?: ExtrasItem[];
   product_options?: ProductOptionItem[];
   translations?: Record<string, unknown> | string | null;
 }
@@ -1487,6 +1488,136 @@ function parseOptionsFromDescription(description?: string | null): ParsedOptions
   return result;
 }
 
+function parseExtrasFromUnknown(raw: unknown, dishId: unknown): ExtrasItem[] {
+  if (raw == null) return [];
+
+  let source: unknown = raw;
+  if (typeof source === "string") {
+    const trimmed = source.trim();
+    if (!trimmed) return [];
+    try {
+      source = JSON.parse(trimmed);
+    } catch {
+      return [];
+    }
+  }
+
+  const candidate =
+    Array.isArray(source)
+      ? source
+      : typeof source === "object" && source !== null
+        ? ((source as Record<string, unknown>).extras ??
+          (source as Record<string, unknown>).items ??
+          (source as Record<string, unknown>).list)
+        : [];
+
+  if (!Array.isArray(candidate)) return [];
+
+  return candidate
+    .map((item, index) => {
+      if (!item || typeof item !== "object") return null;
+      const row = item as Record<string, unknown>;
+      const parsedNamesI18n = Object.fromEntries(
+        Object.entries(parseJsonObject(row.names_i18n)).map(([k, v]) => [
+          normalizeLanguageKey(k),
+          String(v || "").trim(),
+        ])
+      ) as Record<string, string>;
+      const nameFr = String(row.name_fr ?? parsedNamesI18n.fr ?? row.name ?? row.label_fr ?? row.label ?? "").trim();
+      if (!nameFr) return null;
+      const priceRaw = row.price ?? row.amount ?? row.value ?? 0;
+      const price =
+        typeof priceRaw === "number" ? priceRaw : Number(String(priceRaw).replace(",", "."));
+      return {
+        id: buildStableExtraId(
+          dishId,
+          { id: String(row.id ?? row.extra_id ?? ""), name_fr: nameFr, price: Number.isFinite(price) ? price : 0 },
+          index
+        ),
+        name_fr: nameFr,
+        name_en: String(row.name_en ?? parsedNamesI18n.en ?? "").trim(),
+        name_es: String(row.name_es ?? parsedNamesI18n.es ?? "").trim(),
+        name_de: String(row.name_de ?? parsedNamesI18n.de ?? "").trim(),
+        names_i18n: {
+          ...parsedNamesI18n,
+          fr: parsedNamesI18n.fr || nameFr,
+        },
+        price: Number.isFinite(price) ? Number(price) : 0,
+      } as ExtrasItem;
+    })
+    .filter(Boolean) as ExtrasItem[];
+}
+
+function parseDishOptionsRowsToExtras(rows: Array<Record<string, unknown>>, dishId: unknown): ExtrasItem[] {
+  return rows
+    .map((row, index) => {
+      const parsedNamesI18n = Object.fromEntries(
+        Object.entries(parseJsonObject(row.names_i18n)).map(([k, v]) => [
+          normalizeLanguageKey(k),
+          String(v || "").trim(),
+        ])
+      ) as Record<string, string>;
+      const dynamicNameColumns = Object.fromEntries(
+        Object.entries(row)
+          .filter(([key]) => /^name_[a-z]{2}$/i.test(String(key || "")))
+          .map(([key, value]) => [String(key).slice(5).toLowerCase(), String(value || "").trim()])
+          .filter(([, value]) => Boolean(value))
+      ) as Record<string, string>;
+      const nameFr = String(
+        row.name_fr ?? parsedNamesI18n.fr ?? dynamicNameColumns.fr ?? row.name ?? row.label_fr ?? row.label ?? ""
+      ).trim();
+      if (!nameFr) return null;
+      const priceRaw = row.price ?? row.option_price ?? 0;
+      const price =
+        typeof priceRaw === "number" ? priceRaw : Number(String(priceRaw || "0").replace(",", "."));
+      return {
+        id: buildStableExtraId(
+          dishId,
+          { id: String(row.id || ""), name_fr: nameFr, price: Number.isFinite(price) ? price : 0 },
+          index
+        ),
+        name_fr: nameFr,
+        name_en: String(row.name_en ?? parsedNamesI18n.en ?? dynamicNameColumns.en ?? "").trim(),
+        name_es: String(row.name_es ?? parsedNamesI18n.es ?? dynamicNameColumns.es ?? "").trim(),
+        name_de: String(row.name_de ?? parsedNamesI18n.de ?? dynamicNameColumns.de ?? "").trim(),
+        names_i18n: {
+          ...parsedNamesI18n,
+          ...dynamicNameColumns,
+          fr: parsedNamesI18n.fr || dynamicNameColumns.fr || nameFr,
+        },
+        price: Number.isFinite(price) ? price : 0,
+      } as ExtrasItem;
+    })
+    .filter(Boolean) as ExtrasItem[];
+}
+
+function mergeExtrasUnique(primary: ExtrasItem[], secondary: ExtrasItem[]) {
+  const out = [...primary];
+  const seen = new Set(
+    primary.map((extra) => `${normalizeLookupText(extra.name_fr || "")}__${parsePriceNumber(extra.price).toFixed(2)}`)
+  );
+  secondary.forEach((extra) => {
+    const key = `${normalizeLookupText(extra.name_fr || "")}__${parsePriceNumber(extra.price).toFixed(2)}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(extra);
+  });
+  return out;
+}
+
+function getDishExtras(dish: Dish) {
+  const dishRecord = dish as unknown as Record<string, unknown>;
+  const fromRelation = Array.isArray(dishRecord.dish_options)
+    ? parseDishOptionsRowsToExtras(dishRecord.dish_options as Array<Record<string, unknown>>, dish.id)
+    : [];
+  const fromColumns = mergeExtrasUnique(
+    parseExtrasFromUnknown(dishRecord.extras, dish.id),
+    parseExtrasFromUnknown(dishRecord.extras_list, dish.id)
+  );
+  const fromDescription = parseOptionsFromDescription(String(dish.description || "")).extrasList || [];
+  return mergeExtrasUnique(fromRelation, mergeExtrasUnique(fromColumns, fromDescription));
+}
+
 function getDishName(dish: Dish, lang: string) {
   const uiLang = toUiLang(lang);
   const dishRecord = dish as unknown as Record<string, unknown>;
@@ -1622,13 +1753,16 @@ function getDescription(dish: Dish, lang: string) {
 
 function getExtraLabel(extra: ExtrasItem, lang: string) {
   const names = (extra as unknown as Record<string, unknown>).names_i18n;
+  const normalizedLang = normalizeLanguageKey(lang);
+  const uiLang = toUiLang(lang);
   if (names && typeof names === "object") {
-    const dynamicValue = (names as unknown as Record<string, unknown>)[lang];
+    const namesRecord = names as unknown as Record<string, unknown>;
+    const dynamicValue = namesRecord[normalizedLang] ?? namesRecord[uiLang] ?? namesRecord[lang];
     if (typeof dynamicValue === "string" && dynamicValue.trim()) return dynamicValue.trim();
   }
-  if (lang === "en" && extra.name_en) return extra.name_en;
-  if (lang === "es" && extra.name_es) return extra.name_es;
-  if (lang === "de" && extra.name_de) return extra.name_de;
+  if (normalizedLang === "en" && extra.name_en) return extra.name_en;
+  if (normalizedLang === "es" && extra.name_es) return extra.name_es;
+  if (normalizedLang === "de" && extra.name_de) return extra.name_de;
   return extra.name_fr || "Supplï¿½ment";
 }
 function getAllergens(dish: Dish) {
@@ -3038,8 +3172,30 @@ export default function MenuDigital() {
           };
         });
       const optionsByDishId = new Map<string, ProductOptionItem[]>();
+      const extrasByDishId = new Map<string, ExtrasItem[]>();
       const dishIds = normalized.map((row) => String(row.id || "").trim()).filter(Boolean);
       if (dishIds.length > 0) {
+        const dishOptionsResult = await supabase
+          .from("dish_options")
+          .select("*")
+          .in("dish_id", dishIds as never);
+        if (!dishOptionsResult.error && Array.isArray(dishOptionsResult.data)) {
+          const rowsByDishId = new Map<string, Array<Record<string, unknown>>>();
+          (dishOptionsResult.data as Array<Record<string, unknown>>).forEach((row) => {
+            const dishId = String(row.dish_id ?? "").trim();
+            if (!dishId) return;
+            const current = rowsByDishId.get(dishId) || [];
+            current.push(row);
+            rowsByDishId.set(dishId, current);
+          });
+          rowsByDishId.forEach((rows, dishId) => {
+            const parsedRows = parseDishOptionsRowsToExtras(rows, dishId);
+            if (parsedRows.length > 0) extrasByDishId.set(dishId, parsedRows);
+          });
+        } else if (dishOptionsResult.error) {
+          console.warn("dish_options fetch failed (menu public):", toLoggableSupabaseError(dishOptionsResult.error));
+        }
+
         const primaryProductOptionsResult = await supabase
           .from("product_options")
           .select("*")
@@ -3099,6 +3255,10 @@ export default function MenuDigital() {
       }
       const normalizedWithOptions = normalized.map((dish) => ({
         ...dish,
+        dish_options: extrasByDishId.get(String(dish.id || "").trim()) || [],
+        has_extras:
+          Boolean(dish.has_extras) ||
+          (extrasByDishId.get(String(dish.id || "").trim()) || []).length > 0,
         product_options: optionsByDishId.get(String(dish.id || "").trim()) || [],
       }));
       setDishes(normalizedWithOptions as Dish[]);
@@ -4000,6 +4160,7 @@ export default function MenuDigital() {
     const productOptions = Array.isArray(sourceDishRecord.product_options)
       ? ((sourceDishRecord.product_options as ProductOptionItem[]) || [])
       : [];
+    const dishExtras = getDishExtras(sourceDish);
     // Source de v?rit?: selected_sides (table sides_library). Pas de fallback legacy.
     const sideIds = Array.isArray(sourceDish.selected_sides) ? sourceDish.selected_sides : [];
     const sideOptionsFromLibrary = sideIds
@@ -4014,7 +4175,7 @@ export default function MenuDigital() {
     setSelectedExtras([]);
     setModalProductOptions(productOptions);
     setModalSidesOptions(sideOptionsFromLibrary);
-    setModalExtrasOptions(parsed.extrasList || []);
+    setModalExtrasOptions(dishExtras);
     setModalAskCooking(!!(sourceDish.ask_cooking || parsed.askCooking));
     setSideError("");
     setSelectedProductOptionIds([]);
@@ -4027,13 +4188,14 @@ export default function MenuDigital() {
     const productOptions = Array.isArray(sourceDishRecord.product_options)
       ? ((sourceDishRecord.product_options as ProductOptionItem[]) || [])
       : [];
+    const extras = getDishExtras(sourceDish);
     const selectedSideIds = Array.isArray(sourceDish.selected_sides) ? sourceDish.selected_sides : [];
     const hasRequiredSides =
       Boolean(sourceDish.has_sides) ||
       selectedSideIds.length > 0 ||
       (Array.isArray(parsed.sideIds) && parsed.sideIds.length > 0);
     const needsCooking = Boolean(sourceDish.ask_cooking || parsed.askCooking);
-    return hasRequiredSides || needsCooking || productOptions.length > 0;
+    return hasRequiredSides || needsCooking || productOptions.length > 0 || extras.length > 0;
   };
 
   const handleQuickAddFromList = (dish: Dish) => {
@@ -5415,7 +5577,7 @@ export default function MenuDigital() {
               </div>
             )}
 
-            {selectedDish.has_extras && modalExtrasOptions.length > 0 && (
+            {modalExtrasOptions.length > 0 && (
               <div className="mb-3">
                 <label className="font-bold text-black mb-1 block">{uiText.extrasLabel} :</label>
                 <div className="flex flex-col gap-2">

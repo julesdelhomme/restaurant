@@ -1156,6 +1156,12 @@ function buildDescriptionWithOptions(baseDescription: string) {
 function parseDishOptionsRowsToExtras(rows: Array<Record<string, unknown>>): ExtrasItem[] {
   return rows
     .map((row) => {
+      const parsedNamesI18n = Object.fromEntries(
+        Object.entries(parseObjectRecord(row.names_i18n)).map(([k, v]) => [
+          String(k || "").toLowerCase(),
+          String(v ?? "").trim(),
+        ])
+      ) as Record<string, string>;
       const dynamicNameColumns = Object.fromEntries(
         Object.entries(row)
           .filter(([key]) => /^name_[a-z]{2}$/i.test(String(key || "")))
@@ -1164,22 +1170,23 @@ function parseDishOptionsRowsToExtras(rows: Array<Record<string, unknown>>): Ext
       ) as Record<string, string>;
 
       const nameFr = String(
-        row.name_fr ?? dynamicNameColumns.fr ?? row.name ?? row.label_fr ?? row.label ?? ""
+        row.name_fr ?? parsedNamesI18n.fr ?? dynamicNameColumns.fr ?? row.name ?? row.label_fr ?? row.label ?? ""
       ).trim();
       if (!nameFr) return null;
       const priceRaw = row.price ?? row.option_price ?? 0;
       const price =
         typeof priceRaw === "number" ? priceRaw : Number(String(priceRaw || "0").replace(",", "."));
       const names_i18n: Record<string, string> = {
+        ...parsedNamesI18n,
         ...dynamicNameColumns,
-        fr: dynamicNameColumns.fr || nameFr,
+        fr: parsedNamesI18n.fr || dynamicNameColumns.fr || nameFr,
       };
       return {
         id: String(row.id ?? createLocalId()),
         name_fr: nameFr,
-        name_en: String(row.name_en ?? names_i18n.en ?? "").trim(),
-        name_es: String(row.name_es ?? names_i18n.es ?? "").trim(),
-        name_de: String(row.name_de ?? names_i18n.de ?? "").trim(),
+        name_en: String(row.name_en ?? parsedNamesI18n.en ?? names_i18n.en ?? "").trim(),
+        name_es: String(row.name_es ?? parsedNamesI18n.es ?? names_i18n.es ?? "").trim(),
+        name_de: String(row.name_de ?? parsedNamesI18n.de ?? names_i18n.de ?? "").trim(),
         names_i18n,
         price: Number.isFinite(price) ? price : 0,
       } as ExtrasItem;
@@ -4272,16 +4279,22 @@ export default function MenuManager() {
 
         const optionsToInsert = extrasToPersist
           .map((extra) => {
-            const names = {
-              ...(extra.names_i18n || {}),
-              fr: String(extra.name_fr || "").trim(),
-              en: String(extra.name_en || extra.names_i18n?.en || "").trim(),
-              es: String(extra.name_es || extra.names_i18n?.es || "").trim(),
-              de: String(extra.name_de || extra.names_i18n?.de || "").trim(),
-            } as Record<string, string>;
+            const names = Object.fromEntries(
+              Object.entries({
+                ...(extra.names_i18n || {}),
+                fr: String(extra.name_fr || "").trim(),
+                en: String(extra.name_en || extra.names_i18n?.en || "").trim(),
+                es: String(extra.name_es || extra.names_i18n?.es || "").trim(),
+                de: String(extra.name_de || extra.names_i18n?.de || "").trim(),
+              })
+                .map(([lang, value]) => [normalizeLanguageKey(lang), String(value || "").trim()])
+                .filter(([lang, value]) => Boolean(lang) && Boolean(value))
+            ) as Record<string, string>;
+            names.fr = names.fr || String(extra.name_fr || "").trim();
             const row: Record<string, unknown> = {
               dish_id: savedDishIdRaw,
               name: String(names.fr || "").trim(),
+              names_i18n: names,
               price: Number.parseFloat(String(extra.price || 0)) || 0,
             };
             return row;
@@ -4292,7 +4305,13 @@ export default function MenuManager() {
           const insertOptionsResult = await supabase.from("dish_options").insert(optionsToInsert as never);
           if (insertOptionsResult.error) {
             console.error("Erreur insertion options:", insertOptionsResult.error);
-            alert(`Plat sauvegardé mais erreur d'enregistrement des suppléments: ${insertOptionsResult.error.message}`);
+            const schemaHint =
+              String((insertOptionsResult.error as { code?: string })?.code || "") === "42703"
+                ? " Exécutez la migration ensure_dish_options_i18n_and_fk.sql."
+                : "";
+            alert(
+              `Plat sauvegardé mais erreur d'enregistrement des suppléments: ${insertOptionsResult.error.message}.${schemaHint}`
+            );
             return;
           }
         }
