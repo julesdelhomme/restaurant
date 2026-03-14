@@ -82,11 +82,18 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  await sendDashboardOtpEmail({
-    to: userEmail,
-    code,
-    scope,
-  });
+  try {
+    await sendDashboardOtpEmail({
+      to: userEmail,
+      code,
+      scope,
+    });
+  } catch (error) {
+    return NextResponse.json(
+      { error: String((error as Error)?.message || "Impossible d'envoyer le code OTP par email.") },
+      { status: 500 }
+    );
+  }
 
   return NextResponse.json({ success: true }, { status: 200 });
 }
