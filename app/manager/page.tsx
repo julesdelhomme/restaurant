@@ -6928,7 +6928,7 @@ export default function MenuManager() {
 
   return (
     <div className="min-h-screen bg-gray-50 text-black p-6" style={{ fontFamily: "Inter, Montserrat, sans-serif" }}>
-      <DashboardOtpGate scope="manager" />
+      <DashboardOtpGate scope="manager" restaurantId={String(params?.id || params?.restaurant_id || "")} />
       <div className={`max-w-6xl mx-auto ${forceFirstLoginPasswordChange ? "pointer-events-none select-none" : ""}`}>
         {isRestaurantLoading ? (
           <div className="mb-4 rounded-xl border border-gray-300 bg-white p-3 text-sm font-bold text-gray-700">

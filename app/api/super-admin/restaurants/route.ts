@@ -22,6 +22,7 @@ type RestaurantRow = {
   logo_url?: string | null;
   primary_color?: string | null;
   is_active?: boolean | null;
+  otp_enabled?: boolean | null;
 };
 
 function isMissingColumnError(error: { code?: string } | null | undefined) {
@@ -45,7 +46,7 @@ export async function GET(request: NextRequest) {
   const supabase = createSupabaseAdminClient();
   const rowsWithActiveResult = await supabase
     .from("restaurants")
-    .select("id,name,owner_id,created_at,logo_url,primary_color,is_active")
+    .select("id,name,owner_id,created_at,logo_url,primary_color,is_active,otp_enabled")
     .order("name", { ascending: true });
 
   let rowsError = rowsWithActiveResult.error;
@@ -60,6 +61,7 @@ export async function GET(request: NextRequest) {
     rows = ((rowsFallbackResult.data || []) as Omit<RestaurantRow, "is_active">[]).map((row) => ({
       ...row,
       is_active: null,
+      otp_enabled: null,
     }));
   }
 
@@ -80,6 +82,7 @@ export async function GET(request: NextRequest) {
           logoUrl: String(row.logo_url || "").trim(),
           primaryColor: String(row.primary_color || "").trim(),
           isActive: typeof row.is_active === "boolean" ? row.is_active : true,
+          otpEnabled: typeof row.otp_enabled === "boolean" ? row.otp_enabled : false,
         };
       }
 
@@ -93,6 +96,7 @@ export async function GET(request: NextRequest) {
         logoUrl: String(row.logo_url || "").trim(),
         primaryColor: String(row.primary_color || "").trim(),
         isActive: typeof row.is_active === "boolean" ? row.is_active : true,
+        otpEnabled: typeof row.otp_enabled === "boolean" ? row.otp_enabled : false,
       };
     })
   );
@@ -142,13 +146,14 @@ export async function POST(request: NextRequest) {
   const ownerId = String(ownerCreateResult.data.user.id);
   const insertWithActiveResult = await supabase
     .from("restaurants")
-    .insert({
-      name: restaurantName,
-      owner_id: ownerId,
-      is_active: true,
-    })
-    .select("id,name,owner_id,created_at,logo_url,primary_color,is_active")
-    .maybeSingle();
+      .insert({
+        name: restaurantName,
+        owner_id: ownerId,
+        is_active: true,
+        otp_enabled: false,
+      })
+      .select("id,name,owner_id,created_at,logo_url,primary_color,is_active,otp_enabled")
+      .maybeSingle();
 
   let insertRestaurantError = insertWithActiveResult.error;
   let insertRestaurantData = insertWithActiveResult.data as RestaurantRow | null;
@@ -167,6 +172,7 @@ export async function POST(request: NextRequest) {
       ? ({
           ...(insertFallbackResult.data as Omit<RestaurantRow, "is_active">),
           is_active: true,
+          otp_enabled: false,
         } as RestaurantRow)
       : null;
   }
@@ -190,6 +196,7 @@ export async function POST(request: NextRequest) {
         logoUrl: String(insertRestaurantData.logo_url || "").trim(),
         primaryColor: String(insertRestaurantData.primary_color || "").trim(),
         isActive: typeof insertRestaurantData.is_active === "boolean" ? Boolean(insertRestaurantData.is_active) : true,
+        otpEnabled: typeof insertRestaurantData.otp_enabled === "boolean" ? Boolean(insertRestaurantData.otp_enabled) : false,
       },
     },
     { status: 201 }

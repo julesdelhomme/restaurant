@@ -5,9 +5,10 @@ import { supabase } from "../lib/supabase";
 
 type DashboardOtpGateProps = {
   scope: "manager" | "super_admin";
+  restaurantId?: string;
 };
 
-export default function DashboardOtpGate({ scope }: DashboardOtpGateProps) {
+export default function DashboardOtpGate({ scope, restaurantId = "" }: DashboardOtpGateProps) {
   const [checkingStatus, setCheckingStatus] = useState(true);
   const [otpRequired, setOtpRequired] = useState(false);
   const [otpCode, setOtpCode] = useState("");
@@ -43,7 +44,7 @@ export default function DashboardOtpGate({ scope }: DashboardOtpGateProps) {
         "Content-Type": "application/json",
         Authorization: `Bearer ${accessToken}`,
       },
-      body: JSON.stringify({ scope }),
+      body: JSON.stringify({ scope, restaurantId }),
     });
 
     const payload = (await response.json().catch(() => ({}))) as { error?: string; bypassed?: boolean };
@@ -79,7 +80,10 @@ export default function DashboardOtpGate({ scope }: DashboardOtpGateProps) {
       return;
     }
 
-    const response = await fetch(`/api/auth/login-otp/status?scope=${encodeURIComponent(scope)}`, {
+    const query = new URLSearchParams({ scope });
+    if (restaurantId) query.set("restaurantId", restaurantId);
+
+    const response = await fetch(`/api/auth/login-otp/status?${query.toString()}`, {
       headers: {
         Authorization: `Bearer ${accessToken}`,
       },
@@ -105,7 +109,7 @@ export default function DashboardOtpGate({ scope }: DashboardOtpGateProps) {
   useEffect(() => {
     void checkOtpStatus();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scope]);
+  }, [scope, restaurantId]);
 
   const handleVerifyOtp = async (event: FormEvent) => {
     event.preventDefault();
@@ -132,7 +136,7 @@ export default function DashboardOtpGate({ scope }: DashboardOtpGateProps) {
         "Content-Type": "application/json",
         Authorization: `Bearer ${accessToken}`,
       },
-      body: JSON.stringify({ scope, code }),
+      body: JSON.stringify({ scope, code, restaurantId }),
     });
 
     const payload = (await response.json().catch(() => ({}))) as { error?: string };

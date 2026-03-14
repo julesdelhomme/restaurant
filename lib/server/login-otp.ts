@@ -2,6 +2,7 @@ import "server-only";
 
 import crypto from "crypto";
 import nodemailer from "nodemailer";
+import { createSupabaseAdminClient } from "@/lib/server/supabase-admin";
 
 export type OtpScope = "manager" | "super_admin";
 
@@ -37,6 +38,26 @@ export function resolveOtpSessionId(accessToken: string, userId: string) {
   } catch {
     return String(userId || "").trim();
   }
+}
+
+export async function readRestaurantOtpEnabled(restaurantId: string) {
+  const normalizedRestaurantId = String(restaurantId || "").trim();
+  if (!normalizedRestaurantId) return false;
+
+  const supabase = createSupabaseAdminClient();
+  const result = await supabase
+    .from("restaurants")
+    .select("otp_enabled")
+    .eq("id", normalizedRestaurantId)
+    .maybeSingle();
+
+  const errorCode = String((result.error as { code?: string } | null)?.code || "");
+  if (errorCode === "42703" || errorCode === "PGRST204") return false;
+  if (result.error) {
+    throw new Error(result.error.message || "Impossible de verifier la configuration OTP du restaurant.");
+  }
+
+  return Boolean((result.data as { otp_enabled?: boolean | null } | null)?.otp_enabled);
 }
 
 function resolveOtpMailerConfig() {

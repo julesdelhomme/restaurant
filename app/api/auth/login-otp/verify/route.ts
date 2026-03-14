@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getBearerToken, readAccessContextForUser, readUserFromAccessToken } from "@/lib/server/access-context";
-import { hashOtpCode, isOtpBypassEnabled, normalizeOtpScope, resolveOtpSessionId } from "@/lib/server/login-otp";
+import { hashOtpCode, isOtpBypassEnabled, normalizeOtpScope, readRestaurantOtpEnabled, resolveOtpSessionId } from "@/lib/server/login-otp";
 import { createSupabaseAdminClient } from "@/lib/server/supabase-admin";
 
 export async function POST(request: NextRequest) {
@@ -15,9 +15,10 @@ export async function POST(request: NextRequest) {
   }
 
   const context = await readAccessContextForUser(user);
-  const body = (await request.json().catch(() => ({}))) as { scope?: string; code?: string };
+  const body = (await request.json().catch(() => ({}))) as { scope?: string; code?: string; restaurantId?: string };
   const scope = normalizeOtpScope(body.scope);
   const code = String(body.code || "").trim();
+  const restaurantId = String(body.restaurantId || "").trim();
   if (!scope || !/^\d{6}$/.test(code)) {
     return NextResponse.json({ error: "Code OTP invalide." }, { status: 400 });
   }
@@ -31,6 +32,24 @@ export async function POST(request: NextRequest) {
   }
 
   const userEmail = String(user.email || "").trim().toLowerCase();
+  if (scope === "manager") {
+    if (context.isSuperAdmin) {
+      return NextResponse.json({ success: true, bypassed: true }, { status: 200 });
+    }
+
+    const hasManagerAccess = context.restaurants.some(
+      (entry) => entry.restaurantId === restaurantId && entry.roles.includes("manager")
+    );
+    if (!hasManagerAccess) {
+      return NextResponse.json({ error: "Acces manager refuse." }, { status: 403 });
+    }
+
+    const otpEnabled = await readRestaurantOtpEnabled(restaurantId);
+    if (!otpEnabled) {
+      return NextResponse.json({ success: true, bypassed: true, otpEnabled: false }, { status: 200 });
+    }
+  }
+
   if (isOtpBypassEnabled(userEmail, scope) && code === "123456") {
     return NextResponse.json({ success: true, bypassed: true }, { status: 200 });
   }

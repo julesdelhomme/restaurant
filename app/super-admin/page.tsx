@@ -15,6 +15,7 @@ type RestaurantItem = {
   ownerEmail: string;
   createdAt: string;
   isActive: boolean;
+  otpEnabled: boolean;
   logoUrl: string;
   primaryColor: string;
 };
@@ -43,6 +44,7 @@ function formatDate(value: string) {
 export default function SuperAdminPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [restaurantStatusMessage, setRestaurantStatusMessage] = useState("");
   const [items, setItems] = useState<RestaurantItem[]>([]);
   const [updatingRestaurantId, setUpdatingRestaurantId] = useState("");
 
@@ -206,6 +208,7 @@ export default function SuperAdminPage() {
 
   const handleToggleRestaurant = async (item: RestaurantItem, nextValue: boolean) => {
     setError("");
+    setRestaurantStatusMessage("");
     setUpdatingRestaurantId(item.id);
     const accessToken = await getAccessToken();
     if (!accessToken) {
@@ -234,6 +237,48 @@ export default function SuperAdminPage() {
 
     setItems((prev) =>
       prev.map((entry) => (entry.id === item.id ? { ...entry, isActive: nextValue } : entry))
+    );
+    setRestaurantStatusMessage(`Statut du restaurant mis a jour pour ${item.name || "ce restaurant"}.`);
+  };
+
+  const handleToggleRestaurantOtp = async (item: RestaurantItem, nextValue: boolean) => {
+    setError("");
+    setRestaurantStatusMessage("");
+    setUpdatingRestaurantId(item.id);
+    const accessToken = await getAccessToken();
+    if (!accessToken) {
+      setUpdatingRestaurantId("");
+      setError("Session invalide.");
+      return;
+    }
+
+    const response = await fetch("/api/super-admin/restaurants", {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({
+        restaurantId: item.id,
+        restaurantPayload: {
+          otp_enabled: nextValue,
+        },
+      }),
+    });
+    const payload = (await response.json().catch(() => ({}))) as { error?: string };
+    setUpdatingRestaurantId("");
+    if (!response.ok) {
+      setError(payload.error || "Mise a jour OTP impossible.");
+      return;
+    }
+
+    setItems((prev) =>
+      prev.map((entry) => (entry.id === item.id ? { ...entry, otpEnabled: nextValue } : entry))
+    );
+    setRestaurantStatusMessage(
+      nextValue
+        ? `Double securite activee pour ${item.name || "ce restaurant"}.`
+        : `Double securite desactivee pour ${item.name || "ce restaurant"}.`
     );
   };
 
@@ -473,6 +518,7 @@ export default function SuperAdminPage() {
             <h2 className="text-xl font-black mb-3">Restaurants</h2>
             {loading ? <p className="font-bold">Chargement...</p> : null}
             {error ? <p className="font-bold text-red-700">{error}</p> : null}
+            {restaurantStatusMessage ? <p className="mb-3 font-bold text-green-700">{restaurantStatusMessage}</p> : null}
             {!loading && !error ? (
               <div className="space-y-3">
                 {items.map((item) => {
@@ -507,6 +553,25 @@ export default function SuperAdminPage() {
                             />
                           </button>
                           {item.isActive ? "Actif" : "Hors ligne"}
+                        </div>
+                        <div className="inline-flex items-center gap-2 text-sm font-bold">
+                          <button
+                            type="button"
+                            role="switch"
+                            aria-checked={Boolean(item.otpEnabled)}
+                            disabled={updatingRestaurantId === item.id}
+                            onClick={() => void handleToggleRestaurantOtp(item, !item.otpEnabled)}
+                            className={`relative inline-flex h-6 w-11 items-center rounded-full border-2 transition ${
+                              item.otpEnabled ? "bg-blue-600 border-blue-700" : "bg-gray-300 border-gray-400"
+                            } ${updatingRestaurantId === item.id ? "opacity-60" : ""}`}
+                          >
+                            <span
+                              className={`inline-block h-4 w-4 transform rounded-full bg-white transition ${
+                                item.otpEnabled ? "translate-x-5" : "translate-x-1"
+                              }`}
+                            />
+                          </button>
+                          {item.otpEnabled ? "Double securite activee" : "Activer la double securite"}
                         </div>
                         <Link
                           href={`/${item.id}/manager?impersonate=1`}

@@ -5,6 +5,7 @@ import {
   hashOtpCode,
   isOtpBypassEnabled,
   normalizeOtpScope,
+  readRestaurantOtpEnabled,
   resolveOtpSessionId,
   sendDashboardOtpEmail,
 } from "@/lib/server/login-otp";
@@ -22,8 +23,9 @@ export async function POST(request: NextRequest) {
   }
 
   const context = await readAccessContextForUser(user);
-  const body = (await request.json().catch(() => ({}))) as { scope?: string };
+  const body = (await request.json().catch(() => ({}))) as { scope?: string; restaurantId?: string };
   const scope = normalizeOtpScope(body.scope);
+  const restaurantId = String(body.restaurantId || "").trim();
   if (!scope) {
     return NextResponse.json({ error: "Scope OTP invalide." }, { status: 400 });
   }
@@ -37,6 +39,24 @@ export async function POST(request: NextRequest) {
   }
 
   const userEmail = String(user.email || "").trim().toLowerCase();
+  if (scope === "manager") {
+    if (context.isSuperAdmin) {
+      return NextResponse.json({ success: true, bypassed: true }, { status: 200 });
+    }
+
+    const hasManagerAccess = context.restaurants.some(
+      (entry) => entry.restaurantId === restaurantId && entry.roles.includes("manager")
+    );
+    if (!hasManagerAccess) {
+      return NextResponse.json({ error: "Acces manager refuse." }, { status: 403 });
+    }
+
+    const otpEnabled = await readRestaurantOtpEnabled(restaurantId);
+    if (!otpEnabled) {
+      return NextResponse.json({ success: true, bypassed: true, otpEnabled: false }, { status: 200 });
+    }
+  }
+
   if (isOtpBypassEnabled(userEmail, scope)) {
     return NextResponse.json({ success: true, bypassed: true }, { status: 200 });
   }

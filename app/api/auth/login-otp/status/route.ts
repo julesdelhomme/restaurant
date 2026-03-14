@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getBearerToken, readAccessContextForUser, readUserFromAccessToken } from "@/lib/server/access-context";
-import { isOtpBypassEnabled, normalizeOtpScope, resolveOtpSessionId } from "@/lib/server/login-otp";
+import { isOtpBypassEnabled, normalizeOtpScope, readRestaurantOtpEnabled, resolveOtpSessionId } from "@/lib/server/login-otp";
 import { createSupabaseAdminClient } from "@/lib/server/supabase-admin";
 
 export async function GET(request: NextRequest) {
@@ -16,6 +16,7 @@ export async function GET(request: NextRequest) {
 
   const context = await readAccessContextForUser(user);
   const scope = normalizeOtpScope(request.nextUrl.searchParams.get("scope"));
+  const restaurantId = String(request.nextUrl.searchParams.get("restaurantId") || "").trim();
   if (!scope) {
     return NextResponse.json({ error: "Scope OTP invalide." }, { status: 400 });
   }
@@ -29,6 +30,24 @@ export async function GET(request: NextRequest) {
   }
 
   const userEmail = String(user.email || "").trim().toLowerCase();
+  if (scope === "manager") {
+    if (context.isSuperAdmin) {
+      return NextResponse.json({ verified: true, bypassed: true }, { status: 200 });
+    }
+
+    const hasManagerAccess = context.restaurants.some(
+      (entry) => entry.restaurantId === restaurantId && entry.roles.includes("manager")
+    );
+    if (!hasManagerAccess) {
+      return NextResponse.json({ error: "Acces manager refuse." }, { status: 403 });
+    }
+
+    const otpEnabled = await readRestaurantOtpEnabled(restaurantId);
+    if (!otpEnabled) {
+      return NextResponse.json({ verified: true, bypassed: true, otpEnabled: false }, { status: 200 });
+    }
+  }
+
   if (isOtpBypassEnabled(userEmail, scope)) {
     return NextResponse.json({ verified: true, bypassed: true }, { status: 200 });
   }
