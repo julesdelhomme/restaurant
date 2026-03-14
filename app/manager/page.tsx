@@ -38,6 +38,7 @@ const DEFAULT_TOTAL_TABLES = 10;
 const MAX_TOTAL_TABLES = 200;
 const CLIENT_ORDERING_DISABLED_KEY = "menuqr_disable_client_ordering_tmp";
 const SUPABASE_STORAGE_PUBLIC_MARKER = "storage/v1/object/public/";
+type ManagerReportArchiveFolderKey = "financial" | "stats" | "reviews";
 
 const repairMojibakeUiText = (input: string) => {
   return String(input || "");
@@ -1694,6 +1695,70 @@ export default function MenuManager() {
     if (lang.startsWith("es")) return "es";
     return "fr";
   }, []);
+
+  const getManagerAccessToken = async () => {
+    const { data } = await supabase.auth.getSession();
+    return String(data.session?.access_token || "").trim();
+  };
+
+  const normalizeArchiveFileToken = (value: string) =>
+    String(value || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "");
+
+  const buildArchiveMonthToken = (date = new Date()) => {
+    const monthLabel = date.toLocaleString("fr-FR", { month: "long" });
+    return `${normalizeArchiveFileToken(monthLabel)}_${date.getFullYear()}`;
+  };
+
+  const blobToBase64 = async (blob: Blob) => {
+    const arrayBuffer = await blob.arrayBuffer();
+    let binary = "";
+    const bytes = new Uint8Array(arrayBuffer);
+    bytes.forEach((byte) => {
+      binary += String.fromCharCode(byte);
+    });
+    return btoa(binary);
+  };
+
+  const downloadPdfBlob = (blob: Blob, fileName: string) => {
+    const objectUrl = window.URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = objectUrl;
+    anchor.download = fileName;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    window.setTimeout(() => window.URL.revokeObjectURL(objectUrl), 1000);
+  };
+
+  const savePdfReportToArchive = async (folderKey: ManagerReportArchiveFolderKey, fileName: string, blob: Blob) => {
+    const accessToken = await getManagerAccessToken();
+    const restaurantId = String(restaurant?.id || scopedRestaurantId || "").trim();
+    if (!accessToken || !restaurantId) return;
+
+    const response = await fetch("/api/manager-reports", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({
+        restaurantId,
+        folderKey,
+        fileName,
+        pdfBase64: await blobToBase64(blob),
+      }),
+    });
+
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => ({}))) as { error?: string };
+      console.warn("Archivage PDF impossible:", payload.error || response.statusText);
+    }
+  };
 
   const analyticsText = ANALYTICS_I18N[managerUiLang];
   const bannerColorLabel =
@@ -5879,11 +5944,10 @@ export default function MenuManager() {
     const paidTableDurationsMinutes = closedOrderDurationEntries.map((entry) => entry.durationMinutes);
 
     const totalTablesCount = configuredTableNumbers.length;
-    const averageOccupationRate = totalTablesCount > 0 ? (tableStateCounts.occupied / totalTablesCount) * 100 : 0;
     const occupancyIgnoredStatuses = new Set(["cancelled", "canceled", "annule", "annulee"]);
     const occupationSlotDefinitions = [
-      { id: "lunch", label: "12h-14h", startHour: 12, endHour: 14 },
-      { id: "dinner", label: "19h-22h", startHour: 19, endHour: 22 },
+      { id: "lunch", label: "11h-14h", startHour: 11, endHour: 14 },
+      { id: "dinner", label: "18h-22h", startHour: 18, endHour: 22 },
     ] as const;
     const occupationSlotDayMap = new Map<string, Map<string, Set<number>>>();
     occupationSlotDefinitions.forEach((slot) => {
@@ -5933,6 +5997,10 @@ export default function MenuManager() {
         sampleDays,
       };
     });
+    const averageOccupationRate =
+      occupationByTimeSlots.length > 0
+        ? occupationByTimeSlots.reduce((sum, slot) => sum + Number(slot.occupancyRate || 0), 0) / occupationByTimeSlots.length
+        : 0;
     const averageTableDurationMinutes =
       paidTableDurationsMinutes.length > 0
         ? paidTableDurationsMinutes.reduce((sum, value) => sum + value, 0) / paidTableDurationsMinutes.length
@@ -5944,11 +6012,10 @@ export default function MenuManager() {
       const hour = Number(hourText);
       const minute = Number(minuteText);
       if (!Number.isFinite(hour) || !Number.isFinite(minute)) return "";
-      const inLunch = hour >= 11 && (hour < 15 || (hour === 15 && minute === 0));
-      const inDinner = hour >= 18 && (hour < 23 || (hour === 23 && minute === 0));
+      const inLunch = hour >= 11 && hour < 14;
+      const inDinner = hour >= 18 && hour < 22;
       if (!inLunch && !inDinner) return "";
-      const slotHour = hour === 15 ? 14 : hour === 23 ? 22 : hour;
-      return `${String(slotHour).padStart(2, "0")}h-${String(slotHour + 1).padStart(2, "0")}h`;
+      return `${String(hour).padStart(2, "0")}h-${String(hour + 1).padStart(2, "0")}h`;
     };
 
     const toLocalDateFromKey = (key: string) => {
@@ -6011,8 +6078,8 @@ export default function MenuManager() {
         slots.set(label, 0);
         orderSlots.set(label, 0);
       };
-      for (let hour = 11; hour < 15; hour += 1) addSlot(hour);
-      for (let hour = 18; hour < 23; hour += 1) addSlot(hour);
+      for (let hour = 11; hour < 14; hour += 1) addSlot(hour);
+      for (let hour = 18; hour < 22; hour += 1) addSlot(hour);
 
       paidOrders.forEach((order) => {
         const date = readOrderDateLocal(order);
@@ -6021,11 +6088,10 @@ export default function MenuManager() {
         const hour = Number(hourText);
         const minute = Number(minuteText);
         if (!Number.isFinite(hour) || !Number.isFinite(minute)) return;
-        const inLunch = hour >= 11 && (hour < 15 || (hour === 15 && minute === 0));
-        const inDinner = hour >= 18 && (hour < 23 || (hour === 23 && minute === 0));
+        const inLunch = hour >= 11 && hour < 14;
+        const inDinner = hour >= 18 && hour < 22;
         if (!inLunch && !inDinner) return;
-        const slotHour = hour === 15 ? 14 : hour === 23 ? 22 : hour;
-        const slotLabel = `${String(slotHour).padStart(2, "0")}h-${String(slotHour + 1).padStart(2, "0")}h`;
+        const slotLabel = `${String(hour).padStart(2, "0")}h-${String(hour + 1).padStart(2, "0")}h`;
         if (!slots.has(slotLabel)) return;
         slots.set(slotLabel, (slots.get(slotLabel) || 0) + readOrderTotal(order));
         orderSlots.set(slotLabel, (orderSlots.get(slotLabel) || 0) + 1);
@@ -6051,10 +6117,10 @@ export default function MenuManager() {
         slotMap.set(slot, 0);
         orderSlotMap.set(slot, 0);
       };
-      for (let minute = 11 * 60; minute <= 15 * 60; minute += 30) {
+      for (let minute = 11 * 60; minute < 14 * 60; minute += 30) {
         addSlot(Math.floor(minute / 60), minute % 60);
       }
-      for (let minute = 18 * 60; minute <= 23 * 60; minute += 30) {
+      for (let minute = 18 * 60; minute < 22 * 60; minute += 30) {
         addSlot(Math.floor(minute / 60), minute % 60);
       }
 
@@ -6065,8 +6131,8 @@ export default function MenuManager() {
         const hour = Number(hourText);
         const minute = Number(minuteText);
         if (!Number.isFinite(hour) || !Number.isFinite(minute)) return;
-        const inLunch = hour >= 11 && (hour < 15 || (hour === 15 && minute === 0));
-        const inDinner = hour >= 18 && (hour < 23 || (hour === 23 && minute === 0));
+        const inLunch = hour >= 11 && hour < 14;
+        const inDinner = hour >= 18 && hour < 22;
         if (!inLunch && !inDinner) return;
         const slotMinute = minute < 30 ? 0 : 30;
         const slot = `${String(hour).padStart(2, "0")}:${slotMinute === 0 ? "00" : "30"}`;
@@ -6972,6 +7038,329 @@ export default function MenuManager() {
     frameDocument.close();
   };
 
+  const handleExportMonthlyReportPdfArchive = async () => {
+    const doc = new jsPDF({ unit: "pt", format: "a4" });
+    const margin = 40;
+    let cursorY = 46;
+    const { start, end } = getRangeBounds(analyticsRange);
+    const occupationRows =
+      (displayedAnalytics.occupationByTimeSlots || []).length > 0
+        ? (displayedAnalytics.occupationByTimeSlots || []).map((slot: {
+            label: string;
+            occupancyRate: number;
+            averageOccupiedTables: number;
+            peakOccupiedTables: number;
+          }) => [
+            slot.label,
+            `${Number(slot.occupancyRate || 0).toFixed(1)}%`,
+            Number(slot.averageOccupiedTables || 0).toFixed(2),
+            Number(slot.peakOccupiedTables || 0).toFixed(0),
+          ])
+        : [["Aucune donnee", "", "", ""]];
+    const topRevenueRows =
+      (displayedAnalytics.topRevenue5 || []).length > 0
+        ? (displayedAnalytics.topRevenue5 || []).map((entry: { name: string; count: number; revenue: number }) => [
+            entry.name,
+            String(entry.count || 0),
+            formatEuro(entry.revenue || 0),
+          ])
+        : [["Aucune donnee", "", ""]];
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(20);
+    doc.text("Rapport financier manager", margin, cursorY);
+    cursorY += 18;
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
+    doc.text(`Periode: ${getRangeLabel(analyticsRange)} (${formatReportDate(start)} - ${formatReportDate(end)})`, margin, cursorY);
+    cursorY += 24;
+
+    autoTable(doc, {
+      startY: cursorY,
+      head: [["Indicateur", "Valeur"]],
+      body: [
+        ["CA total", formatEuro(displayedAnalytics.realRevenue)],
+        ["Panier moyen", formatEuro(displayedAnalytics.averageBasket)],
+        ["Commandes payees", String(displayedAnalytics.paidOrdersCount || 0)],
+        [avgOccupationRateLabel, `${Number(displayedAnalytics.averageOccupationRate || 0).toFixed(1)}%`],
+      ],
+      styles: { fontSize: 10, cellPadding: 6 },
+      headStyles: { fillColor: [17, 24, 39] },
+      margin: { left: margin, right: margin },
+    });
+    cursorY = ((doc as unknown as { lastAutoTable?: { finalY?: number } }).lastAutoTable?.finalY || cursorY) + 18;
+
+    autoTable(doc, {
+      startY: cursorY,
+      head: [["Tranche", "Taux", "Tables moyennes", "Pic"]],
+      body: occupationRows,
+      styles: { fontSize: 9, cellPadding: 5 },
+      headStyles: { fillColor: [37, 99, 235] },
+      margin: { left: margin, right: margin },
+    });
+    cursorY = ((doc as unknown as { lastAutoTable?: { finalY?: number } }).lastAutoTable?.finalY || cursorY) + 18;
+
+    autoTable(doc, {
+      startY: cursorY,
+      head: [["Produit", "Ventes", "CA"]],
+      body: topRevenueRows,
+      styles: { fontSize: 9, cellPadding: 5 },
+      headStyles: { fillColor: [5, 150, 105] },
+      margin: { left: margin, right: margin },
+    });
+
+    const fileName = `analyses_financieres_${buildArchiveMonthToken(end)}.pdf`;
+    const blob = doc.output("blob");
+    await savePdfReportToArchive("financial", fileName, blob);
+    downloadPdfBlob(blob, fileName);
+    setReportExportedRange(analyticsRange);
+  };
+
+  const handlePrintWeeklyReviewsReportPdf = async () => {
+    const doc = new jsPDF({ unit: "pt", format: "a4" });
+    const margin = 40;
+    let cursorY = 46;
+    const commentRows = reviews
+      .filter((review) => String(review.comment || "").trim().length > 0)
+      .slice(0, 30)
+      .map((review) => {
+        const rating = Number(review.rating || 0);
+        const dishName =
+          String(review.dish?.name_fr || review.dish?.name || "").trim() ||
+          (review.dish_id ? dishNameById.get(String(review.dish_id)) : "") ||
+          "Restaurant";
+        return [
+          review.created_at ? new Date(review.created_at).toLocaleString("fr-FR") : "-",
+          String(review.dish_id || "").trim() ? `Plat: ${dishName}` : "Avis restaurant",
+          rating > 0 ? `${rating}/5` : "-",
+          String(review.comment || "").trim(),
+        ];
+      });
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(20);
+    doc.text("Rapport hebdomadaire des avis", margin, cursorY);
+    cursorY += 18;
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
+    doc.text(`Genere le ${new Date().toLocaleString("fr-FR")}`, margin, cursorY);
+    cursorY += 22;
+
+    autoTable(doc, {
+      startY: cursorY,
+      head: [["Indicateur", "Valeur"]],
+      body: [
+        ["Note moyenne", reviewAverage > 0 ? `${reviewAverage}/5` : "-"],
+        ["Top plat", topReviewedDish ? topReviewedDish.name : "Aucun"],
+        ["Nombre d'avis", String(reviews.length)],
+      ],
+      styles: { fontSize: 10, cellPadding: 6 },
+      headStyles: { fillColor: [17, 24, 39] },
+      margin: { left: margin, right: margin },
+    });
+    cursorY = ((doc as unknown as { lastAutoTable?: { finalY?: number } }).lastAutoTable?.finalY || cursorY) + 18;
+
+    autoTable(doc, {
+      startY: cursorY,
+      head: [["Critere", "Note moyenne", "Nb. avis"]],
+      body:
+        reviewCriteriaAverages.length > 0
+          ? reviewCriteriaAverages.map((criterion) => [
+              criterion.label,
+              `${criterion.average.toFixed(2)}/5`,
+              String(criterion.count),
+            ])
+          : [["Aucun critere detaille disponible.", "", ""]],
+      styles: { fontSize: 9, cellPadding: 5 },
+      headStyles: { fillColor: [37, 99, 235] },
+      margin: { left: margin, right: margin },
+    });
+    cursorY = ((doc as unknown as { lastAutoTable?: { finalY?: number } }).lastAutoTable?.finalY || cursorY) + 18;
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(12);
+    doc.text("Points forts", margin, cursorY);
+    cursorY += 14;
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
+    (weeklyAiSummary.strengths.length > 0 ? weeklyAiSummary.strengths : ["Aucun signal fort detecte"]).forEach((item) => {
+      const lines = doc.splitTextToSize(`- ${item}`, 500);
+      doc.text(lines, margin, cursorY);
+      cursorY += lines.length * 12;
+    });
+    cursorY += 8;
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(12);
+    doc.text("A surveiller", margin, cursorY);
+    cursorY += 14;
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
+    (weeklyAiSummary.watchouts.length > 0 ? weeklyAiSummary.watchouts : ["Aucun point critique detecte"]).forEach((item) => {
+      const lines = doc.splitTextToSize(`- ${item}`, 500);
+      doc.text(lines, margin, cursorY);
+      cursorY += lines.length * 12;
+    });
+    cursorY += 8;
+
+    autoTable(doc, {
+      startY: cursorY,
+      head: [["Date", "Type", "Note", "Commentaire"]],
+      body: commentRows.length > 0 ? commentRows : [["-", "-", "-", "Aucun commentaire disponible."]],
+      styles: { fontSize: 8, cellPadding: 5, overflow: "linebreak" },
+      headStyles: { fillColor: [5, 150, 105] },
+      margin: { left: margin, right: margin },
+      columnStyles: {
+        0: { cellWidth: 90 },
+        1: { cellWidth: 110 },
+        2: { cellWidth: 50 },
+      },
+    });
+
+    const fileName = `avis_clients_${buildArchiveMonthToken(new Date())}.pdf`;
+    const blob = doc.output("blob");
+    await savePdfReportToArchive("reviews", fileName, blob);
+    downloadPdfBlob(blob, fileName);
+  };
+
+  const handleGeneratePrintableMenuPdf = async () => {
+    const doc = new jsPDF({ unit: "pt", format: "a4" });
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const margin = 40;
+    let cursorY = 48;
+
+    const grouped = new Map<string, Dish[]>();
+    const sideNameById = new Map<string, string>((sidesLibrary || []).map((side) => [String(side.id || ""), String(side.name_fr || "").trim()]));
+    const getPrintableExtraLabel = (extra: ExtrasItem) =>
+      String(extra.names_i18n?.[managerUiLang] || extra.names_i18n?.fr || extra.name_fr || "").trim();
+    const buildDishMetaLines = (dish: Dish) => {
+      const lines: string[] = [];
+      const parsedDescription = parseOptionsFromDescription(String(dish.description || ""));
+      const sideIds = Array.isArray(dish.selected_sides) ? dish.selected_sides : parsedDescription.sideIds;
+      const sideLabels = sideIds
+        .map((sideId) => sideNameById.get(String(sideId || "").trim()) || "")
+        .map((label) => String(label || "").trim())
+        .filter(Boolean);
+      if (sideLabels.length > 0) lines.push(`Accompagnements: ${sideLabels.join(", ")}`);
+
+      const extrasMergedMap = new Map<string, ExtrasItem>();
+      const addExtra = (extra: ExtrasItem) => {
+        const key = `${normalizeText(extra.name_fr)}::${Number(extra.price || 0).toFixed(2)}`;
+        if (!extrasMergedMap.has(key)) extrasMergedMap.set(key, extra);
+      };
+      const rawDish = dish as unknown as Record<string, unknown>;
+      [dish.extras_list, rawDish.dish_options, rawDish.extras, rawDish.extras_json].forEach((rawValue) => {
+        parseExtrasFromUnknown(rawValue).forEach(addExtra);
+      });
+      parsedDescription.extrasList.forEach(addExtra);
+      const extras = Array.from(extrasMergedMap.values());
+      if (extras.length > 0) {
+        lines.push(
+          `Supplements: ${extras
+            .map((extra) => {
+              const label = getPrintableExtraLabel(extra) || extra.name_fr;
+              const price = Number(extra.price || 0);
+              return price > 0 ? `${label} (+${formatEuro(price)})` : label;
+            })
+            .join(", ")}`
+        );
+      }
+
+      const rawOptions = rawDish.product_options ?? rawDish.options ?? rawDish.variants ?? [];
+      const parsedRawOptions =
+        Array.isArray(rawOptions)
+          ? rawOptions
+          : typeof rawOptions === "string"
+            ? (() => {
+                try {
+                  const parsed = JSON.parse(rawOptions);
+                  return Array.isArray(parsed) ? parsed : [];
+                } catch {
+                  return [];
+                }
+              })()
+            : [];
+      const options = parsedRawOptions as ProductOptionItem[];
+      if (options.length > 0) {
+        lines.push(
+          `Variantes: ${options
+            .map((option) => {
+              const label = String(option.name_fr || option.name || "Variante").trim();
+              const parsed = Number(option.price_override || 0);
+              return parsed > 0 ? `${label} (${formatEuro(parsed)})` : label;
+            })
+            .join(", ")}`
+        );
+      }
+      return lines;
+    };
+
+    preparedDishes.forEach((dish) => {
+      const categoryLabel =
+        categories.find((category) => String(category.id) === String(dish.category_id))?.name_fr || String(dish.categorie || "Autres");
+      const current = grouped.get(categoryLabel) || [];
+      current.push(dish);
+      grouped.set(categoryLabel, current);
+    });
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(22);
+    doc.text(String(restaurantForm.name || restaurant?.name || "Carte").trim(), margin, cursorY);
+    cursorY += 26;
+
+    Array.from(grouped.entries()).forEach(([categoryName, dishesInCategory], categoryIndex) => {
+      if (categoryIndex > 0) cursorY += 6;
+      if (cursorY > pageHeight - 90) {
+        doc.addPage();
+        cursorY = 48;
+      }
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(16);
+      doc.text(categoryName, margin, cursorY);
+      cursorY += 18;
+
+      dishesInCategory.forEach((dish) => {
+        const description = getDishDisplayDescription(dish);
+        const detailLines = buildDishMetaLines(dish);
+        if (cursorY > pageHeight - 110) {
+          doc.addPage();
+          cursorY = 48;
+        }
+
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(12);
+        doc.text(String(dish.name || "Plat"), margin, cursorY);
+        doc.text(formatEuro(Number(dish.price || 0)), 555, cursorY, { align: "right" });
+        cursorY += 14;
+
+        if (description) {
+          doc.setFont("helvetica", "normal");
+          doc.setFontSize(9);
+          const lines = doc.splitTextToSize(description, 500);
+          doc.text(lines, margin, cursorY);
+          cursorY += lines.length * 11;
+        }
+
+        detailLines.forEach((line) => {
+          doc.setFont("helvetica", "normal");
+          doc.setFontSize(8);
+          const lines = doc.splitTextToSize(line, 500);
+          doc.text(lines, margin + 8, cursorY);
+          cursorY += lines.length * 10;
+        });
+
+        cursorY += detailLines.length > 0 || description ? 8 : 4;
+        doc.setDrawColor(220, 220, 220);
+        doc.line(margin, cursorY, 555, cursorY);
+        cursorY += 10;
+      });
+    });
+
+    const fileName = `statistiques_carte_${buildArchiveMonthToken(new Date())}.pdf`;
+    const blob = doc.output("blob");
+    await savePdfReportToArchive("stats", fileName, blob);
+    downloadPdfBlob(blob, fileName);
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 text-black p-6" style={{ fontFamily: "Inter, Montserrat, sans-serif" }}>
       <DashboardOtpGate scope="manager" restaurantId={String(params?.id || params?.restaurant_id || "")} />
@@ -6995,6 +7384,13 @@ export default function MenuManager() {
           <div className="flex items-center justify-between">
             <h1 className="text-3xl font-black">Dashboard Manager</h1>
             <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => router.push(`/${scopedRestaurantId}/manager/archives`)}
+                className="px-4 py-2 border-2 border-black font-black rounded-xl bg-white"
+              >
+                Archives & Rapports
+              </button>
               <button
                 type="button"
                 onClick={() => void handleManagerSignOut()}
@@ -7346,7 +7742,7 @@ export default function MenuManager() {
                 <div className="flex flex-wrap justify-end gap-2">
                   <button
                     type="button"
-                    onClick={handleExportMonthlyReportPdf}
+                    onClick={() => void handleExportMonthlyReportPdfArchive()}
                     className="px-3 py-1.5 rounded-lg border text-sm font-black bg-blue-600 text-white border-blue-700"
                   >
                     Exporter le rapport mensuel (PDF)
@@ -7897,7 +8293,7 @@ export default function MenuManager() {
               </button>
               <button
                 type="button"
-                onClick={handleGeneratePrintableMenu}
+                onClick={() => void handleGeneratePrintableMenuPdf()}
                 className="px-4 py-2 border-2 border-black font-black rounded-xl bg-white"
               >
                 Générer ma carte papier (PDF)
@@ -9081,7 +9477,7 @@ export default function MenuManager() {
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
-                  onClick={handlePrintWeeklyReviewsReport}
+                  onClick={() => void handlePrintWeeklyReviewsReportPdf()}
                   className="px-3 py-2 border-2 border-black bg-blue-100 font-black rounded"
                 >
                   Imprimer le rapport hebdomadaire
