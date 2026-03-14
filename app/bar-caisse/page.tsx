@@ -302,7 +302,7 @@ function isDrink(item: OrderItem) {
   }
 
   const c = getCategory(item);
-  return ["boisson", "boissons", "bar", "drink", "drinks", "beverage", "beverages"].includes(c);
+  return ["boisson", "boissons", "vin", "vins", "bar", "drink", "drinks", "wine", "wines", "beverage", "beverages"].includes(c);
 }
 
 function normalizePrepItemStatus(raw: unknown): "pending" | "preparing" | "ready" {
@@ -517,9 +517,9 @@ function getItemSelectedOptionText(item: OrderItem) {
     return [];
   };
   const selectedOptionValues = normalizeUniqueTexts([
-    keepStaffFrenchLabel(item.selected_option_name || ""),
     ...flattenChoiceTextsForDisplay(item.selected_option),
     ...extractOptionOnly(record.selected_options ?? record.selectedOptions ?? record.options),
+    keepStaffFrenchLabel(item.selected_option_name || ""),
   ].map((value) => keepStaffFrenchLabel(value)).filter(Boolean));
   return selectedOptionValues.join(", ");
 }
@@ -648,8 +648,8 @@ function getItemNotes(item: OrderItem) {
   );
 
   return normalizeUnique([
-    keepStaffFrenchLabel(item.selected_option_name || ""),
     ...flattenChoiceTexts(item.selected_option),
+    keepStaffFrenchLabel(item.selected_option_name || ""),
     keepStaffFrenchLabel(item.cooking || item.cuisson || ""),
     keepStaffFrenchLabel(item.selected_cooking_label_fr || item.selected_cooking || ""),
     ...flattenChoiceTexts(item.side),
@@ -1068,10 +1068,11 @@ export default function BarCaissePage() {
           }
         }
 
-        if (!hasSideText(item)) {
+        {
           const sideNames = extractSideIds(item).map((id) => sideNameById[id]).filter(Boolean);
           if (sideNames.length > 0) {
             nextItem.accompaniment = sideNames.join(", ");
+            nextItem.accompagnement = sideNames.join(", ");
           }
         }
 

@@ -352,7 +352,7 @@ function getCategory(item: Item) {
 function isDrink(item: Item) {
   if (item?.is_drink === true) return true;
   const c = getCategory(item);
-  return c === "boisson" || c === "boissons" || c === "bar" || c === "drink" || c === "drinks";
+  return ["boisson", "boissons", "vin", "vins", "bar", "drink", "drinks", "wine", "wines", "beverage", "beverages"].includes(c);
 }
 
 function normalizePrepItemStatus(raw: unknown): "pending" | "preparing" | "ready" {

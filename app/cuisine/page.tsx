@@ -116,9 +116,13 @@ export default function KitchenPage() {
     return (
       cat === "boisson" ||
       cat === "boissons" ||
+      cat === "vin" ||
+      cat === "vins" ||
       cat === "bar" ||
       cat === "drink" ||
       cat === "drinks" ||
+      cat === "wine" ||
+      cat === "wines" ||
       cat === "beverage" ||
       cat === "beverages"
     );
@@ -619,9 +623,9 @@ export default function KitchenPage() {
 
     const selectedOptions = dedupeList(
       [
-        keepStaffFrenchLabel(itemRecord.selected_option_name || ""),
         ...toRawChoiceList(itemRecord.selected_option),
         ...optionValues.option,
+        keepStaffFrenchLabel(itemRecord.selected_option_name || ""),
       ].map((entry) => stripPrefixedValue(entry, "option"))
     );
     if (selectedOptions.length > 0) notes.push(`Option: ${selectedOptions.join(", ")}`);
