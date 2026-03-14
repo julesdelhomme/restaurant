@@ -2967,10 +2967,32 @@ export default function MenuManager() {
         };
       });
       const optionsByDishId = new Map<string, ProductOptionItem[]>();
+      const extrasByDishId = new Map<string, ExtrasItem[]>();
       const dishIds = normalized
         .map((dish) => String(dish.id || "").trim())
         .filter(Boolean);
       if (dishIds.length > 0) {
+        const dishOptionsResult = await supabase
+          .from("dish_options")
+          .select("*")
+          .in("dish_id", dishIds as never)
+          .order("created_at", { ascending: true });
+        if (!dishOptionsResult.error && Array.isArray(dishOptionsResult.data)) {
+          const groupedDishOptions = new Map<string, Array<Record<string, unknown>>>();
+          (dishOptionsResult.data as Array<Record<string, unknown>>).forEach((row) => {
+            const dishId = String(row.dish_id ?? "").trim();
+            if (!dishId) return;
+            const current = groupedDishOptions.get(dishId) || [];
+            current.push(row);
+            groupedDishOptions.set(dishId, current);
+          });
+          groupedDishOptions.forEach((rows, dishId) => {
+            extrasByDishId.set(dishId, parseDishOptionsRowsToExtras(rows));
+          });
+        } else if (dishOptionsResult.error) {
+          console.warn("dish_options fetch failed (manager dishes list):", dishOptionsResult.error.message);
+        }
+
         const primaryProductOptionsResult = await supabase
           .from("product_options")
           .select("*")
@@ -3033,6 +3055,13 @@ export default function MenuManager() {
       }
       const normalizedWithOptions = normalized.map((dish) => ({
         ...dish,
+        extras_list: mergeExtrasUnique(
+          extrasByDishId.get(String(dish.id || "").trim()) || [],
+          mergeExtrasUnique(
+            parseExtrasFromUnknown((dish as Record<string, unknown>).extras),
+            parseExtrasFromUnknown((dish as Record<string, unknown>).extras_list)
+          )
+        ),
         product_options: optionsByDishId.get(String(dish.id || "").trim()) || [],
       }));
       setDishes(normalizedWithOptions);
@@ -6780,6 +6809,14 @@ export default function MenuManager() {
           extra.name_fr ||
           ""
       ).trim();
+    const getPrintableOptionLabel = (option: ProductOptionItem) =>
+      String(
+        option.names_i18n?.[managerUiLang] ||
+          option.names_i18n?.fr ||
+          option.name_fr ||
+          option.name ||
+          ""
+      ).trim();
 
     const buildDishPrintableMeta = (dish: Dish) => {
       const parsedDescription = parseOptionsFromDescription(String(dish.description || ""));
@@ -6803,10 +6840,20 @@ export default function MenuManager() {
         parseExtrasFromUnknown(rawValue).forEach(addExtra);
       });
       parsedDescription.extrasList.forEach(addExtra);
+      const optionLabels = (Array.isArray(dish.product_options) ? dish.product_options : [])
+        .map((option) => {
+          const label = getPrintableOptionLabel(option);
+          if (!label) return "";
+          const parsedPrice = Number(option.price_override || 0);
+          return Number.isFinite(parsedPrice) && parsedPrice > 0 ? `${label} (${formatEuro(parsedPrice)})` : label;
+        })
+        .filter(Boolean);
       return {
         sideLabels,
         allergenLabels,
         supplements: Array.from(extrasMergedMap.values()),
+        optionLabels,
+        hasCookingChoice: Boolean(dish.ask_cooking ?? parsedDescription.askCooking),
       };
     };
     preparedDishes.forEach((dish) => {
@@ -6840,6 +6887,18 @@ export default function MenuManager() {
               printableMeta.allergenLabels.length > 0
                 ? `<div class="dish-allergens">Allergènes : ${escapeHtml(printableMeta.allergenLabels.join(", "))}</div>`
                 : "";
+            const optionsHtml =
+              printableMeta.optionLabels.length > 0 || printableMeta.hasCookingChoice
+                ? `<div class="dish-options">${
+                    printableMeta.optionLabels.length > 0
+                      ? `<div>Options : ${escapeHtml(printableMeta.optionLabels.join(", "))}</div>`
+                      : ""
+                  }${
+                    printableMeta.hasCookingChoice
+                      ? `<div>Cuisson : ${escapeHtml(managerUiLang === "de" ? "wahlbar" : managerUiLang === "es" ? "a elegir" : "au choix")}</div>`
+                      : ""
+                  }</div>`
+                : "";
             const sidesHtml =
               printableMeta.sideLabels.length > 0
                 ? `<div class="dish-accompaniments">Accompagnements : ${escapeHtml(printableMeta.sideLabels.join(", "))}</div>`
@@ -6854,6 +6913,7 @@ export default function MenuManager() {
                 <div class="dish-main">
                   <div class="dish-name">${escapeHtml(dish.name || "Plat")}</div>
                   ${description ? `<div class="dish-description">${escapeHtml(description)}</div>` : ""}
+                  ${optionsHtml}
                   ${supplementsHtml}
                   ${allergensHtml}
                   ${sidesHtml}
@@ -7011,6 +7071,7 @@ export default function MenuManager() {
             .dish-name { font-size: 17px; font-weight: 700; margin-bottom: 2px; }
             .dish-description { font-size: 13px; color: ${printMutedTextColor}; line-height: 1.45; white-space: pre-wrap; }
             .dish-supplements,
+            .dish-options,
             .dish-allergens,
             .dish-accompaniments {
               margin-top: 6px;
