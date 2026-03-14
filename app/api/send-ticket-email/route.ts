@@ -24,6 +24,7 @@ type TicketPayload = {
   paymentMethod?: string;
   countryCode?: string;
   totalTtc?: number;
+  tipAmount?: number;
   lines?: TicketLinePayload[];
   items?: unknown;
   order_items?: unknown;
@@ -376,6 +377,7 @@ function buildTicketContentHtml(payload: TicketPayload) {
     return sum + (Number.isFinite(unit) ? unit * q : 0);
   }, 0);
   const totalTtc = computedTotalTtc > 0 ? computedTotalTtc : Number(payload.totalTtc || 0);
+  const tipAmount = Number(payload.tipAmount || 0);
   const totalHt = totalTtc / 1.1;
   const vatAmount10 = totalTtc - totalHt;
 
@@ -410,6 +412,12 @@ function buildTicketContentHtml(payload: TicketPayload) {
 
       <div style="margin-top:14px;border-top:1px solid #e5e7eb;padding-top:10px;">
         <div style="font-size:18px;font-weight:700;">TOTAL TTC : ${escapeHtml(formatEuro(totalTtc))}</div>
+        ${tipAmount > 0 ? `<div style="margin-top:6px;font-size:13px;color:#111;">Pourboire : ${escapeHtml(formatEuro(tipAmount))}</div>` : ""}
+        ${
+          tipAmount > 0
+            ? `<div style="margin-top:4px;font-size:16px;font-weight:700;color:#111;">TOTAL ENCAISSÉ : ${escapeHtml(formatEuro(totalTtc + tipAmount))}</div>`
+            : ""
+        }
         <div style="margin-top:6px;font-size:12px;color:#333;">Total HT : ${escapeHtml(formatEuro(totalHt))}</div>
         <div style="margin-top:4px;font-size:12px;color:#333;">TVA 10% : ${escapeHtml(formatEuro(vatAmount10))}</div>
         <div style="margin-top:6px;font-size:13px;color:#111;">Mode de paiement : ${escapeHtml(paymentMethod)}</div>

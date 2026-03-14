@@ -73,6 +73,7 @@ type Order = {
   items: unknown;
   status: string;
   created_at: string;
+  tip_amount?: number | null;
   covers?: number | null;
   guest_count?: number | null;
   customer_count?: number | null;
@@ -144,6 +145,7 @@ type TicketPayload = {
   paymentMethod: string;
   countryCode: string;
   totalTtc: number;
+  tipAmount?: number;
   lines: TicketLinePayload[];
   socialLinks?: RestaurantSocialLinks;
   showSocialOnReceipt?: boolean;
@@ -164,6 +166,7 @@ type PaidTableHistoryEntry = {
   tableNumber: number;
   covers?: number | null;
   total: number;
+  tipAmount?: number;
   closedAt: string;
   paymentMethod: PaymentMethodLabel;
   items: OrderItem[];
@@ -795,6 +798,7 @@ export default function BarCaissePage() {
   const [encaisseModalTable, setEncaisseModalTable] = useState<number | null>(null);
   const [paymentModalStep, setPaymentModalStep] = useState<"choice" | "email">("choice");
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<PaymentMethodLabel>("Carte Bancaire");
+  const [tipAmountInput, setTipAmountInput] = useState("");
   const [ticketEmail, setTicketEmail] = useState("");
   const [paymentProcessing, setPaymentProcessing] = useState(false);
   const [ticketSending, setTicketSending] = useState(false);
@@ -1266,12 +1270,18 @@ export default function BarCaissePage() {
   );
   const modalTable = useMemo(() => tables.find((t) => t.tableNumber === encaisseModalTable) || null, [tables, encaisseModalTable]);
 
-  const appendPaidTableToHistory = (table: GroupedTable, closedAtIso: string, paymentMethod: PaymentMethodLabel) => {
+  const appendPaidTableToHistory = (
+    table: GroupedTable,
+    closedAtIso: string,
+    paymentMethod: PaymentMethodLabel,
+    tipAmount = 0
+  ) => {
     const entry: PaidTableHistoryEntry = {
       id: typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `paid-${table.tableNumber}-${Date.now()}`,
       tableNumber: Number(table.tableNumber),
       covers: Number(table.covers || 0) > 0 ? Number(table.covers || 0) : null,
       total: Number(table.total || 0),
+      tipAmount,
       closedAt: closedAtIso,
       paymentMethod,
       items: Array.isArray(table.items) ? table.items : [],
@@ -1447,11 +1457,13 @@ export default function BarCaissePage() {
   const buildTicketPayloadForTable = (
     tableNumber: number,
     paidAtIso?: string,
-    paymentMethod: PaymentMethodLabel = selectedPaymentMethod
+    paymentMethod: PaymentMethodLabel = selectedPaymentMethod,
+    tipAmountRaw: unknown = tipAmountInput
   ): TicketPayload | null => {
     const tableOrders = activeOrders.filter((o) => Number(o.table_number) === Number(tableNumber));
     if (tableOrders.length === 0) return null;
     let totalTtc = 0;
+    const tipAmount = parsePriceNumber(tipAmountRaw);
     const lines: TicketLinePayload[] = [];
     const latestOrder = [...tableOrders].sort(
       (a, b) => new Date(String(b.created_at || 0)).getTime() - new Date(String(a.created_at || 0)).getTime()
@@ -1485,6 +1497,7 @@ export default function BarCaissePage() {
       paymentMethod,
       countryCode: "FR",
       totalTtc,
+      tipAmount,
       lines,
       socialLinks: restaurantSocialLinks,
       showSocialOnReceipt,
@@ -1546,6 +1559,11 @@ export default function BarCaissePage() {
     doc.line(margin, y, width - margin, y);
     y += 16;
     printLine("TOTAL TTC", `${payload.totalTtc.toFixed(2)} EUR`, true, false);
+    const tipAmount = Number(payload.tipAmount || 0);
+    if (tipAmount > 0) {
+      printLine("POURBOIRE", `${tipAmount.toFixed(2)} EUR`, false, true);
+      printLine("TOTAL ENCAISSE", `${(Number(payload.totalTtc || 0) + tipAmount).toFixed(2)} EUR`, true, false);
+    }
     const totalHt = Number(payload.totalTtc || 0) / 1.1;
     const tvaAmount = Number(payload.totalTtc || 0) - totalHt;
     printLine("TOTAL HT", `${totalHt.toFixed(2)} EUR`, false, true);
@@ -1640,7 +1658,7 @@ export default function BarCaissePage() {
     return json;
   };
 
-  const markTableAsPaid = async (tableNumber: number) => {
+  const markTableAsPaid = async (tableNumber: number, tipAmountRaw: unknown = tipAmountInput) => {
     const isMissingColumnError = (error: unknown) => {
       const info = toErrorInfo(error);
       return String(info.code || "").trim() === "42703" || String(info.message || "").toLowerCase().includes("column");
@@ -1662,10 +1680,11 @@ export default function BarCaissePage() {
     }
 
     const paidAt = new Date().toISOString();
+    const tipAmount = parsePriceNumber(tipAmountRaw);
     let ordersError: unknown = null;
     const try1 = await supabase
       .from("orders")
-      .update({ status: "paid", closed_at: paidAt, paid_at: paidAt, updated_at: paidAt })
+      .update({ status: "paid", closed_at: paidAt, paid_at: paidAt, updated_at: paidAt, tip_amount: tipAmount })
       .eq("table_number", tableNumber)
       .neq("status", "paid")
       .neq("status", "archived");
@@ -1674,7 +1693,7 @@ export default function BarCaissePage() {
     if (ordersError && isMissingColumnError(ordersError)) {
       const try2 = await supabase
         .from("orders")
-        .update({ status: "paid", paid_at: paidAt, updated_at: paidAt })
+        .update({ status: "paid", paid_at: paidAt, updated_at: paidAt, tip_amount: tipAmount })
         .eq("table_number", tableNumber)
         .neq("status", "paid")
         .neq("status", "archived");
@@ -1684,7 +1703,7 @@ export default function BarCaissePage() {
     if (ordersError && isMissingColumnError(ordersError)) {
       const try3 = await supabase
         .from("orders")
-        .update({ status: "paid", updated_at: paidAt })
+        .update({ status: "paid", updated_at: paidAt, tip_amount: tipAmount })
         .eq("table_number", tableNumber)
         .neq("status", "paid")
         .neq("status", "archived");
@@ -1694,11 +1713,21 @@ export default function BarCaissePage() {
     if (ordersError && isMissingColumnError(ordersError)) {
       const try4 = await supabase
         .from("orders")
-        .update({ status: "paid" })
+        .update({ status: "paid", tip_amount: tipAmount })
         .eq("table_number", tableNumber)
         .neq("status", "paid")
         .neq("status", "archived");
       ordersError = try4.error;
+    }
+
+    if (ordersError && isMissingColumnError(ordersError)) {
+      const try5 = await supabase
+        .from("orders")
+        .update({ status: "paid" })
+        .eq("table_number", tableNumber)
+        .neq("status", "paid")
+        .neq("status", "archived");
+      ordersError = try5.error;
     }
 
     if (ordersError) {
@@ -1722,6 +1751,7 @@ export default function BarCaissePage() {
     setEncaisseModalTable(null);
     setPaymentModalStep("choice");
     setSelectedPaymentMethod("Carte Bancaire");
+    setTipAmountInput("");
     setTicketEmail("");
     setPaymentProcessing(false);
     setTicketSending(false);
@@ -1735,6 +1765,7 @@ export default function BarCaissePage() {
     setEncaisseModalTable(tableNumber);
     setPaymentModalStep("choice");
     setSelectedPaymentMethod("Carte Bancaire");
+    setTipAmountInput("");
     setTicketEmail("");
   };
 
@@ -1747,7 +1778,8 @@ export default function BarCaissePage() {
 
     const tableNumber = encaisseModalTable;
     const paidAtIso = new Date().toISOString();
-    const ticketPayload = buildTicketPayloadForTable(tableNumber, paidAtIso, selectedPaymentMethod);
+    const tipAmount = parsePriceNumber(tipAmountInput);
+    const ticketPayload = buildTicketPayloadForTable(tableNumber, paidAtIso, selectedPaymentMethod, tipAmount);
     const historyTableSnapshot = modalTable
       ? {
           tableNumber: modalTable.tableNumber,
@@ -1761,10 +1793,10 @@ export default function BarCaissePage() {
     if (mode === "email") setTicketSending(true);
 
     try {
-      const paid = await markTableAsPaid(tableNumber);
+      const paid = await markTableAsPaid(tableNumber, tipAmount);
       if (!paid) return;
       if (historyTableSnapshot) {
-        appendPaidTableToHistory(historyTableSnapshot, paidAtIso, selectedPaymentMethod);
+        appendPaidTableToHistory(historyTableSnapshot, paidAtIso, selectedPaymentMethod, tipAmount);
       }
       if (mode === "thermal-print" && ticketPayload) openThermalPrint(ticketPayload);
       if (mode === "email") {
@@ -2144,6 +2176,22 @@ export default function BarCaissePage() {
               </div>
             </div>
 
+            <div className="mb-4 border-2 border-black bg-white p-3">
+              <label className="mb-1 block text-sm font-black uppercase">Pourboire (facultatif)</label>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={tipAmountInput}
+                onChange={(e) => setTipAmountInput(e.target.value)}
+                placeholder="0.00"
+                className="h-12 w-full border-2 border-black px-3 font-bold"
+              />
+              <p className="mt-2 text-sm font-semibold text-gray-700">
+                Total encaissé : {euro.format(Number(modalTable.total || 0) + parsePriceNumber(tipAmountInput))}
+              </p>
+            </div>
+
             {paymentModalStep === "choice" ? (
               <div className="space-y-3">
                 <button type="button" onClick={() => void runPaymentFlow("none")} disabled={paymentProcessing} className="w-full border-2 border-black bg-gray-100 p-4 text-left shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] disabled:bg-gray-300">
@@ -2207,6 +2255,15 @@ export default function BarCaissePage() {
             })}
             <div className="thermal-sep" />
             <div className="thermal-line-top thermal-total"><span>Total TTC</span><span>{Number(thermalPrintPayload.totalTtc || 0).toFixed(2)} EUR</span></div>
+            {Number(thermalPrintPayload.tipAmount || 0) > 0 ? (
+              <>
+                <div className="thermal-line-sub">Pourboire: {Number(thermalPrintPayload.tipAmount || 0).toFixed(2)} EUR</div>
+                <div className="thermal-line-top thermal-total">
+                  <span>Total encaissé</span>
+                  <span>{(Number(thermalPrintPayload.totalTtc || 0) + Number(thermalPrintPayload.tipAmount || 0)).toFixed(2)} EUR</span>
+                </div>
+              </>
+            ) : null}
             <div className="thermal-line-sub">Total HT: {(Number(thermalPrintPayload.totalTtc || 0) / 1.1).toFixed(2)} EUR</div>
             <div className="thermal-line-sub">TVA 10%: {(Number(thermalPrintPayload.totalTtc || 0) - Number(thermalPrintPayload.totalTtc || 0) / 1.1).toFixed(2)} EUR</div>
           </div>

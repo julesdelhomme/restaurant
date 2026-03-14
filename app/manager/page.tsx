@@ -507,6 +507,7 @@ interface Order {
   items?: any;
   total?: number;
   total_price?: number;
+  tip_amount?: number | null;
   status?: string;
   table_number?: string | number | null;
   covers?: number | null;
@@ -529,8 +530,11 @@ interface TableAssignment {
 
 interface Stats {
   total: number;
+  totalTips: number;
   todayRevenue: number;
+  todayTips: number;
   weekRevenue: number;
+  weekTips: number;
   todayOrdersCount: number;
   averageBasket: number;
   topDishes: Array<{ name: string; count: number }>;
@@ -593,6 +597,7 @@ const ANALYTICS_I18N = {
     last7Days: "7 jours",
     last30Days: "30 jours",
     realRevenue: "CA réel",
+    tipsTotal: "Pourboires totaux",
     potentialRevenue: "CA potentiel",
     averageBasket: "Panier moyen",
     tableState: "État des tables",
@@ -633,6 +638,7 @@ const ANALYTICS_I18N = {
     last7Days: "7 dias",
     last30Days: "30 dias",
     realRevenue: "Facturacion real",
+    tipsTotal: "Propinas totales",
     potentialRevenue: "Facturacion potencial",
     averageBasket: "Ticket medio",
     tableState: "Estado de mesas",
@@ -673,6 +679,7 @@ const ANALYTICS_I18N = {
     last7Days: "7 Tage",
     last30Days: "30 Tage",
     realRevenue: "Realer Umsatz",
+    tipsTotal: "Trinkgelder gesamt",
     potentialRevenue: "Potenzial Umsatz",
     averageBasket: "Durchschnittsbon",
     tableState: "Tischstatus",
@@ -1438,8 +1445,11 @@ export default function MenuManager() {
   const [reviews, setReviews] = useState<ReviewRow[]>([]);
   const [stats, setStats] = useState<Stats>({
     total: 0,
+    totalTips: 0,
     todayRevenue: 0,
+    todayTips: 0,
     weekRevenue: 0,
+    weekTips: 0,
     todayOrdersCount: 0,
     averageBasket: 0,
     topDishes: [],
@@ -3388,8 +3398,11 @@ export default function MenuManager() {
 
   const calculateStats = (ordersData: Order[]) => {
     let totalRevenue = 0;
+    let totalTips = 0;
     let todayRevenue = 0;
+    let todayTips = 0;
     let weekRevenue = 0;
+    let weekTips = 0;
     let todayOrdersCount = 0;
     const today = new Date().toDateString();
     const dishCounts: Record<string, number> = {};
@@ -3401,6 +3414,10 @@ export default function MenuManager() {
     const paidOrders = ordersData.filter((order) => String(order.status || "").toLowerCase() === "paid");
 
     paidOrders.forEach((order) => {
+      const orderTip = Number(order.tip_amount || 0);
+      if (Number.isFinite(orderTip) && orderTip > 0) {
+        totalTips += orderTip;
+      }
       const items = typeof order.items === "string" ? JSON.parse(order.items) : order.items || [];
       let orderTotal = 0;
 
@@ -3428,11 +3445,13 @@ export default function MenuManager() {
       const orderDate = new Date(order.created_at).toDateString();
       if (orderDate === today) {
         todayRevenue += orderTotal;
+        todayTips += Number.isFinite(orderTip) ? orderTip : 0;
         todayOrdersCount++;
       }
       const orderDateObj = new Date(order.created_at);
       if (orderDateObj >= weekAgo) {
         weekRevenue += orderTotal;
+        weekTips += Number.isFinite(orderTip) ? orderTip : 0;
         const dayKey = dayNames[orderDateObj.getDay()];
         weekMap[dayKey] = (weekMap[dayKey] || 0) + 1;
       }
@@ -3447,8 +3466,11 @@ export default function MenuManager() {
 
     setStats({
       total: totalRevenue,
+      totalTips,
       todayRevenue,
+      todayTips,
       weekRevenue,
+      weekTips,
       todayOrdersCount,
       averageBasket,
       topDishes,
@@ -5777,6 +5799,10 @@ export default function MenuManager() {
       const total = Number(order.total_price);
       return Number.isFinite(total) ? total : 0;
     };
+    const readOrderTip = (order: Order) => {
+      const tip = Number(order.tip_amount);
+      return Number.isFinite(tip) ? tip : 0;
+    };
     const readOrderCovers = (order: Order) => {
       const candidates = [order.covers, order.guest_count, order.customer_count];
       for (const value of candidates) {
@@ -5829,6 +5855,7 @@ export default function MenuManager() {
     const paidOrders = inRangeOrders.filter((order) => readStatus(order) === "paid");
 
     const realRevenue = paidOrders.reduce((sum, order) => sum + readOrderTotal(order), 0);
+    const totalTips = paidOrders.reduce((sum, order) => sum + readOrderTip(order), 0);
     const averageBasket = paidOrders.length > 0 ? realRevenue / paidOrders.length : 0;
     const paidOrdersWithCovers = paidOrders.filter((order) => readOrderCovers(order) > 0);
     const totalCoversServed = paidOrdersWithCovers.reduce((sum, order) => sum + readOrderCovers(order), 0);
@@ -6433,6 +6460,7 @@ export default function MenuManager() {
 
     return {
       realRevenue,
+      totalTips,
       averageBasket,
       totalCoversServed,
       totalServedTableSessionsWithCovers,
@@ -7162,6 +7190,7 @@ export default function MenuManager() {
       head: [["Indicateur", "Valeur"]],
       body: [
         ["CA total", formatEuro(displayedAnalytics.realRevenue)],
+        [analyticsText.tipsTotal, formatEuro(displayedAnalytics.totalTips || 0)],
         ["Panier moyen", formatEuro(displayedAnalytics.averageBasket)],
         ["Commandes payees", String(displayedAnalytics.paidOrdersCount || 0)],
         [avgOccupationRateLabel, `${Number(displayedAnalytics.averageOccupationRate || 0).toFixed(1)}%`],
@@ -7939,10 +7968,14 @@ export default function MenuManager() {
 
             {analyticsTab === "live" && (
               <div className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-5 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-6 gap-4">
                   <div className="rounded-xl bg-green-50 border border-green-200 p-4">
                     <div className="text-sm font-bold text-green-900">{analyticsText.realRevenue}</div>
                     <div className="text-2xl font-black text-green-700">{formatEuro(displayedAnalytics.realRevenue)}</div>
+                  </div>
+                  <div className="rounded-xl bg-rose-50 border border-rose-200 p-4">
+                    <div className="text-sm font-bold text-rose-900">{analyticsText.tipsTotal}</div>
+                    <div className="text-2xl font-black text-rose-700">{formatEuro(displayedAnalytics.totalTips || 0)}</div>
                   </div>
                   <div className="rounded-xl bg-blue-50 border border-blue-200 p-4">
                     <div className="text-sm font-bold text-blue-900">{analyticsText.averageBasket}</div>
@@ -9106,6 +9139,19 @@ export default function MenuManager() {
                     className="w-full px-3 py-2 bg-white text-black border border-gray-300"
                     rows={3}
                   />
+                </div>
+                <div className="md:col-span-2 rounded-xl border border-blue-200 bg-blue-50 p-4">
+                  <div className="font-black text-blue-950">Comment configurer votre envoi de mails ?</div>
+                  <div className="mt-3 space-y-2 text-sm text-blue-950">
+                    <p><strong>Étape 1 :</strong> Créez une adresse Gmail dédiée à votre restaurant.</p>
+                    <p><strong>Étape 2 :</strong> Activez la &apos;Validation en deux étapes&apos; dans les paramètres de sécurité Google.</p>
+                    <p><strong>Étape 3 :</strong> Recherchez &apos;Mots de passe d&apos;application&apos; dans votre compte Google.</p>
+                    <p><strong>Étape 4 :</strong> Générez un code pour &apos;Application de messagerie&apos;. Copiez ce code de 16 caractères.</p>
+                    <p><strong>Étape 5 :</strong> Collez ce code dans le champ &apos;Mot de passe SMTP&apos; de votre interface Elemdho.</p>
+                    <p className="pt-1 text-blue-900">
+                      <strong>Note :</strong> Cela permet à l&apos;application d&apos;envoyer les codes de sécurité à vos clients en toute sécurité.
+                    </p>
+                  </div>
                 </div>
                 <div id="manager-social-config" className="md:col-span-2 font-black">Réseaux Sociaux</div>
                 <div>
