@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import ProAccessGuard from "../components/ProAccessGuard";
+import DashboardOtpGate from "../components/DashboardOtpGate";
 import RestaurantQrCard from "../components/RestaurantQrCard";
 import { supabase } from "../lib/supabase";
 import { buildRestaurantPublicUrl, buildRestaurantVitrineUrl } from "@/lib/restaurant-url";
@@ -370,6 +371,7 @@ export default function SuperAdminPage() {
   return (
     <ProAccessGuard requiredRole="super_admin" allowSuperAdmin>
       <div className="min-h-screen bg-gray-100 text-black p-6">
+        <DashboardOtpGate scope="super_admin" />
         <div className="max-w-7xl mx-auto space-y-6">
           <header className="flex items-center justify-between">
             <h1 className="text-3xl font-black">Super-Admin</h1>

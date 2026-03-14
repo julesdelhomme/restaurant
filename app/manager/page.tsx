@@ -9,6 +9,7 @@ import autoTable from "jspdf-autotable";
 import { ChevronDown, ChevronRight, CircleHelp, Pencil, Printer, Send, Star, Trash2, X } from "lucide-react";
 import { DEFAULT_ALLERGEN_TRANSLATIONS_EXTENDED, PREDEFINED_LANGUAGE_OPTIONS_EXTENDED } from "../lib/languagesConfig";
 import RestaurantQrCard from "../components/RestaurantQrCard";
+import DashboardOtpGate from "../components/DashboardOtpGate";
 import { buildRestaurantPublicUrl, buildRestaurantVitrineUrl } from "@/lib/restaurant-url";
 import {
   Bar,
@@ -6639,6 +6640,13 @@ export default function MenuManager() {
 
     const normalizePrintableUrl = (value: unknown, fallbackBucket?: string) =>
       resolveSupabasePublicUrl(value, fallbackBucket);
+    const getPrintableExtraLabel = (extra: ExtrasItem) =>
+      String(
+        extra.names_i18n?.[managerUiLang] ||
+          extra.names_i18n?.fr ||
+          extra.name_fr ||
+          ""
+      ).trim();
 
     const buildDishMetaLines = (dish: Dish) => {
       const lines: string[] = [];
@@ -6669,12 +6677,11 @@ export default function MenuManager() {
         const extrasText = extras
           .map((extra) => {
             const price = Number(extra.price || 0);
-            return Number.isFinite(price) && price > 0 ? `${extra.name_fr} (+${formatEuro(price)})` : `${extra.name_fr}`;
+            const label = getPrintableExtraLabel(extra) || extra.name_fr;
+            return Number.isFinite(price) && price > 0 ? `${label} (+${formatEuro(price)})` : label;
           })
           .join(", ");
         lines.push(`Suppléments: ${extrasText}`);
-      } else if (dish.has_extras) {
-        lines.push("Suppléments: disponibles selon options du plat");
       }
 
       const rawOptions = rawDish.product_options ?? rawDish.options ?? rawDish.variants ?? [];
@@ -6921,6 +6928,7 @@ export default function MenuManager() {
 
   return (
     <div className="min-h-screen bg-gray-50 text-black p-6" style={{ fontFamily: "Inter, Montserrat, sans-serif" }}>
+      <DashboardOtpGate scope="manager" />
       <div className={`max-w-6xl mx-auto ${forceFirstLoginPasswordChange ? "pointer-events-none select-none" : ""}`}>
         {isRestaurantLoading ? (
           <div className="mb-4 rounded-xl border border-gray-300 bg-white p-3 text-sm font-bold text-gray-700">
