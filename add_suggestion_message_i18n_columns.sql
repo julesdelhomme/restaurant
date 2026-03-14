@@ -8,6 +8,7 @@ alter table if exists public.dishes
   add column if not exists suggestion_message_it text,
   add column if not exists suggestion_message_pt text,
   add column if not exists suggestion_message_ja text,
+  add column if not exists suggestion_message_jp text,
   add column if not exists suggestion_message_nl text,
   add column if not exists suggestion_message_pl text,
   add column if not exists suggestion_message_ro text,
@@ -33,6 +34,14 @@ begin
     where table_schema = 'public' and table_name = 'dishes' and column_name = 'suggestion_message_jp'
   ) then
     execute 'update public.dishes set suggestion_message_ja = coalesce(nullif(suggestion_message_ja, ''''), suggestion_message_jp) where coalesce(suggestion_message_jp, '''') <> '''';';
+  end if;
+
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public' and table_name = 'dishes' and column_name = 'suggestion_message_ja'
+  ) then
+    execute 'update public.dishes set suggestion_message_jp = coalesce(nullif(suggestion_message_jp, ''''), suggestion_message_ja) where coalesce(suggestion_message_ja, '''') <> '''';';
   end if;
 
   if exists (

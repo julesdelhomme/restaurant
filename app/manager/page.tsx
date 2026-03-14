@@ -6,7 +6,7 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "../lib/supabase";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
-import { ChevronDown, ChevronRight, Pencil, Printer, Send, Star, Trash2, X } from "lucide-react";
+import { ChevronDown, ChevronRight, CircleHelp, Pencil, Printer, Send, Star, Trash2, X } from "lucide-react";
 import { DEFAULT_ALLERGEN_TRANSLATIONS_EXTENDED, PREDEFINED_LANGUAGE_OPTIONS_EXTENDED } from "../lib/languagesConfig";
 import RestaurantQrCard from "../components/RestaurantQrCard";
 import { buildRestaurantPublicUrl, buildRestaurantVitrineUrl } from "@/lib/restaurant-url";
@@ -1149,42 +1149,8 @@ function mergeExtrasUnique(primary: ExtrasItem[], secondary: ExtrasItem[]) {
   return out;
 }
 
-function buildDescriptionWithOptions(
-  baseDescription: string,
-  sideIds: Array<string | number>,
-  extrasList: ExtrasItem[],
-  askCooking: boolean
-) {
-  const parts: string[] = [];
-  if (baseDescription && baseDescription.trim()) parts.push(baseDescription.trim());
-  if (sideIds.length > 0) parts.push(`__SIDE_IDS__: ${sideIds.map(String).join(",")}`);
-  if (askCooking) parts.push("__ASK_COOKING__: true");
-  if (extrasList && extrasList.length > 0) {
-    const extrasPayload = extrasList
-      .filter((e) => e.name_fr && e.name_fr.trim())
-      .map((e) => {
-        const names = {
-          ...(e.names_i18n || {}),
-          fr: (e.name_fr || "").trim(),
-          en: (e.name_en || "").trim(),
-          es: (e.name_es || "").trim(),
-          de: (e.name_de || "").trim(),
-        };
-        return {
-          id: e.id || createLocalId(),
-          name_fr: (e.name_fr || "").trim(),
-          name_en: (e.name_en || "").trim(),
-          name_es: (e.name_es || "").trim(),
-          name_de: (e.name_de || "").trim(),
-          names_i18n: names,
-          price: Number(e.price || 0).toFixed(2),
-        };
-      });
-    if (extrasPayload.length > 0) {
-      parts.push(`__EXTRAS_JSON__: ${encodeURIComponent(JSON.stringify(extrasPayload))}`);
-    }
-  }
-  return parts.join("\n");
+function buildDescriptionWithOptions(baseDescription: string) {
+  return String(baseDescription || "").trim();
 }
 
 function parseDishOptionsRowsToExtras(rows: Array<Record<string, unknown>>): ExtrasItem[] {
@@ -3575,7 +3541,7 @@ export default function MenuManager() {
         es: directNameByLang.es || dish.name_es || "",
         de: directNameByLang.de || dish.name_de || "",
       },
-      description_fr: dish.description_fr || parsed.baseDescription || dish.description || "",
+      description_fr: getDishDisplayDescription(dish) || "",
       description_en: dish.description_en || "",
       description_es: dish.description_es || "",
       description_de: dish.description_de || "",
@@ -3976,12 +3942,8 @@ export default function MenuManager() {
           : mergeExtrasUnique(loadedDishExtras, mergedEditExtras))
       : formData.extras_list;
 
-    const finalDescription = buildDescriptionWithOptions(
-      formData.description_fr,
-      formData.selected_side_ids,
-      extrasToPersist,
-      formData.ask_cooking
-    );
+    const normalizedDescriptionFr = String(formData.description_fr || "").trim();
+    const finalDescription = buildDescriptionWithOptions(normalizedDescriptionFr);
     const mergedNameI18n: Record<string, string> = {
       ...(formData.name_i18n || {}),
       fr: formData.name_fr || "",
@@ -3991,7 +3953,7 @@ export default function MenuManager() {
     };
     const mergedDescriptionI18n: Record<string, string> = {
       ...(formData.description_i18n || {}),
-      fr: formData.description_fr || "",
+      fr: normalizedDescriptionFr,
       en: formData.description_en || "",
       es: formData.description_es || "",
       de: formData.description_de || "",
@@ -4079,7 +4041,7 @@ export default function MenuManager() {
       name_es: mergedNameI18n.es || null,
       name_de: mergedNameI18n.de || null,
       description: finalDescription || null,
-      description_fr: formData.description_fr || null,
+      description_fr: normalizedDescriptionFr || null,
       description_en: mergedDescriptionI18n.en || null,
       description_es: mergedDescriptionI18n.es || null,
       description_de: mergedDescriptionI18n.de || null,
@@ -9671,7 +9633,7 @@ export default function MenuManager() {
                   />
                   Demander la cuisson ?
                 </label>
-                <div className="flex items-start gap-2 text-black font-bold">
+                <div className="flex items-center gap-2 text-black font-bold">
                   <label className="flex items-center gap-2">
                     <input
                       type="checkbox"
@@ -9681,11 +9643,11 @@ export default function MenuManager() {
                     Autoriser la sélection multiple
                   </label>
                   <span
-                    className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-gray-400 bg-white text-xs font-black text-gray-700 cursor-help"
+                    className="inline-flex h-4 w-4 shrink-0 items-center justify-center self-center text-gray-500 cursor-help"
                     title="Si coché, le client pourra sélectionner plusieurs suppléments ou options. Si décoché, il ne pourra en choisir qu'un seul (boutons radio)."
                     aria-label="Aide sélection multiple"
                   >
-                    ?
+                    <CircleHelp className="h-4 w-4" />
                   </span>
                 </div>
                 <label className="flex items-center gap-2 text-black font-bold">

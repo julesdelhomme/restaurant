@@ -757,11 +757,12 @@ function buildRuntimeUiText(
   (Object.keys(base.labels) as Array<keyof typeof base.labels>).forEach((labelKey) => {
     mergedLabels[labelKey] = pick(`labels.${String(labelKey)}`, base.labels[labelKey]);
   });
+  mergedLabels.all = pickAlias("labels.all", ["categories.all", "all"], base.labels.all);
 
   const merged = {
     ...base,
     categories: [
-      pick("categories.all", base.categories[0]),
+      pickAlias("categories.all", ["labels.all", "all"], base.categories[0]),
       pick("categories.starters", base.categories[1]),
       pick("categories.mains", base.categories[2]),
       pick("categories.desserts", base.categories[3]),
@@ -782,9 +783,15 @@ function buildRuntimeUiText(
     emptyCart: pick("emptyCart", base.emptyCart),
     noDishes: pick("noDishes", base.noDishes),
     specialRequestLabel: pickAlias("specialRequestLabel", ["precision"], base.specialRequestLabel),
-    specialRequestPlaceholder: pickAlias("specialRequestPlaceholder", ["precisionExample"], base.specialRequestPlaceholder),
+    specialRequestPlaceholder: pickAlias(
+      "specialRequestPlaceholder",
+      ["precisionExample", "special_request_placeholder"],
+      base.specialRequestPlaceholder
+    ),
     precision: pickAlias("precision", ["specialRequestLabel"], base.specialRequestLabel),
     precisionExample: pickAlias("precisionExample", ["specialRequestPlaceholder"], base.specialRequestPlaceholder),
+    optionsAndVariants: pickAlias("optionsAndVariants", ["options_variants"], "Options / Variantes"),
+    itemTotal: pickAlias("itemTotal", ["item_total"], "Total article"),
     sidesLabel: pickAlias("sidesLabel", ["sideDish"], base.sidesLabel),
     sideDish: pickAlias("sideDish", ["sidesLabel"], base.sidesLabel),
     allergensLabel: pickAlias("allergensLabel", ["allergens"], base.allergensLabel),
@@ -2167,6 +2174,10 @@ export default function MenuDigital() {
   const tt = (key: keyof (typeof UI_TEXT)["fr"]["labels"]) => {
     return uiText.labels[key] || t(lang, key);
   };
+  const optionVariantsLabel =
+    String((uiText as unknown as Record<string, unknown>).optionsAndVariants || "").trim() || "Options / Variantes";
+  const itemTotalLabel =
+    String((uiText as unknown as Record<string, unknown>).itemTotal || "").trim() || "Total article";
   const toFinitePrice = (raw: unknown) => {
     if (raw == null) return null;
     if (typeof raw === "string" && raw.trim() === "") return null;
@@ -5369,7 +5380,7 @@ export default function MenuDigital() {
 
             {modalProductOptions.length > 0 && (
               <div className="mb-3">
-                <label className="font-bold text-black mb-1 block">Options / Variantes :</label>
+                <label className="font-bold text-black mb-1 block">{optionVariantsLabel} :</label>
                 <div className="flex flex-col gap-2">
                   {modalProductOptions.map((option, optionIndex) => {
                     const optionId = String(option.id || `option-${optionIndex}`);
@@ -5492,13 +5503,15 @@ export default function MenuDigital() {
                   <textarea
                     value={specialRequest}
                     onChange={(e) => setSpecialRequest(e.target.value)}
-                    className="w-full px-3 py-2 bg-white text-black border border-gray-300"
+                    dir={isRtl ? "rtl" : "ltr"}
+                    className={`w-full px-3 py-2 bg-white text-black border border-gray-300 ${isRtl ? "text-right" : "text-left"}`}
+                    style={{ textAlign: isRtl ? "right" : "left" }}
                     rows={2}
                     placeholder={uiText.specialRequestPlaceholder}
                   />
                 </div>
                 <div className="text-sm font-bold text-black mb-2">
-                  Total article: {modalTotalPrice.toFixed(2)}&euro;
+                  {itemTotalLabel}: {modalTotalPrice.toFixed(2)}&euro;
                 </div>
 
                 {sideError && (

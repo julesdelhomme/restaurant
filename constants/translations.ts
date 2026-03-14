@@ -415,6 +415,7 @@ const EMPTY_CART_LABEL_BY_LANG: Record<string, string> = {
 const EXTRA_UI_TERMS_BY_LANG: Record<
   string,
   {
+    all?: string;
     yourTable?: string;
     enterPin?: string;
     startOrder?: string;
@@ -436,9 +437,12 @@ const EXTRA_UI_TERMS_BY_LANG: Record<
     add?: string;
     precision?: string;
     precisionExample?: string;
+    optionsAndVariants?: string;
+    itemTotal?: string;
   }
 > = {
   fr: {
+    all: "Tous",
     yourTable: "Votre table",
     enterPin: "Code PIN",
     startOrder: "Commencer",
@@ -460,8 +464,11 @@ const EXTRA_UI_TERMS_BY_LANG: Record<
     add: "Ajouter",
     precision: "Précisions",
     precisionExample: "Exemple : sans oignon, sauce à part...",
+    optionsAndVariants: "Options / Variantes",
+    itemTotal: "Total article",
   },
   en: {
+    all: "All",
     yourTable: "Your table",
     enterPin: "PIN code",
     startOrder: "Start",
@@ -483,8 +490,11 @@ const EXTRA_UI_TERMS_BY_LANG: Record<
     add: "Add",
     precision: "Instructions",
     precisionExample: "Ex: no onions, sauce on the side...",
+    optionsAndVariants: "Options / Variants",
+    itemTotal: "Item total",
   },
   es: {
+    all: "Todos",
     yourTable: "Su mesa",
     enterPin: "Código PIN",
     startOrder: "Comenzar",
@@ -506,8 +516,11 @@ const EXTRA_UI_TERMS_BY_LANG: Record<
     add: "Añadir",
     precision: "Instrucciones",
     precisionExample: "Ej: sin cebolla, salsa aparte...",
+    optionsAndVariants: "Opciones / Variantes",
+    itemTotal: "Total del artículo",
   },
   de: {
+    all: "Alle",
     yourTable: "Ihr Tisch",
     enterPin: "PIN-Code",
     startOrder: "Starten",
@@ -529,8 +542,11 @@ const EXTRA_UI_TERMS_BY_LANG: Record<
     add: "Hinzufügen",
     precision: "Anmerkungen",
     precisionExample: "Z.B.: ohne Zwiebeln, Sauce separat...",
+    optionsAndVariants: "Optionen / Varianten",
+    itemTotal: "Artikel gesamt",
   },
   pt: {
+    all: "Todos",
     yourTable: "Sua mesa",
     enterPin: "Código PIN",
     startOrder: "Começar",
@@ -552,8 +568,11 @@ const EXTRA_UI_TERMS_BY_LANG: Record<
     add: "Adicionar",
     precision: "Observações",
     precisionExample: "Ex: sem cebola, molho à parte...",
+    optionsAndVariants: "Opções / Variantes",
+    itemTotal: "Total do artigo",
   },
   it: {
+    all: "Tutti",
     yourTable: "Il tuo tavolo",
     enterPin: "Codice PIN",
     startOrder: "Inizia",
@@ -575,8 +594,11 @@ const EXTRA_UI_TERMS_BY_LANG: Record<
     add: "Aggiungi",
     precision: "Note",
     precisionExample: "Es: senza cipolla, salsa a parte...",
+    optionsAndVariants: "Opzioni / Varianti",
+    itemTotal: "Totale articolo",
   },
   nl: {
+    all: "Alle",
     yourTable: "Uw tafel",
     enterPin: "PIN-code",
     startOrder: "Start",
@@ -598,8 +620,11 @@ const EXTRA_UI_TERMS_BY_LANG: Record<
     add: "Toevoegen",
     precision: "Opmerkingen",
     precisionExample: "Bijv: geen ui, saus apart...",
+    optionsAndVariants: "Opties / Variaties",
+    itemTotal: "Artikeltotaal",
   },
   pl: {
+    all: "Wszystkie",
     yourTable: "Twój stolik",
     enterPin: "Kod PIN",
     startOrder: "Rozpocznij",
@@ -621,8 +646,11 @@ const EXTRA_UI_TERMS_BY_LANG: Record<
     add: "Dodaj",
     precision: "Uwagi",
     precisionExample: "Np. bez cebuli, sos osobno...",
+    optionsAndVariants: "Opcje / Warianty",
+    itemTotal: "Suma pozycji",
   },
   ro: {
+    all: "Toate",
     yourTable: "Masa ta",
     enterPin: "Cod PIN",
     startOrder: "Începe",
@@ -644,8 +672,11 @@ const EXTRA_UI_TERMS_BY_LANG: Record<
     add: "Adaugă",
     precision: "Mențiuni",
     precisionExample: "Ex: fără ceapă, sos separat...",
+    optionsAndVariants: "Opțiuni / Variante",
+    itemTotal: "Total articolului",
   },
   el: {
+    all: "Όλα",
     yourTable: "Το τραπέζι σας",
     enterPin: "Κωδικός PIN",
     startOrder: "Έναρξη",
@@ -667,8 +698,11 @@ const EXTRA_UI_TERMS_BY_LANG: Record<
     add: "Προσθήκη",
     precision: "Οδηγίες",
     precisionExample: "Π.χ. χωρίς κρεμμύδι, σάλτσα χωριστά...",
+    optionsAndVariants: "Επιλογές / Παραλλαγές",
+    itemTotal: "Σύνολο είδους",
   },
   ja: {
+    all: "すべて",
     yourTable: "お席番号",
     enterPin: "ピンコード",
     startOrder: "開始",
@@ -690,8 +724,11 @@ const EXTRA_UI_TERMS_BY_LANG: Record<
     add: "追加",
     precision: "備考・ご要望",
     precisionExample: "例：玉ねぎ抜き、ソース別添え...",
+    optionsAndVariants: "オプション / バリエーション",
+    itemTotal: "商品合計",
   },
   zh: {
+    all: "全部",
     yourTable: "您的桌号",
     enterPin: "密码",
     startOrder: "开始",
@@ -713,8 +750,11 @@ const EXTRA_UI_TERMS_BY_LANG: Record<
     add: "添加",
     precision: "备注",
     precisionExample: "例如：不要洋葱，酱汁分开...",
+    optionsAndVariants: "选项 / 规格",
+    itemTotal: "单品总计",
   },
   ko: {
+    all: "전체",
     yourTable: "테이블 번호",
     enterPin: "핀 번호",
     startOrder: "시작",
@@ -736,8 +776,11 @@ const EXTRA_UI_TERMS_BY_LANG: Record<
     add: "추가",
     precision: "요청 사항",
     precisionExample: "예: 양파 빼고, 소스는 따로...",
+    optionsAndVariants: "옵션 / 변형",
+    itemTotal: "상품 합계",
   },
   ar: {
+    all: "الكل",
     yourTable: "طاولتك",
     enterPin: "رمز PIN",
     startOrder: "ابدأ",
@@ -759,8 +802,11 @@ const EXTRA_UI_TERMS_BY_LANG: Record<
     add: "إضافة",
     precision: "ملاحظات",
     precisionExample: "مثال: بدون بصل، الصلصة جانباً...",
+    optionsAndVariants: "الخيارات / الأنواع",
+    itemTotal: "إجمالي الصنف",
   },
   ru: {
+    all: "Все",
     yourTable: "Ваш стол",
     enterPin: "ПИН-код",
     startOrder: "Начать",
@@ -782,6 +828,8 @@ const EXTRA_UI_TERMS_BY_LANG: Record<
     add: "Добавить",
     precision: "Пожелания",
     precisionExample: "Напр.: без лука, соус отдельно...",
+    optionsAndVariants: "Опции / Варианты",
+    itemTotal: "Итого за позицию",
   },
 };
 
@@ -955,6 +1003,8 @@ export const MASTER_UI_DICTIONARY: MasterUiDictionary = Object.fromEntries(
       orderSuccess,
       requiredCooking,
       optionalAllergens: String(row.optionalAllergens || `${allergensLabel} :`),
+      all: String((row as Record<string, string>).all || extraTerms.all || row["labels.all"] || ""),
+      "categories.all": String((row as Record<string, string>)["categories.all"] || extraTerms.all || row["labels.all"] || ""),
       yourTable: String(row.yourTable || extraTerms.yourTable || ""),
       enterPin: String(row.enterPin || extraTerms.enterPin || ""),
       startOrder: String(row.startOrder || extraTerms.startOrder || row.order || ""),
@@ -976,6 +1026,16 @@ export const MASTER_UI_DICTIONARY: MasterUiDictionary = Object.fromEntries(
       add: String(row.add || extraTerms.add || ""),
       precision: String(row.precision || extraTerms.precision || row.specialRequestLabel || ""),
       precisionExample: String(row.precisionExample || extraTerms.precisionExample || row.specialRequestPlaceholder || ""),
+      optionsAndVariants: String((row as Record<string, string>).optionsAndVariants || extraTerms.optionsAndVariants || ""),
+      options_variants: String((row as Record<string, string>).options_variants || extraTerms.optionsAndVariants || ""),
+      itemTotal: String((row as Record<string, string>).itemTotal || extraTerms.itemTotal || ""),
+      item_total: String((row as Record<string, string>).item_total || extraTerms.itemTotal || ""),
+      specialRequestPlaceholder: String(
+        row.specialRequestPlaceholder || extraTerms.precisionExample || row.precisionExample || ""
+      ),
+      special_request_placeholder: String(
+        (row as Record<string, string>).special_request_placeholder || extraTerms.precisionExample || row.precisionExample || ""
+      ),
       "labels.cooking_required_error": requiredCooking,
       "labels.featured_chef": String((row as Record<string, string>)["labels.featured_chef"] || extraTerms.chefSuggestion || ""),
       "labels.featured_daily": String((row as Record<string, string>)["labels.featured_daily"] || extraTerms.platDuJour || ""),
