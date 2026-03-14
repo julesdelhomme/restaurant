@@ -3,10 +3,15 @@ import React, { useEffect } from "react";
 type TicketItem = {
   quantity?: number;
   name?: string;
+  name_fr?: string;
   nom?: string;
   category?: string;
   categorie?: string;
+  destination?: string;
+  selected_side_label_fr?: string;
+  accompagnement_fr?: string;
   selectedSides?: string[];
+  selected_option_name?: string;
   selectedExtras?: Array<{ name?: string; name_fr?: string }>;
   specialRequest?: string;
 };
@@ -32,6 +37,13 @@ export default function ThermalTicket({ order, isVisible }: { order: TicketOrder
     return (raw.split(/\s\/\s/).map((part) => part.trim()).filter(Boolean)[0] || raw)
       .replace(/\s{2,}/g, " ")
       .trim();
+  };
+
+  const resolveTicketDestination = (item: TicketItem) => {
+    const explicit = String(item.destination || "").trim().toLowerCase();
+    if (explicit === "cuisine" || explicit === "bar") return explicit;
+    const cat = String(item.categorie || item.category || "").toLowerCase();
+    return ["boisson", "boissons", "vin", "vins", "bar", "drink", "drinks", "wine", "wines"].includes(cat) ? "bar" : "cuisine";
   };
 
   let items: TicketItem[] = Array.isArray(order.items) ? order.items : [];
@@ -74,18 +86,26 @@ export default function ThermalTicket({ order, isVisible }: { order: TicketOrder
           <div style={{ borderBottom: "2px solid #000", marginBottom: 8 }} />
           <div>
             {items
-              .filter((item) => {
-                const cat = String(item.categorie || item.category || "").toLowerCase();
-                return !["boisson", "boissons", "vin", "vins", "bar", "drink", "drinks", "wine", "wines"].includes(cat);
-              })
+              .filter((item) => resolveTicketDestination(item) === "cuisine")
               .map((item, idx) => (
                 <div key={idx} style={{ marginBottom: 6 }}>
                   <div style={{ fontSize: 22, fontWeight: "bold" }}>
-                    {Number(item.quantity || 1)}x {keepStaffFrenchLabel(item.name || item.nom || "Plat inconnu")}
+                    {Number(item.quantity || 1)}x {keepStaffFrenchLabel(item.name_fr || item.name || item.nom || "Plat inconnu")}
                   </div>
-                  {Array.isArray(item.selectedSides) && item.selectedSides.length > 0 ? (
+                  {(String(item.selected_side_label_fr || item.accompagnement_fr || "").trim() || (Array.isArray(item.selectedSides) && item.selectedSides.length > 0)) ? (
                     <div style={{ marginLeft: 18, fontSize: 16 }}>
-                      - Accompagnement: {item.selectedSides.map((entry) => keepStaffFrenchLabel(entry)).filter(Boolean).join(", ")}
+                      - Accompagnement: {(String(item.selected_side_label_fr || item.accompagnement_fr || "").trim()
+                        ? [item.selected_side_label_fr || item.accompagnement_fr || ""]
+                        : item.selectedSides || []
+                      )
+                        .map((entry) => keepStaffFrenchLabel(entry))
+                        .filter(Boolean)
+                        .join(", ")}
+                    </div>
+                  ) : null}
+                  {item.selected_option_name ? (
+                    <div style={{ marginLeft: 18, fontSize: 16 }}>
+                      - Option: {keepStaffFrenchLabel(item.selected_option_name)}
                     </div>
                   ) : null}
                   {Array.isArray(item.selectedExtras) && item.selectedExtras.length > 0 ? (

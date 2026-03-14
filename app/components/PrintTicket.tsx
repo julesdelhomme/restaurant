@@ -5,14 +5,17 @@ import React, { useMemo, useRef, useEffect } from "react";
 interface OrderItem {
   dish?: {
     name?: string;
+    name_fr?: string;
     nom?: string;
     price?: number;
     categorie?: string;
     category?: string;
   };
   name?: string;
+  name_fr?: string;
   categorie?: string;
   category?: string;
+  destination?: string | null;
   quantity?: number;
   price?: number;
   cooking?: string | null;
@@ -82,6 +85,13 @@ function keepStaffFrenchLabel(value: unknown) {
     .trim();
 }
 
+function resolveTicketDestination(item: OrderItem) {
+  const explicit = String(item.destination || "").trim().toLowerCase();
+  if (explicit === "cuisine" || explicit === "bar") return explicit;
+  const category = String(item?.categorie || item?.category || item?.dish?.categorie || item?.dish?.category || "").toLowerCase();
+  return ["boisson", "boissons", "vin", "vins", "bar", "drink", "drinks", "wine", "wines"].includes(category) ? "bar" : "cuisine";
+}
+
 function flattenChoiceTexts(value: unknown): string[] {
   if (value == null) return [];
   if (Array.isArray(value)) return value.flatMap((entry) => flattenChoiceTexts(entry));
@@ -93,20 +103,23 @@ function flattenChoiceTexts(value: unknown): string[] {
     const rec = value as Record<string, unknown>;
     const direct = [
       rec.label_fr,
-      rec.label,
       rec.name_fr,
-      rec.name,
       rec.value_fr,
-      rec.value,
-      rec.choice,
-      rec.selected,
       rec.text,
       rec.title,
     ]
       .map((entry) => keepStaffFrenchLabel(entry))
       .filter(Boolean);
     if (direct.length > 0) return direct;
-    return Object.values(rec).flatMap((entry) => flattenChoiceTexts(entry));
+    return [
+      rec.label,
+      rec.name,
+      rec.value,
+      rec.choice,
+      rec.selected,
+    ]
+      .map((entry) => keepStaffFrenchLabel(entry))
+      .filter(Boolean);
   }
   return [];
 }
@@ -162,6 +175,8 @@ function buildTicketDetailLine(item: OrderItem) {
   );
   accompanimentValues.push(
     ...[
+      String(record.accompagnement_fr || "").trim(),
+      String(record.selected_side_label_fr || "").trim(),
       ...flattenChoiceTexts(item.side),
       ...flattenChoiceTexts(item.accompaniment),
       ...flattenChoiceTexts(item.accompagnement),
@@ -373,17 +388,8 @@ export default function PrintTicket({ order, isVisible, logoUrl, restaurantName,
   const filteredItems = useMemo(() => {
     return parsedItems.filter((item) => {
       if (!categoryFilter) return true;
-      const category = (item?.categorie || item?.category || "").toLowerCase();
-      const isDrink =
-        category === "boisson" ||
-        category === "boissons" ||
-        category === "vin" ||
-        category === "vins" ||
-        category === "drink" ||
-        category === "drinks" ||
-        category === "wine" ||
-        category === "wines";
-      return categoryFilter === 'drinks' ? isDrink : !isDrink;
+      const destination = resolveTicketDestination(item);
+      return categoryFilter === "drinks" ? destination === "bar" : destination === "cuisine";
     });
   }, [parsedItems, categoryFilter]);
 
@@ -450,7 +456,7 @@ export default function PrintTicket({ order, isVisible, logoUrl, restaurantName,
                 <div style="border-bottom: 1px dashed #000; margin-bottom: 10px;"></div>
                 <div>
                   ${filteredItems.map((item, index) => {
-                    const itemName = keepStaffFrenchLabel(item?.name || item?.dish?.name || "Plat inconnu");
+                    const itemName = keepStaffFrenchLabel(item?.name_fr || item?.name || item?.dish?.name_fr || item?.dish?.name || "Plat inconnu");
                     const finalDetails = buildTicketFinalDetailsLine(item);
                     return `
                       <div style="margin-bottom: 5px;">

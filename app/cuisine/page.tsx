@@ -133,6 +133,9 @@ export default function KitchenPage() {
 
   const isKitchenCourse = (item: any) => {
     const record = item as Record<string, unknown>;
+    const explicitDestination = String(record.destination || "").trim().toLowerCase();
+    if (explicitDestination === "cuisine") return true;
+    if (explicitDestination === "bar") return false;
     const itemCategoryId = normalizeEntityId(
       record.category_id ??
       record.categoryId ??
@@ -509,26 +512,30 @@ export default function KitchenPage() {
       if (value == null) return [];
       if (Array.isArray(value)) return value.flatMap((entry) => toRawChoiceList(entry));
       if (typeof value === "string" || typeof value === "number") {
-        const text = keepStaffFrenchLabel(value);
+        const text = keepStaffFrenchLabel(translateClientTextToFrench(value));
         return text ? [text] : [];
       }
       if (typeof value === "object") {
         const rec = value as Record<string, unknown>;
         const direct = [
           rec.label_fr,
-          rec.label,
           rec.name_fr,
-          rec.name,
           rec.value_fr,
-          rec.value,
-          rec.choice,
-          rec.selected,
           rec.text,
           rec.title,
         ]
           .map((entry) => keepStaffFrenchLabel(entry))
           .filter(Boolean);
         if (direct.length > 0) return direct;
+        return [
+          rec.label,
+          rec.name,
+          rec.value,
+          rec.choice,
+          rec.selected,
+        ]
+          .map((entry) => keepStaffFrenchLabel(translateClientTextToFrench(entry)))
+          .filter(Boolean);
       }
       return [];
     };
@@ -620,9 +627,8 @@ export default function KitchenPage() {
     );
     const directSideValues = dedupeList(
       [
+        keepStaffFrenchLabel(itemRecord.accompagnement_fr || ""),
         keepStaffFrenchLabel(itemRecord.selected_side_label_fr || ""),
-        keepStaffFrenchLabel(itemRecord.selected_side_label_pt || ""),
-        keepStaffFrenchLabel(itemRecord.selected_side_label || ""),
         ...toRawChoiceList(itemRecord.side),
         ...toRawChoiceList(itemRecord.accompaniment),
         ...toRawChoiceList(itemRecord.accompagnement),
@@ -640,7 +646,7 @@ export default function KitchenPage() {
       [
         ...toRawChoiceList(itemRecord.selected_option),
         ...optionValues.option,
-        keepStaffFrenchLabel(itemRecord.selected_option_name || ""),
+        keepStaffFrenchLabel(translateClientTextToFrench(itemRecord.selected_option_name || "")),
       ].map((entry) => stripPrefixedValue(entry, "option"))
     );
     if (selectedOptions.length > 0) notes.push(`Option: ${selectedOptions.join(", ")}`);
@@ -681,13 +687,11 @@ export default function KitchenPage() {
       keepStaffFrenchLabel(itemRecord.cuisson_label || ""),
       keepStaffFrenchLabel(itemRecord.selected_cooking_label || ""),
       keepStaffFrenchLabel(itemRecord.selected_cooking_label_fr || ""),
-      keepStaffFrenchLabel(itemRecord.selected_cooking_label_pt || ""),
       ...optionValues.cooking,
     ].map((entry) => stripPrefixedValue(entry, "cooking"))
     )[0] || "";
     const cookingLabelFr =
       keepStaffFrenchLabel(item.selected_cooking_label_fr || "") ||
-      keepStaffFrenchLabel((itemRecord.selected_cooking_label_pt as string) || "") ||
       keepStaffFrenchLabel((itemRecord.selected_cooking_label as string) || "");
     if (cookingLabelFr) {
       notes.push(`Cuisson: ${cookingLabelFr}`);
@@ -743,7 +747,6 @@ export default function KitchenPage() {
     const itemRecord = item as unknown as Record<string, unknown>;
     const direct =
       String(item.selected_cooking_label_fr || "").trim() ||
-      String((itemRecord.selected_cooking_label_pt as string) || "").trim() ||
       String((itemRecord.selected_cooking_label as string) || "").trim() ||
       String(item.cooking || "").trim() ||
       String(item.cuisson || "").trim();

@@ -10,6 +10,7 @@ type OrderItem = {
   id?: string | number;
   dish_id?: string | number;
   category_id?: string | number | null;
+  destination?: string | null;
   name?: string;
   display_name?: string;
   name_fr?: string;
@@ -60,6 +61,8 @@ type OrderItem = {
   selected_option_price?: number | null;
   selectedOptions?: unknown;
   options?: unknown;
+  selected_side_label_fr?: string | null;
+  accompagnement_fr?: string | null;
   selected_side_ids?: Array<string | number>;
   selectedSides?: Array<string | number | Record<string, unknown>>;
   selectedExtras?: Array<{ name?: string; name_fr?: string; price?: number }>;
@@ -312,6 +315,10 @@ function resolveStaffDestination(
   dishCategoryIdByDishId: Record<string, string>
 ) {
   const record = item as unknown as Record<string, unknown>;
+  const explicitDestination = String(item.destination ?? record.destination ?? "").trim().toLowerCase();
+  if (explicitDestination === "cuisine" || explicitDestination === "bar") {
+    return explicitDestination;
+  }
   const nestedDish =
     record.dish && typeof record.dish === "object"
       ? (record.dish as Record<string, unknown>)
@@ -499,6 +506,8 @@ function getItemCookingText(item: OrderItem) {
 
 function getItemSideText(item: OrderItem) {
   const directSide = normalizeUniqueTexts([
+    keepStaffFrenchLabel(item.selected_side_label_fr || ""),
+    keepStaffFrenchLabel(item.accompagnement_fr || ""),
     ...flattenChoiceTextsForDisplay(item.side),
     ...flattenChoiceTextsForDisplay(item.accompaniment),
     ...flattenChoiceTextsForDisplay(item.accompagnement),
@@ -528,18 +537,22 @@ function getItemSelectedOptionText(item: OrderItem) {
       if (optionLike) {
         const direct = [
           rec.label_fr,
-          rec.label,
           rec.name_fr,
-          rec.name,
           rec.value_fr,
+        ]
+          .map((entry) => keepStaffFrenchLabel(entry))
+          .filter(Boolean);
+        if (direct.length > 0) return direct;
+        const fallback = [
+          rec.label,
+          rec.name,
           rec.value,
           rec.choice,
           rec.selected,
         ]
           .map((entry) => keepStaffFrenchLabel(entry))
           .filter(Boolean);
-        if (direct.length > 0) return direct;
-        return Object.values(rec).flatMap((entry) => flattenChoiceTextsForDisplay(entry));
+        return fallback;
       }
       return [];
     }
@@ -648,20 +661,24 @@ function getItemNotes(item: OrderItem) {
       const rec = value as Record<string, unknown>;
       const direct = [
         rec.label_fr,
-        rec.label,
         rec.name_fr,
-        rec.name,
         rec.value_fr,
-        rec.value,
-        rec.choice,
-        rec.selected,
         rec.text,
         rec.title,
       ]
         .map((entry) => keepStaffFrenchLabel(entry))
         .filter(Boolean);
       if (direct.length > 0) return direct;
-      return Object.values(rec).flatMap((entry) => flattenChoiceTexts(entry));
+      const fallback = [
+        rec.label,
+        rec.name,
+        rec.value,
+        rec.choice,
+        rec.selected,
+      ]
+        .map((entry) => keepStaffFrenchLabel(entry))
+        .filter(Boolean);
+      return fallback;
     }
     return [];
   };
@@ -681,6 +698,8 @@ function getItemNotes(item: OrderItem) {
     keepStaffFrenchLabel(item.selected_option_name || ""),
     keepStaffFrenchLabel(item.cooking || item.cuisson || ""),
     keepStaffFrenchLabel(item.selected_cooking_label_fr || item.selected_cooking || ""),
+    keepStaffFrenchLabel(item.selected_side_label_fr || ""),
+    keepStaffFrenchLabel(item.accompagnement_fr || ""),
     ...flattenChoiceTexts(item.side),
     ...flattenChoiceTexts(item.accompaniment),
     ...flattenChoiceTexts(item.accompagnement),

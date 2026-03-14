@@ -3,10 +3,12 @@ import React from "react";
 type OrderTicketItem = {
   quantity?: number;
   name?: string;
+  name_fr?: string;
   nom?: string;
   category?: string;
   categorie?: string;
-  "catégorie"?: string;
+  "catÃ©gorie"?: string;
+  destination?: string;
 };
 
 type OrderTicketOrder = {
@@ -35,6 +37,15 @@ function keepStaffFrenchLabel(value: unknown) {
   return (raw.split(/\s\/\s/).map((part) => part.trim()).filter(Boolean)[0] || raw)
     .replace(/\s{2,}/g, " ")
     .trim();
+}
+
+function resolveTicketDestination(item: OrderTicketItem) {
+  const explicit = String(item.destination || "").trim().toLowerCase();
+  if (explicit === "cuisine" || explicit === "bar") return explicit;
+  const cat = String(item["catÃ©gorie"] || item.categorie || item.category || "")
+    .toLowerCase()
+    .trim();
+  return ["boisson", "boissons", "vin", "vins", "bar", "drink", "drinks", "wine", "wines"].includes(cat) ? "bar" : "cuisine";
 }
 
 export default function OrderTicket({ order }: { order: OrderTicketOrder | null }) {
@@ -71,21 +82,16 @@ export default function OrderTicket({ order }: { order: OrderTicketOrder | null 
         <div style={{ borderBottom: "2px solid #000", marginBottom: 8 }} />
         <div style={{ marginBottom: 16 }}>
           {items
-            .filter((item) => {
-              const cat = String(item["catégorie"] || item.categorie || item.category || "")
-                .toLowerCase()
-                .trim();
-              return !["boisson", "boissons", "vin", "vins", "bar", "drink", "drinks", "wine", "wines"].includes(cat);
-            })
-              .map((item, idx) => (
+            .filter((item) => resolveTicketDestination(item) === "cuisine")
+            .map((item, idx) => (
               <div key={idx} style={{ fontSize: 22, fontWeight: "bold", marginBottom: 4 }}>
-                {Number(item.quantity || 1)}x {keepStaffFrenchLabel(item.name || item.nom || "Plat inconnu")}
+                {Number(item.quantity || 1)}x {keepStaffFrenchLabel(item.name_fr || item.name || item.nom || "Plat inconnu")}
               </div>
             ))}
         </div>
         {order.special_request ? (
           <div style={{ fontSize: 22, fontWeight: "bold", margin: "16px 0 8px 0", textAlign: "center" }}>
-            📝 {order.special_request}
+            Note: {keepStaffFrenchLabel(order.special_request)}
           </div>
         ) : null}
       </div>

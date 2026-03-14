@@ -1333,6 +1333,7 @@ interface CategoryItem {
   name_es?: string | null;
   name_de?: string | null;
   translations?: Record<string, unknown> | string | null;
+  destination?: string | null;
 }
 
 interface SubCategoryItem {
@@ -2306,6 +2307,16 @@ export default function MenuDigital() {
     return buildAllergenLibraryLookup(tableConfig.allergen_library);
   }, [restaurant]);
   const tt = (key: keyof (typeof UI_TEXT)["fr"]["labels"]) => {
+    if (key === "featured_chef" || key === "sales_advice_title") {
+      return (
+        String(
+          (uiText as unknown as Record<string, unknown>).chefSuggestion ||
+            mergedUiDictionary.chefSuggestion ||
+            UI_TRANSLATIONS[normalizedLang]?.chefSuggestion ||
+            UI_TRANSLATIONS[uiLang]?.chefSuggestion
+        ).trim() || "Suggestion du chef"
+      );
+    }
     return uiText.labels[key] || t(lang, key);
   };
   const optionVariantsLabel =
@@ -3423,6 +3434,15 @@ export default function MenuDigital() {
     return map;
   }, [categories]);
 
+  const getCategoryDestination = (categoryId?: string | number | null) => {
+    if (!categoryId) return "cuisine";
+    const category = categoryById.get(categoryId);
+    const destination = String(category?.destination || "").trim().toLowerCase();
+    if (destination === "bar") return "bar";
+    if (destination === "cuisine") return "cuisine";
+    return isDrinkCategory(categoryId) ? "bar" : "cuisine";
+  };
+
   const isDrinkCategory = (categoryId?: string | number | null) => {
     if (!categoryId) return false;
     const category = categoryById.get(categoryId);
@@ -3998,6 +4018,12 @@ export default function MenuDigital() {
           : (item.selectedSides || [])
               .map((label) => sideIdByAlias.get(normalizeLookupText(label)) || "")
               .filter(Boolean);
+      const selectedSideLabelsFr = dedupeDisplayValues(
+        fallbackSideIds
+          .map((id) => sidesLibrary.find((side) => String(side.id) === String(id)))
+          .filter(Boolean)
+          .map((side) => String((side as SideLibraryItem).name_fr || "").trim())
+      );
       const selectedExtraIds = (item.selectedExtras || [])
         .map((extra, index) => buildStableExtraId(item.dish.id, extra, index))
         .filter(Boolean);
@@ -4007,6 +4033,15 @@ export default function MenuDigital() {
       const stableCookingValue = (cookingKey || "") || (cookingLabelFr || "") || "";
       const selectedOptionIds = normalizedSelectedProductOptions
         .map((option) => String(option.id || "").trim())
+        .filter(Boolean);
+      const selectedOptionNamesFr = normalizedSelectedProductOptions
+        .map((option) => {
+          const namesI18n =
+            option.names_i18n && typeof option.names_i18n === "object"
+              ? (option.names_i18n as Record<string, unknown>)
+              : null;
+          return String(option.name_fr || namesI18n?.fr || option.name || "").trim();
+        })
         .filter(Boolean);
       const selectedOptionNames = normalizedSelectedProductOptions
         .map((option) => getProductOptionLabel(option, lang))
@@ -4023,13 +4058,19 @@ export default function MenuDigital() {
       const selectedOptionsPayload: Array<Record<string, unknown>> = [];
       normalizedSelectedProductOptions.forEach((option) => {
         const optionId = String(option.id || "").trim() || null;
-        const optionName = getProductOptionLabel(option, lang) || null;
-        if (!optionName) return;
+        const namesI18n =
+          option.names_i18n && typeof option.names_i18n === "object"
+            ? (option.names_i18n as Record<string, unknown>)
+            : null;
+        const optionNameFr = String(option.name_fr || namesI18n?.fr || option.name || "").trim() || null;
+        const optionName = getProductOptionLabel(option, lang) || optionNameFr || null;
+        if (!optionNameFr && !optionName) return;
         selectedOptionsPayload.push({
           kind: "option",
           id: optionId,
           value: optionName,
-          label_fr: optionName,
+          label_fr: optionNameFr || optionName,
+          name_fr: optionNameFr || optionName,
           price: parseAddonPrice(option.price_override),
         });
       });
@@ -4037,7 +4078,8 @@ export default function MenuDigital() {
         selectedOptionsPayload.push({
           kind: "side",
           ids: fallbackSideIds,
-          values: dedupeDisplayValues((item.selectedSides || []) as unknown[]),
+          values: selectedSideLabelsFr.length > 0 ? selectedSideLabelsFr : dedupeDisplayValues((item.selectedSides || []) as unknown[]),
+          label_fr: selectedSideLabelsFr.join(", "),
         });
       }
       if (stableCookingValue) {
@@ -4052,11 +4094,14 @@ export default function MenuDigital() {
           dish_id: String(item.dish.id || "").trim(),
           id: String(item.dish.id || "").trim(),
           category_id: item.dish.category_id ?? null,
+          destination: getCategoryDestination(item.dish.category_id),
           is_drink: drinkItem,
+          name_fr: String(item.dish.name_fr || item.dish.name || item.dish.nom || "").trim() || "Plat",
+          description_fr: String(item.dish.description_fr || item.dish.description || "").trim() || null,
         quantity: item.quantity,
         price: unitPrice + extrasPrice,
         selected_option_id: selectedOptionIds.length > 0 ? selectedOptionIds.join(",") : null,
-        selected_option_name: selectedOptionNames.length > 0 ? selectedOptionNames.join(", ") : null,
+        selected_option_name: selectedOptionNamesFr.length > 0 ? selectedOptionNamesFr.join(", ") : selectedOptionNames.length > 0 ? selectedOptionNames.join(", ") : null,
         selected_option_price: selectedOptionPrice,
         selected_option:
           selectedOptionsPayload.filter((entry) => String(entry.kind || "").trim() === "option").length > 1
@@ -4065,6 +4110,8 @@ export default function MenuDigital() {
         selected_options: selectedOptionsPayload,
         selectedOptions: selectedOptionsPayload,
         selected_side_ids: fallbackSideIds,
+        selected_side_label_fr: selectedSideLabelsFr.join(", ") || null,
+        accompagnement_fr: selectedSideLabelsFr.join(", ") || null,
         selected_extra_ids: selectedExtraIds,
         selected_extras: selectedExtras,
         selected_cooking: stableCookingValue || null,
@@ -4088,8 +4135,8 @@ export default function MenuDigital() {
       );
     }, 0);
 
-      const barItems = orderItems.filter((item) => item.is_drink === true);
-      const kitchenItems = orderItems.filter((item) => item.is_drink !== true);
+      const barItems = orderItems.filter((item) => String((item as Record<string, unknown>).destination || "").trim().toLowerCase() === "bar");
+      const kitchenItems = orderItems.filter((item) => String((item as Record<string, unknown>).destination || "cuisine").trim().toLowerCase() === "cuisine");
 
       if (kitchenItems.length > 0) {
         const resolvedRestaurantId = restaurant?.id ?? SETTINGS_ROW_ID;
