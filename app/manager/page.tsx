@@ -1056,6 +1056,24 @@ function parseOptionsFromDescription(description?: string | null) {
   return result;
 }
 
+function getDishDisplayDescription(dish: Dish) {
+  const candidates = [
+    dish.description_fr,
+    dish.description,
+    dish.description_en,
+    dish.description_es,
+    dish.description_de,
+  ]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+  for (const candidate of candidates) {
+    const parsed = parseOptionsFromDescription(candidate);
+    const cleaned = String(parsed.baseDescription || "").trim();
+    if (cleaned) return cleaned;
+  }
+  return "";
+}
+
 function parseExtrasFromUnknown(raw: unknown): ExtrasItem[] {
   if (raw == null) return [];
 
@@ -5449,11 +5467,10 @@ export default function MenuManager() {
 
   const preparedDishes = useMemo(() => {
     return dishes.map((dish) => {
-      const parsed = parseOptionsFromDescription(dish.description || "");
       return {
         ...dish,
-        description_display: parsed.baseDescription || dish.description || "",
-        ask_cooking: dish.ask_cooking ?? parsed.askCooking,
+        description_display: getDishDisplayDescription(dish),
+        ask_cooking: dish.ask_cooking ?? parseOptionsFromDescription(String(dish.description || "")).askCooking,
       };
     });
   }, [dishes]);
@@ -6657,8 +6674,7 @@ export default function MenuManager() {
       .map(([categoryName, dishesInCategory]) => {
         const items = dishesInCategory
           .map((dish) => {
-            const description =
-              String((dish as Dish & { description_display?: string }).description_display || dish.description || "").trim();
+            const description = getDishDisplayDescription(dish);
             const dishImageUrl = normalizePrintableUrl((dish as unknown as Record<string, unknown>).image_url, DISH_IMAGES_BUCKET);
             const details = buildDishMetaLines(dish);
             return `
@@ -6903,22 +6919,6 @@ export default function MenuManager() {
               </button>
             ))}
           </div>
-          {activeManagerTab === "appearance" ? (
-            <div className="rounded-xl border border-gray-300 bg-white p-3">
-              <div className="text-xs font-black uppercase text-gray-500 mb-2">Sidebar Réglages</div>
-              <div className="flex flex-wrap gap-2">
-                <a href="#manager-email-config" className="px-3 py-1 border border-black rounded font-bold text-sm bg-white">
-                  Configuration Email
-                </a>
-                <a href="#manager-google-review-config" className="px-3 py-1 border border-black rounded font-bold text-sm bg-white">
-                  Avis Google
-                </a>
-                <a href="#manager-social-config" className="px-3 py-1 border border-black rounded font-bold text-sm bg-white">
-                  Réseaux Sociaux
-                </a>
-              </div>
-            </div>
-          ) : null}
           {activeManagerTab === "staff" ? (
             <div className="rounded-xl border border-gray-300 bg-white p-4">
               <h2 className="text-lg font-black mb-2">Gestion du Staff</h2>
@@ -7780,21 +7780,21 @@ export default function MenuManager() {
             </div>
           </div>
           <div className="bg-white rounded-xl shadow-xl border border-gray-200 overflow-hidden">
-            <table className="min-w-full text-left">
+            <table className="min-w-full table-fixed text-left">
               <thead className="bg-gray-100">
                 <tr className="text-sm font-bold text-black">
-                  <th className="p-3">Plat</th>
-                  <th className="p-3">Catégorie</th>
-                  <th className="p-3">Prix</th>
-                  <th className="p-3">Badges</th>
-                  <th className="p-3">Options</th>
-                  <th className="p-3 text-right">Actions</th>
+                  <th className="p-3 w-[30%]">Plat</th>
+                  <th className="p-3 w-[14%]">Catégorie</th>
+                  <th className="p-3 w-[10%]">Prix</th>
+                  <th className="p-3 w-[20%]">Badges</th>
+                  <th className="p-3 w-[14%]">Options</th>
+                  <th className="p-3 w-[12rem] text-right">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {preparedDishes.map((dish) => (
                   <tr key={dish.id} className="border-t border-gray-200 hover:bg-gray-100">
-                    <td className="p-3">
+                    <td className="p-3 align-top">
                       <div className="font-black flex items-center gap-2">
                         <span
                           className={`inline-block w-3 h-3 rounded-full ${
@@ -7803,14 +7803,16 @@ export default function MenuManager() {
                         />
                         {dish.name}
                       </div>
-                      <div className="text-sm text-gray-700">{(dish as Dish & { description_display?: string }).description_display || dish.description}</div>
+                      <div className="mt-1 max-w-full break-words text-sm leading-5 text-gray-700">
+                        {(dish as Dish & { description_display?: string }).description_display || ""}
+                      </div>
                     </td>
-                    <td className="p-3 text-sm">
+                    <td className="p-3 align-top text-sm break-words">
                       {categories.find((category) => String(category.id) === String(dish.category_id))?.name_fr ||
                         dish.categorie}
                     </td>
-                    <td className="p-3 font-bold">{formatEuro(Number(dish.price || 0))}</td>
-                    <td className="p-3">
+                    <td className="p-3 align-top font-bold whitespace-nowrap">{formatEuro(Number(dish.price || 0))}</td>
+                    <td className="p-3 align-top">
                       <div className="flex flex-wrap gap-2">
                         <button
                           type="button"
@@ -7902,11 +7904,11 @@ export default function MenuManager() {
                         </button>
                       </div>
                     </td>
-                    <td className="p-3 text-sm">
+                    <td className="p-3 align-top text-sm break-words">
                       Accompagnements: {dish.has_sides ? "Oui" : "Non"} | Suppléments: {dish.has_extras ? "Oui" : "Non"} | Variantes: {Array.isArray((dish as Dish).product_options) ? (dish as Dish).product_options?.length || 0 : 0} | Cuisson: {dish.ask_cooking ? "Oui" : "Non"}
                     </td>
-                    <td className="p-3 text-right">
-                      <div className="flex justify-end gap-2">
+                    <td className="p-3 align-top text-right">
+                      <div className="flex justify-end gap-2 whitespace-nowrap">
                         <button
                           onClick={() => {
                             const rawDish = dishes.find((row) => String(row.id) === String(dish.id));
