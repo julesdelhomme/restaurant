@@ -3,6 +3,7 @@ import { getBearerToken, readAccessContextForUser, readUserFromAccessToken } fro
 import {
   generateOtpCode,
   hashOtpCode,
+  isOtpBypassEmail,
   normalizeOtpScope,
   resolveOtpSessionId,
   sendDashboardOtpEmail,
@@ -35,6 +36,11 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Accès OTP refusé." }, { status: 403 });
   }
 
+  const userEmail = String(user.email || "").trim().toLowerCase();
+  if (isOtpBypassEmail(userEmail)) {
+    return NextResponse.json({ success: true, bypassed: true }, { status: 200 });
+  }
+
   const supabase = createSupabaseAdminClient();
   const sessionId = resolveOtpSessionId(accessToken, user.id);
   const code = generateOtpCode();
@@ -57,7 +63,7 @@ export async function POST(request: NextRequest) {
   const insertResult = await supabase.from("auth_login_otps").insert([
     {
       user_id: user.id,
-      email: String(user.email || "").trim().toLowerCase(),
+      email: userEmail,
       scope,
       session_id: sessionId,
       code_hash: codeHash,
@@ -78,7 +84,7 @@ export async function POST(request: NextRequest) {
 
   try {
     await sendDashboardOtpEmail({
-      to: String(user.email || "").trim().toLowerCase(),
+      to: userEmail,
       code,
       scope,
     });

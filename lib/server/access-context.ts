@@ -17,7 +17,7 @@ type StaffRow = {
   is_active: boolean | null;
 };
 
-const FALLBACK_SUPER_ADMIN_EMAILS = ["jesuisleboss@etriche.com"];
+const FALLBACK_SUPER_ADMIN_EMAILS = ["juju0067@outlook.fr"];
 
 export function getBearerToken(authorizationHeader: string | null): string {
   const value = String(authorizationHeader || "").trim();
