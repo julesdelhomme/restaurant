@@ -390,12 +390,19 @@ function setItemPrepStatus(item: OrderItem, status: "pending" | "preparing" | "r
   return { ...(item || {}), status };
 }
 
+function isBarTicketItem(item: OrderItem) {
+  const explicitDestination = String(item.destination || "").trim().toLowerCase();
+  if (explicitDestination === "bar") return true;
+  if (explicitDestination === "cuisine") return false;
+  return isDrink(item);
+}
+
 function deriveOrderStatusFromItems(items: OrderItem[]): string {
   if (items.length === 0) return "pending";
   const statuses = items.map((item) => getItemPrepStatus(item));
   if (statuses.every((status) => status === "ready")) {
-    const allDrinks = items.every((item) => isDrink(item));
-    return allDrinks ? "ready_bar" : "ready";
+    const allBarItems = items.every((item) => isBarTicketItem(item));
+    return allBarItems ? "ready_bar" : "ready";
   }
   if (statuses.some((status) => status === "ready" || status === "preparing")) return "preparing";
   return "pending";
@@ -1526,7 +1533,11 @@ export default function BarCaissePage() {
     }
     const currentItems = parseItems(targetOrder.items);
     if (currentItems.length === 0) return;
-    const nextItems = currentItems.map((item) => (isDrink(item) ? setItemPrepStatus(item, "ready") : item));
+    const nextItems = currentItems.map((item) =>
+      resolveStaffDestination(item, categoryDestinationById, dishCategoryIdByDishId) === "bar"
+        ? setItemPrepStatus(item, "ready")
+        : item
+    );
     const nextStatus = deriveOrderStatusFromItems(nextItems);
 
     setOrders((prev) =>

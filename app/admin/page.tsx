@@ -123,6 +123,7 @@ const FAST_ORDER_I18N = {
 type Item = {
   id?: string | number;
   dish_id?: string | number;
+  destination?: string | null;
   name?: string;
   name_fr?: string;
   label?: string;
@@ -351,6 +352,9 @@ function getCategory(item: Item) {
 }
 
 function isDrink(item: Item) {
+  const explicitDestination = String(item?.destination || "").trim().toLowerCase();
+  if (explicitDestination === "bar") return true;
+  if (explicitDestination === "cuisine") return false;
   if (item?.is_drink === true) return true;
   const c = getCategory(item);
   return ["boisson", "boissons", "vin", "vins", "bar", "drink", "drinks", "wine", "wines", "beverage", "beverages"].includes(c);
