@@ -178,6 +178,7 @@ type Order = {
   items: unknown;
   status: string;
   created_at: string;
+  service_step?: string | null;
   covers?: number | null;
   guest_count?: number | null;
   customer_count?: number | null;
@@ -1121,6 +1122,62 @@ function AdminContent() {
     }
     return normalized;
   }
+
+  const SERVICE_STEP_SEQUENCE = ["entree", "plat", "dessert"] as const;
+  const SERVICE_STEP_LABELS: Record<string, string> = {
+    entree: "ENTRÉE",
+    plat: "PLAT",
+    dessert: "DESSERT",
+  };
+  const normalizeServiceStep = (value: unknown) => {
+    const normalized = normalizeCategoryKey(value);
+    if (["entree", "starter", "appetizer"].includes(normalized)) return "entree";
+    if (["dessert", "sweet"].includes(normalized)) return "dessert";
+    if (["plat", "main", "dish", "principal"].includes(normalized)) return "plat";
+    return "";
+  };
+  const resolveCourseFromCategoryLabel = (value: unknown) => {
+    const normalized = normalizeCategoryKey(value);
+    if (/entree|starter|appetizer/.test(normalized)) return "entree";
+    if (/dessert|sucre|sweet/.test(normalized)) return "dessert";
+    if (/plat|main|dish|principal/.test(normalized)) return "plat";
+    return "plat";
+  };
+  const resolveItemCourse = (item: Item) => {
+    const record = item as unknown as Record<string, unknown>;
+    const itemCategoryId = String(record.category_id ?? record.categoryId ?? "").trim();
+    const dishCategoryId =
+      itemCategoryId ||
+      String(
+        record.dish?.category_id ?? record.dish?.categoryId ?? record.dish_id ?? record.id ?? ""
+      ).trim();
+    const categoryRow = dishCategoryId ? categoryById.get(String(dishCategoryId || "").trim()) : undefined;
+    const categoryLabel = categoryRow ? getCategoryLabel(categoryRow) : String(record.categorie || record.category || "").trim();
+    return resolveCourseFromCategoryLabel(categoryLabel);
+  };
+  const resolveOrderServiceStep = (order: Order, items: Item[]) => {
+    const foodItems = items.filter((item) => !isDrink(item));
+    if (foodItems.length === 0) return "";
+    const availableSteps = new Set(foodItems.map((item) => resolveItemCourse(item)));
+    const normalized = normalizeServiceStep(order.service_step);
+    if (normalized && availableSteps.has(normalized)) return normalized;
+    const fallback = SERVICE_STEP_SEQUENCE.find((step) => availableSteps.has(step));
+    return fallback || normalized || "";
+  };
+  const resolveNextServiceStep = (order: Order, items: Item[]) => {
+    const foodItems = items.filter((item) => !isDrink(item));
+    if (foodItems.length === 0) return "";
+    const availableSteps = new Set(foodItems.map((item) => resolveItemCourse(item)));
+    const current = resolveOrderServiceStep(order, items);
+    const startIndex = current ? SERVICE_STEP_SEQUENCE.indexOf(current as (typeof SERVICE_STEP_SEQUENCE)[number]) : -1;
+    const firstAvailable = SERVICE_STEP_SEQUENCE.find((step) => availableSteps.has(step)) || "";
+    if (startIndex < 0) return firstAvailable;
+    for (let index = startIndex + 1; index < SERVICE_STEP_SEQUENCE.length; index += 1) {
+      const step = SERVICE_STEP_SEQUENCE[index];
+      if (availableSteps.has(step)) return step;
+    }
+    return "";
+  };
 
   const parseDishExtras = (dish: DishItem): ExtraChoice[] => {
     const fromDescription = parseDescriptionOptions(getDishOptionsSource(dish)).extrasList;
@@ -2483,6 +2540,7 @@ function AdminContent() {
       items: items,
       total_price: totalPrice,
       status: "pending",
+      service_step: "entree",
     };
     const payloadWithoutId = [{
       restaurant_id: payload.restaurant_id,
@@ -2493,6 +2551,7 @@ function AdminContent() {
       items: items,
       total_price: payload.total_price,
       status: "pending",
+      service_step: "entree",
     }];
     const forcedOrderId = crypto.randomUUID();
 
@@ -2510,6 +2569,7 @@ function AdminContent() {
         items: payload.items,
         total_price: payload.total_price,
         status: "pending",
+        service_step: "entree",
       },
       {
         id: forcedOrderId,
@@ -2520,6 +2580,7 @@ function AdminContent() {
         items: payload.items,
         total_price: payload.total_price,
         status: "pending",
+        service_step: "entree",
       },
       {
         id: forcedOrderId,
@@ -2529,6 +2590,7 @@ function AdminContent() {
         items: payload.items,
         total_price: payload.total_price,
         status: "pending",
+        service_step: "entree",
       },
       {
         id: forcedOrderId,
@@ -2537,6 +2599,7 @@ function AdminContent() {
         items: payload.items,
         total_price: payload.total_price,
         status: "pending",
+        service_step: "entree",
       },
     ];
     let insertError: { message?: string; code?: string; details?: string; hint?: string } | null = null;
@@ -2741,6 +2804,21 @@ function AdminContent() {
     return activeEntries.filter((entry) => isItemReady(entry.item));
   };
 
+  const handleSendNextServiceStep = async (order: Order, nextStep: string) => {
+    const normalizedNext = normalizeServiceStep(nextStep);
+    if (!normalizedNext) return;
+    const orderId = String(order.id || "").trim();
+    if (!orderId) return;
+    setOrders((prev) =>
+      prev.map((row) => (String(row.id) === orderId ? { ...row, service_step: normalizedNext } : row))
+    );
+    const { error } = await supabase.from("orders").update({ service_step: normalizedNext }).eq("id", orderId);
+    if (error) {
+      console.error("Erreur update service_step:", error);
+      await fetchOrders();
+    }
+  };
+
   const renderOrderCard = (
     order: Order,
     mode: "all" | "drinks" | "foods",
@@ -2907,6 +2985,9 @@ function AdminContent() {
     if (items.length === 0) return null;
     const foodItems = items.filter((item) => !isDrink(item));
     const drinkItems = items.filter((item) => isDrink(item));
+    const currentServiceStep = resolveOrderServiceStep(order, items);
+    const nextServiceStep = resolveNextServiceStep(order, items);
+    const serviceStepLabel = currentServiceStep ? SERVICE_STEP_LABELS[currentServiceStep] : "";
     const itemProgress = summarizeItems(items);
     const isReadyCard = itemProgress.total > 0 && itemProgress.ready === itemProgress.total;
     const isReadyHighlighted = isReadyCard && !!readyAlertOrderIds[String(order.id)];
@@ -2993,6 +3074,11 @@ function AdminContent() {
               T-{order.table_number ?? "?"}
               {resolvedCovers ? ` | 👥 ${resolvedCovers}` : ""}
             </div>
+            {serviceStepLabel ? (
+              <div className="mt-1 inline-flex items-center rounded border-2 border-black bg-white px-2 py-1 text-[11px] font-black">
+                {serviceStepLabel}
+              </div>
+            ) : null}
           </div>
           <div className="text-xs font-mono text-gray-500">#{String(order.id).slice(0, 4)}</div>
         </div>
@@ -3000,6 +3086,15 @@ function AdminContent() {
           {mode !== "drinks" ? renderItemsSection("Plats", foodItems) : null}
           {mode !== "foods" ? renderItemsSection("Boissons", drinkItems) : null}
         </div>
+
+        {nextServiceStep ? (
+          <button
+            onClick={() => void handleSendNextServiceStep(order, nextServiceStep)}
+            className="mt-4 w-full border-2 border-black py-3 text-base font-black bg-orange-200 text-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all"
+          >
+            Envoyer la suite{SERVICE_STEP_LABELS[nextServiceStep] ? ` (${SERVICE_STEP_LABELS[nextServiceStep]})` : ""}
+          </button>
+        ) : null}
 
         {actionLabel && actionHandler ? (
           <button

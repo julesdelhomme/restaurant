@@ -1444,6 +1444,7 @@ export default function BarCaissePage() {
         items,
         total_price: Number(entry.total || 0),
         status: "served",
+        service_step: "entree",
       },
       {
         restaurant_id: restaurantId ?? SETTINGS_ROW_ID,
@@ -1453,6 +1454,7 @@ export default function BarCaissePage() {
         items,
         total_price: Number(entry.total || 0),
         status: "served",
+        service_step: "entree",
       },
       {
         restaurant_id: restaurantId ?? SETTINGS_ROW_ID,
@@ -1461,6 +1463,7 @@ export default function BarCaissePage() {
         items,
         total_price: Number(entry.total || 0),
         status: "served",
+        service_step: "entree",
       },
       {
         restaurant_id: restaurantId ?? SETTINGS_ROW_ID,
@@ -1468,6 +1471,7 @@ export default function BarCaissePage() {
         items,
         total_price: Number(entry.total || 0),
         status: "served",
+        service_step: "entree",
       },
     ];
 

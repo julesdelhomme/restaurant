@@ -56,6 +56,7 @@ type Order = {
   order_items?: any[] | null;
   status: string;
   created_at: string;
+  service_step?: string | null;
   covers?: number | null;
   guest_count?: number | null;
   customer_count?: number | null;
@@ -88,6 +89,7 @@ export default function KitchenPage() {
   const [dishNamesFrById, setDishNamesFrById] = useState<Record<string, string>>({});
   const [dishCategoryIdByDishId, setDishCategoryIdByDishId] = useState<Record<string, string>>({});
   const [categoryDestinationById, setCategoryDestinationById] = useState<Record<string, "cuisine" | "bar">>({});
+  const [categoryNameById, setCategoryNameById] = useState<Record<string, string>>({});
   const [sideNamesFrById, setSideNamesFrById] = useState<Record<string, string>>({});
   const [sideNamesFrByAlias, setSideNamesFrByAlias] = useState<Record<string, string>>({});
   const [extraNamesFrByDishAndId, setExtraNamesFrByDishAndId] = useState<Record<string, string>>({});
@@ -264,7 +266,13 @@ export default function KitchenPage() {
     return [];
   };
 
-  const getKitchenItems = (order: Order) => getOrderItems(order).filter((item: any) => isKitchenCourse(item));
+  const getKitchenItems = (order: Order) => {
+    const items = getOrderItems(order).filter((item: any) => isKitchenCourse(item));
+    if (items.length === 0) return [];
+    const step = resolveOrderServiceStep(order, items as Item[]);
+    if (!step) return items;
+    return items.filter((item) => resolveItemCourse(item as Item) === step);
+  };
   const hasPendingKitchenItems = (order: Order) => getKitchenItems(order).some((item) => !isItemReady(item));
   const areKitchenItemsReady = (order: Order) => {
     const kitchenItems = getKitchenItems(order);
@@ -298,6 +306,66 @@ export default function KitchenPage() {
       .replace(/[\u0300-\u036f]/g, "")
       .toLowerCase()
       .trim();
+  const SERVICE_STEP_SEQUENCE = ["entree", "plat", "dessert"] as const;
+  const SERVICE_STEP_LABELS: Record<string, string> = {
+    entree: "ENTRÉE",
+    plat: "PLAT",
+    dessert: "DESSERT",
+  };
+  const normalizeServiceStep = (value: unknown) => {
+    const normalized = normalizeLookupText(value);
+    if (["entree", "starter", "appetizer"].includes(normalized)) return "entree";
+    if (["dessert", "sweet"].includes(normalized)) return "dessert";
+    if (["plat", "main", "dish", "principal"].includes(normalized)) return "plat";
+    return "";
+  };
+  const resolveCourseFromLabel = (value: unknown) => {
+    const normalized = normalizeLookupText(value);
+    if (/entree|starter|appetizer/.test(normalized)) return "entree";
+    if (/dessert|sucre|sweet/.test(normalized)) return "dessert";
+    if (/plat|main|dish|principal/.test(normalized)) return "plat";
+    return "plat";
+  };
+  const resolveItemCourse = (item: Item) => {
+    const record = item as unknown as Record<string, unknown>;
+    const itemCategoryId = normalizeEntityId(
+      record.category_id ??
+        record.categoryId ??
+        (record.dish && typeof record.dish === "object" ? (record.dish as Record<string, unknown>).category_id : null)
+    );
+    const dishId = normalizeEntityId(record.dish_id ?? record.id);
+    const resolvedCategoryId = itemCategoryId || (dishId ? dishCategoryIdByDishId[dishId] || "" : "");
+    const categoryLabel = resolvedCategoryId ? categoryNameById[resolvedCategoryId] || "" : "";
+    const fallbackCategory = getCategory(item);
+    return resolveCourseFromLabel(categoryLabel || fallbackCategory);
+  };
+  const resolveOrderServiceStep = (order: Order, items: Item[]) => {
+    const foodItems = items.filter((item) => isKitchenCourse(item));
+    if (foodItems.length === 0) return "";
+    const availableSteps = new Set(foodItems.map((item) => resolveItemCourse(item)));
+    const normalized = normalizeServiceStep(order.service_step);
+    if (normalized && availableSteps.has(normalized)) return normalized;
+    const fallback = SERVICE_STEP_SEQUENCE.find((step) => availableSteps.has(step));
+    return fallback || normalized || "";
+  };
+  const resolveNextServiceStep = (order: Order, items: Item[]) => {
+    const foodItems = items.filter((item) => isKitchenCourse(item));
+    if (foodItems.length === 0) return "";
+    const availableSteps = new Set(foodItems.map((item) => resolveItemCourse(item)));
+    const current = resolveOrderServiceStep(order, items);
+    const startIndex = current ? SERVICE_STEP_SEQUENCE.indexOf(current as (typeof SERVICE_STEP_SEQUENCE)[number]) : -1;
+    const firstAvailable = SERVICE_STEP_SEQUENCE.find((step) => availableSteps.has(step)) || "";
+    if (startIndex < 0) return firstAvailable;
+    for (let index = startIndex + 1; index < SERVICE_STEP_SEQUENCE.length; index += 1) {
+      const step = SERVICE_STEP_SEQUENCE[index];
+      if (availableSteps.has(step)) return step;
+    }
+    return "";
+  };
+  const getOrderServiceStepLabel = (order: Order, items: Item[]) => {
+    const step = resolveOrderServiceStep(order, items);
+    return step ? SERVICE_STEP_LABELS[step] : "";
+  };
   const isUuidLike = (value: unknown) =>
     /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
       String(value || "").trim()
@@ -858,7 +926,7 @@ export default function KitchenPage() {
       .select("id,name,name_fr,translations,price,category_id,extras,sides,description")
       .order("id", { ascending: true });
     const sidesBaseQuery = supabase.from("sides_library").select("id,name_fr,name_en,name_es,name_de").order("id", { ascending: true });
-    const categoriesBaseQuery = supabase.from("categories").select("id,destination").order("id", { ascending: true });
+    const categoriesBaseQuery = supabase.from("categories").select("id,destination,name_fr,name").order("id", { ascending: true });
 
     const [primaryDishesQuery, primarySidesQuery, primaryCategoriesQuery] = await Promise.all([
       scopeId ? dishesBaseQuery.eq("restaurant_id", scopeId) : dishesBaseQuery,
@@ -910,7 +978,7 @@ export default function KitchenPage() {
     if (categoriesError) {
       const missingColumn = String((categoriesError as { code?: string }).code || "") === "42703";
       if (scopeId && missingColumn) {
-        const retryWithoutScope = await supabase.from("categories").select("id,destination").eq("id_restaurant", scopeId);
+        const retryWithoutScope = await supabase.from("categories").select("id,destination,name_fr,name").eq("id_restaurant", scopeId);
         if (!retryWithoutScope.error) {
           categoriesData = ((retryWithoutScope.data || []) as Array<Record<string, unknown>>);
           categoriesError = null;
@@ -918,7 +986,7 @@ export default function KitchenPage() {
       }
       const fallbackCategoriesQuery = await supabase
         .from("categories")
-        .select("id,destination")
+        .select("id,destination,name_fr,name")
         .order("id", { ascending: true });
       if (!fallbackCategoriesQuery.error) {
         categoriesData = ((fallbackCategoriesQuery.data || []) as Array<Record<string, unknown>>);
@@ -928,14 +996,18 @@ export default function KitchenPage() {
 
     if (!categoriesError) {
       const byId: Record<string, "cuisine" | "bar"> = {};
+      const nameById: Record<string, string> = {};
       categoriesData.forEach((row) => {
         const key = normalizeEntityId(row.id);
         if (!key) return;
         byId[key] = String(row.destination || "").trim().toLowerCase() === "bar" ? "bar" : "cuisine";
+        nameById[key] = String(row.name_fr || row.name || "").trim();
       });
       setCategoryDestinationById(byId);
+      setCategoryNameById(nameById);
     } else {
       setCategoryDestinationById({});
+      setCategoryNameById({});
     }
 
     if (!dishesError) {
@@ -1066,8 +1138,7 @@ export default function KitchenPage() {
     }
   };
 
-  const printableCuisineItems = (order: Order) =>
-    getOrderItems(order).filter((item: any) => isKitchenCourse(item));
+  const printableCuisineItems = (order: Order) => getKitchenItems(order);
 
   const isRateLimitError = (error: any) => {
     const code = String(error.code || error.status || "").toLowerCase();
@@ -1336,7 +1407,12 @@ export default function KitchenPage() {
 
     const currentItems = getOrderItems(targetOrder as Order);
     if (currentItems.length === 0) return;
-    const nextItems = currentItems.map((item) => (isKitchenCourse(item) ? setItemStatus(item, "ready") : item));
+    const currentStep = resolveOrderServiceStep(targetOrder, currentItems);
+    const nextItems = currentItems.map((item) => {
+      if (!isKitchenCourse(item)) return item;
+      if (!currentStep) return setItemStatus(item, "ready");
+      return resolveItemCourse(item) === currentStep ? setItemStatus(item, "ready") : item;
+    });
     const nextStatus = deriveOrderStatusFromItems(nextItems);
 
     setOrders((prev) =>
@@ -1423,6 +1499,7 @@ export default function KitchenPage() {
       covers: number | null;
       createdAt: string;
       orderIds: Array<string | number>;
+      serviceStep: string;
       items: Array<{ orderId: string | number; item: Item; idx: number }>;
     };
 
@@ -1430,8 +1507,9 @@ export default function KitchenPage() {
     priorityOrders.forEach((order) => {
       const hourKey = getHourKey(String(order.created_at || ""));
       const tableNumber = String(order.table_number || "").trim() || "?";
-      const groupKey = `${tableNumber}-${hourKey}`;
-      const kitchenItems = getOrderItems(order as Order).filter((item: any) => isKitchenCourse(item));
+      const kitchenItems = getKitchenItems(order as Order);
+      const serviceStep = resolveOrderServiceStep(order as Order, kitchenItems as Item[]);
+      const groupKey = `${tableNumber}-${hourKey}-${serviceStep || "plat"}`;
       if (kitchenItems.length === 0) return;
       const existing = map.get(groupKey);
       if (existing) {
@@ -1452,6 +1530,7 @@ export default function KitchenPage() {
         covers: toCovers(order),
         createdAt: order.created_at,
         orderIds: [order.id],
+        serviceStep,
         items: kitchenItems.map((item, idx) => ({ orderId: order.id, item: item as Item, idx })),
       });
     });
@@ -1465,6 +1544,8 @@ export default function KitchenPage() {
     setPrintOrder(targetOrder);
     handleAutoPrint();
   };
+  const printServiceStepLabel =
+    printOrder ? getOrderServiceStepLabel(printOrder, printableCuisineItems(printOrder)) : "";
 
   return (
     <div className="min-h-screen bg-gray-100 p-4 font-sans text-black">
@@ -1514,10 +1595,17 @@ export default function KitchenPage() {
             >
               <div>
                 <div className="flex justify-between items-start mb-4 border-b-2 border-black pb-2">
-                  <h2 className="text-3xl font-black">
-                    T-{group.tableNumber}
-                    {group.covers ? ` | 👥 ${group.covers}` : ""}
-                  </h2>
+                  <div>
+                    <h2 className="text-3xl font-black">
+                      T-{group.tableNumber}
+                      {group.covers ? ` | 👥 ${group.covers}` : ""}
+                    </h2>
+                    {group.serviceStep ? (
+                      <div className="mt-1 inline-flex items-center rounded border-2 border-black bg-white px-2 py-1 text-xs font-black">
+                        {SERVICE_STEP_LABELS[group.serviceStep] || group.serviceStep.toUpperCase()}
+                      </div>
+                    ) : null}
+                  </div>
                   <span className="text-xs font-mono text-gray-500">{group.orderIds.length} commande(s)</span>
                 </div>
 
@@ -1571,8 +1659,7 @@ export default function KitchenPage() {
           <h2 className="mb-3 text-sm font-black uppercase text-gray-700">Historique plats prêts</h2>
           <div className="grid grid-cols-1 gap-2 md:grid-cols-2 lg:grid-cols-3">
             {readyHistoryOrders.map((order) => {
-              const items = getOrderItems(order as Order);
-              const kitchenItems = items.filter((item: any) => isKitchenCourse(item));
+              const kitchenItems = getKitchenItems(order as Order);
               if (kitchenItems.length === 0) return null;
               return (
                 <div key={`ready-${order.id}`} className="rounded border border-gray-300 bg-gray-50 p-2">
@@ -1620,6 +1707,9 @@ export default function KitchenPage() {
                 ? ` | 👥 ${Number(printOrder.covers || printOrder.guest_count || printOrder.customer_count)}`
                 : ""}
             </div>
+            {printServiceStepLabel ? (
+              <div className="mt-1 text-sm font-black">{printServiceStepLabel}</div>
+            ) : null}
             <div className="border-t border-b border-dashed border-black py-2">
               {printableCuisineItems(printOrder).map((item: any, idx: number) => {
                 const finalDetails = getKitchenFinalDetails(item as Item);

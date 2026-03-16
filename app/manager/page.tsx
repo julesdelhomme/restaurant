@@ -83,6 +83,15 @@ function normalizeTotalTables(value: unknown, fallback = DEFAULT_TOTAL_TABLES) {
 }
 
 const HUNGER_LEVELS = ["Petite faim", "Moyenne faim", "Grosse faim"];
+const DISH_AVAILABLE_DAY_OPTIONS = [
+  { key: "mon", label: "Lundi" },
+  { key: "tue", label: "Mardi" },
+  { key: "wed", label: "Mercredi" },
+  { key: "thu", label: "Jeudi" },
+  { key: "fri", label: "Vendredi" },
+  { key: "sat", label: "Samedi" },
+  { key: "sun", label: "Dimanche" },
+];
 const DEFAULT_LANGUAGE_LABELS: Record<string, string> = {
   fr: "Fran\u00e7ais",
   en: "English",
@@ -480,6 +489,11 @@ interface Dish {
     is_promo?: boolean | null;
     promo_price?: number | null;
     is_suggestion?: boolean | null;
+    is_formula?: boolean | null;
+    formula_category_ids?: Array<string | number> | null;
+    available_days?: string[] | string | null;
+    start_time?: string | null;
+    end_time?: string | null;
     product_options?: ProductOptionItem[];
     extras?: unknown;
     extras_list?: unknown;
@@ -904,9 +918,12 @@ interface DishForm {
   description_fr: string;
   description_en: string;
   description_es: string;
-  description_de: string;
+    description_de: string;
     description_i18n: Record<string, string>;
     price: string;
+    available_days: string[];
+    start_time: string;
+    end_time: string;
     category_id: string;
     subcategory_id: string;
     hunger_level: string;
@@ -927,6 +944,8 @@ interface DishForm {
   is_promo: boolean;
   promo_price: string;
   is_suggestion: boolean;
+  is_formula: boolean;
+  formula_category_ids: string[];
   max_options: string;
   selected_side_ids: Array<string | number>;
   extras_list: ExtrasItem[];
@@ -1598,10 +1617,13 @@ export default function MenuManager() {
     description_fr: "",
     description_en: "",
     description_es: "",
-      description_de: "",
-      description_i18n: {},
-      price: "",
-      category_id: "",
+    description_de: "",
+    description_i18n: {},
+    price: "",
+    available_days: [],
+    start_time: "",
+    end_time: "",
+    category_id: "",
     subcategory_id: "",
     hunger_level: "",
     image_url: "",
@@ -1621,6 +1643,8 @@ export default function MenuManager() {
     is_promo: false,
     promo_price: "",
     is_suggestion: false,
+    is_formula: false,
+    formula_category_ids: [],
     max_options: "1",
     selected_side_ids: [],
     extras_list: [],
@@ -3527,10 +3551,13 @@ export default function MenuManager() {
       description_fr: "",
       description_en: "",
       description_es: "",
-      description_de: "",
-      description_i18n: {},
-      price: "",
-      category_id: categories[0] ? String(categories[0].id) : "",
+        description_de: "",
+        description_i18n: {},
+        price: "",
+        available_days: [],
+        start_time: "",
+        end_time: "",
+        category_id: categories[0] ? String(categories[0].id) : "",
       subcategory_id: "",
       hunger_level: "",
       image_url: "",
@@ -3550,6 +3577,8 @@ export default function MenuManager() {
       is_promo: false,
       promo_price: "",
       is_suggestion: false,
+      is_formula: false,
+      formula_category_ids: [],
       max_options: "1",
       selected_side_ids: [],
       extras_list: [],
@@ -3632,6 +3661,17 @@ export default function MenuManager() {
         return [code, value];
       })
     ) as Record<string, string>;
+    const rawFormulaCategoryIds = (dishRecord as Record<string, unknown>).formula_category_ids;
+    const normalizedFormulaCategoryIds = Array.isArray(rawFormulaCategoryIds)
+      ? rawFormulaCategoryIds.map((id) => String(id)).filter(Boolean)
+      : typeof rawFormulaCategoryIds === "string"
+        ? rawFormulaCategoryIds
+            .replace(/[{}]/g, "")
+            .split(",")
+            .map((value) => String(value || "").trim())
+            .filter(Boolean)
+        : [];
+    const isFormula = toBoolean((dishRecord as Record<string, unknown>).is_formula, false);
     const manualAllergensByName = parseJsonObject(dietaryI18nNode.allergens_manual);
     const dietaryAllergensListRaw =
       (dietary as Record<string, unknown>).allergens_selected ??
@@ -3794,6 +3834,9 @@ export default function MenuManager() {
         de: directDescriptionByLang.de || dish.description_de || "",
       },
       price: dish.price?.toString() || "",
+      available_days: parseDishAvailableDays(dish.available_days),
+      start_time: normalizeTimeInput(dish.start_time),
+      end_time: normalizeTimeInput(dish.end_time),
       category_id: dish.category_id != null ? String(dish.category_id) : "",
       subcategory_id: dish.subcategory_id != null ? String(dish.subcategory_id) : "",
       hunger_level: dish.hunger_level || "",
@@ -3849,6 +3892,8 @@ export default function MenuManager() {
           dish.is_featured,
         false
       ),
+      is_formula: isFormula,
+      formula_category_ids: isFormula ? normalizedFormulaCategoryIds : [],
       max_options: String(dish.max_options ?? 1),
       selected_side_ids: Array.isArray(dish.selected_sides)
         ? dish.selected_sides
@@ -4270,7 +4315,16 @@ export default function MenuManager() {
           )
           .filter(Boolean);
         return [normalizedCode, localizedList];
-      })
+        })
+      );
+
+    const normalizedAvailableDays = Array.from(
+      new Set((formData.available_days || []).map((value) => normalizeDayKey(value)).filter(Boolean))
+    );
+    const normalizedStartTime = normalizeTimeInput(formData.start_time);
+    const normalizedEndTime = normalizeTimeInput(formData.end_time);
+    const normalizedFormulaCategoryIds = Array.from(
+      new Set((formData.formula_category_ids || []).map((value) => String(value || "").trim()).filter(Boolean))
     );
 
     const dishData = {
@@ -4285,6 +4339,9 @@ export default function MenuManager() {
       description_es: mergedDescriptionI18n.es || null,
       description_de: mergedDescriptionI18n.de || null,
       price: priceFloat,
+      available_days: normalizedAvailableDays.length > 0 ? normalizedAvailableDays : null,
+      start_time: normalizedStartTime || null,
+      end_time: normalizedEndTime || null,
       category_id: formData.category_id || null,
       subcategory_id: formData.subcategory_id || null,
       category: selectedCategory?.name_fr || null,
@@ -4313,6 +4370,8 @@ export default function MenuManager() {
       is_chef_suggestion: unifiedSuggestionFlag,
       is_daily_special: !!formData.is_daily_special,
       is_suggestion: unifiedSuggestionFlag,
+      is_formula: !!formData.is_formula,
+      formula_category_ids: formData.is_formula ? normalizedFormulaCategoryIds : null,
       is_promo: !!formData.is_promo,
       promo_price: formData.is_promo ? (parsedPromoPrice == null ? null : Number(parsedPromoPrice)) : null,
       is_featured: unifiedSuggestionFlag,
@@ -5883,6 +5942,49 @@ export default function MenuManager() {
     const num = Number(value);
     return Number.isFinite(num) ? Math.trunc(num) : 0;
   };
+  const normalizeDayKey = (value: unknown): string | null => {
+    const raw = String(value || "").trim().toLowerCase();
+    if (!raw) return null;
+    if (["0", "7", "sun", "sunday", "dim", "dimanche"].includes(raw)) return "sun";
+    if (["1", "mon", "monday", "lun", "lundi"].includes(raw)) return "mon";
+    if (["2", "tue", "tues", "tuesday", "mar", "mardi"].includes(raw)) return "tue";
+    if (["3", "wed", "weds", "wednesday", "mer", "mercredi"].includes(raw)) return "wed";
+    if (["4", "thu", "thur", "thurs", "thursday", "jeu", "jeudi"].includes(raw)) return "thu";
+    if (["5", "fri", "friday", "ven", "vendredi"].includes(raw)) return "fri";
+    if (["6", "sat", "saturday", "sam", "samedi"].includes(raw)) return "sat";
+    return null;
+  };
+  const parseDishAvailableDays = (value: unknown): string[] => {
+    if (!value) return [];
+    const rawList: Array<unknown> = Array.isArray(value)
+      ? value
+      : typeof value === "string"
+        ? (() => {
+            const trimmed = value.trim();
+            if (!trimmed) return [];
+            if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+              try {
+                const parsed = JSON.parse(trimmed);
+                return Array.isArray(parsed) ? parsed : [];
+              } catch {
+                return [];
+              }
+            }
+            if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+              return trimmed
+                .slice(1, -1)
+                .split(",")
+                .map((entry) => entry.replace(/\"/g, "").trim())
+                .filter(Boolean);
+            }
+            return trimmed.split(",").map((entry) => entry.trim()).filter(Boolean);
+          })()
+        : [];
+    const normalized = rawList
+      .map((entry) => normalizeDayKey(entry))
+      .filter((entry): entry is string => Boolean(entry));
+    return Array.from(new Set(normalized));
+  };
   const normalizeTimeInput = (value: unknown): string => {
     const raw = String(value || "").trim();
     if (!raw) return "";
@@ -5893,6 +5995,15 @@ export default function MenuManager() {
     const paddedHours = String(hours).padStart(2, "0");
     const paddedMinutes = String(minutes).padStart(2, "0");
     return `${paddedHours}:${paddedMinutes}`;
+  };
+  const parseTimeToMinutes = (value: unknown): number | null => {
+    const normalized = normalizeTimeInput(value);
+    if (!normalized) return null;
+    const [hoursText, minutesText] = normalized.split(":");
+    const hours = Number(hoursText);
+    const minutes = Number(minutesText);
+    if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
+    return hours * 60 + minutes;
   };
 
   const sides = sidesLibrary;
@@ -6209,10 +6320,62 @@ export default function MenuManager() {
 
     const totalTablesCount = configuredTableNumbers.length;
     const occupancyIgnoredStatuses = new Set(["cancelled", "canceled", "annule", "annulee"]);
-    const occupationSlotDefinitions = [
-      { id: "lunch", label: "11h-14h", startHour: 11, endHour: 14 },
-      { id: "dinner", label: "18h-22h", startHour: 18, endHour: 22 },
-    ] as const;
+    const serviceConfig = parseObjectRecord((restaurant as Record<string, unknown>)?.table_config);
+    const lunchStartMinutes = parseTimeToMinutes(serviceConfig.service_lunch_start ?? serviceConfig.lunch_start);
+    const lunchEndMinutes = parseTimeToMinutes(serviceConfig.service_lunch_end ?? serviceConfig.lunch_end);
+    const dinnerStartMinutes = parseTimeToMinutes(serviceConfig.service_dinner_start ?? serviceConfig.dinner_start);
+    const dinnerEndMinutes = parseTimeToMinutes(serviceConfig.service_dinner_end ?? serviceConfig.dinner_end);
+    const formatSlotLabel = (startMinutes: number, endMinutes: number) => {
+      const format = (minutes: number) => {
+        const hours = Math.floor(minutes / 60);
+        const mins = minutes % 60;
+        return mins > 0 ? `${hours}h${String(mins).padStart(2, "0")}` : `${hours}h`;
+      };
+      return `${format(startMinutes)}-${format(endMinutes)}`;
+    };
+    const computedSlots: Array<{ id: string; label: string; startMinutes: number; endMinutes: number }> = [];
+    if (lunchStartMinutes != null && lunchEndMinutes != null) {
+      computedSlots.push({
+        id: "lunch",
+        label: formatSlotLabel(lunchStartMinutes, lunchEndMinutes),
+        startMinutes: lunchStartMinutes,
+        endMinutes: lunchEndMinutes,
+      });
+    }
+    if (dinnerStartMinutes != null && dinnerEndMinutes != null) {
+      computedSlots.push({
+        id: "dinner",
+        label: formatSlotLabel(dinnerStartMinutes, dinnerEndMinutes),
+        startMinutes: dinnerStartMinutes,
+        endMinutes: dinnerEndMinutes,
+      });
+    }
+    const occupationSlotDefinitions =
+      computedSlots.length > 0
+        ? computedSlots
+        : [
+            { id: "lunch", label: "11h-14h", startMinutes: 11 * 60, endMinutes: 14 * 60 },
+            { id: "dinner", label: "18h-22h", startMinutes: 18 * 60, endMinutes: 22 * 60 },
+          ];
+    const formatClockLabel = (minutes: number) => {
+      const hours = Math.floor(minutes / 60);
+      const mins = minutes % 60;
+      return `${String(hours).padStart(2, "0")}:${String(mins).padStart(2, "0")}`;
+    };
+    const buildServiceSlots = (stepMinutes: number) => {
+      const slots: Array<{ label: string; startMinutes: number; endMinutes: number }> = [];
+      occupationSlotDefinitions.forEach((slot) => {
+        for (let minute = slot.startMinutes; minute < slot.endMinutes; minute += stepMinutes) {
+          const slotStart = minute;
+          const slotEnd = Math.min(slot.endMinutes, minute + stepMinutes);
+          const label = stepMinutes === 60 ? formatSlotLabel(slotStart, slotEnd) : formatClockLabel(slotStart);
+          slots.push({ label, startMinutes: slotStart, endMinutes: slotEnd });
+        }
+      });
+      return slots;
+    };
+    const hourlyServiceSlots = buildServiceSlots(60);
+    const halfHourServiceSlots = buildServiceSlots(30);
     const occupationSlotDayMap = new Map<string, Map<string, Set<number>>>();
     occupationSlotDefinitions.forEach((slot) => {
       const dayMap = new Map<string, Set<number>>();
@@ -6233,11 +6396,13 @@ export default function MenuManager() {
       if (!Number.isFinite(date.getTime())) return;
       const dayKey = dateKeyFormatter.format(date);
       const hm = hourMinuteFormatter.format(date);
-      const [hourText] = hm.split(":");
+      const [hourText, minuteText] = hm.split(":");
       const hour = Number(hourText);
-      if (!Number.isFinite(hour)) return;
+      const minute = Number(minuteText);
+      if (!Number.isFinite(hour) || !Number.isFinite(minute)) return;
+      const orderMinutes = hour * 60 + minute;
       occupationSlotDefinitions.forEach((slot) => {
-        if (hour < slot.startHour || hour >= slot.endHour) return;
+        if (orderMinutes < slot.startMinutes || orderMinutes >= slot.endMinutes) return;
         const slotDayMap = occupationSlotDayMap.get(slot.id);
         const tables = slotDayMap?.get(dayKey);
         if (!tables) return;
@@ -6276,10 +6441,12 @@ export default function MenuManager() {
       const hour = Number(hourText);
       const minute = Number(minuteText);
       if (!Number.isFinite(hour) || !Number.isFinite(minute)) return "";
-      const inLunch = hour >= 11 && hour < 14;
-      const inDinner = hour >= 18 && hour < 22;
-      if (!inLunch && !inDinner) return "";
-      return `${String(hour).padStart(2, "0")}h-${String(hour + 1).padStart(2, "0")}h`;
+      const orderMinutes = hour * 60 + minute;
+      const match = hourlyServiceSlots.find(
+        (slot) => orderMinutes >= slot.startMinutes && orderMinutes < slot.endMinutes
+      );
+      if (!match) return "";
+      return match.label;
     };
 
     const toLocalDateFromKey = (key: string) => {
@@ -6337,13 +6504,13 @@ export default function MenuManager() {
     const computeAverageHourlySales = () => {
       const slots = new Map<string, number>();
       const orderSlots = new Map<string, number>();
-      const addSlot = (startHour: number) => {
-        const label = `${String(startHour).padStart(2, "0")}h-${String(startHour + 1).padStart(2, "0")}h`;
-        slots.set(label, 0);
-        orderSlots.set(label, 0);
-      };
-      for (let hour = 11; hour < 14; hour += 1) addSlot(hour);
-      for (let hour = 18; hour < 22; hour += 1) addSlot(hour);
+      hourlyServiceSlots.forEach((slot) => {
+        slots.set(slot.label, 0);
+        orderSlots.set(slot.label, 0);
+      });
+      if (hourlyServiceSlots.length === 0) {
+        return { sales: [], orders: [] };
+      }
 
       paidOrders.forEach((order) => {
         const date = readOrderDateLocal(order);
@@ -6352,13 +6519,13 @@ export default function MenuManager() {
         const hour = Number(hourText);
         const minute = Number(minuteText);
         if (!Number.isFinite(hour) || !Number.isFinite(minute)) return;
-        const inLunch = hour >= 11 && hour < 14;
-        const inDinner = hour >= 18 && hour < 22;
-        if (!inLunch && !inDinner) return;
-        const slotLabel = `${String(hour).padStart(2, "0")}h-${String(hour + 1).padStart(2, "0")}h`;
-        if (!slots.has(slotLabel)) return;
-        slots.set(slotLabel, (slots.get(slotLabel) || 0) + readOrderTotal(order));
-        orderSlots.set(slotLabel, (orderSlots.get(slotLabel) || 0) + 1);
+        const orderMinutes = hour * 60 + minute;
+        const slot = hourlyServiceSlots.find(
+          (entry) => orderMinutes >= entry.startMinutes && orderMinutes < entry.endMinutes
+        );
+        if (!slot) return;
+        slots.set(slot.label, (slots.get(slot.label) || 0) + readOrderTotal(order));
+        orderSlots.set(slot.label, (orderSlots.get(slot.label) || 0) + 1);
       });
 
       return {
@@ -6376,17 +6543,10 @@ export default function MenuManager() {
     if (analyticsRange === "today") {
       const slotMap = new Map<string, number>();
       const orderSlotMap = new Map<string, number>();
-      const addSlot = (hour: number, minute: number) => {
-        const slot = `${String(hour).padStart(2, "0")}:${minute === 0 ? "00" : "30"}`;
-        slotMap.set(slot, 0);
-        orderSlotMap.set(slot, 0);
-      };
-      for (let minute = 11 * 60; minute < 14 * 60; minute += 30) {
-        addSlot(Math.floor(minute / 60), minute % 60);
-      }
-      for (let minute = 18 * 60; minute < 22 * 60; minute += 30) {
-        addSlot(Math.floor(minute / 60), minute % 60);
-      }
+      halfHourServiceSlots.forEach((slot) => {
+        slotMap.set(slot.label, 0);
+        orderSlotMap.set(slot.label, 0);
+      });
 
       paidOrders.forEach((order) => {
         const date = readOrderDateLocal(order);
@@ -6395,14 +6555,13 @@ export default function MenuManager() {
         const hour = Number(hourText);
         const minute = Number(minuteText);
         if (!Number.isFinite(hour) || !Number.isFinite(minute)) return;
-        const inLunch = hour >= 11 && hour < 14;
-        const inDinner = hour >= 18 && hour < 22;
-        if (!inLunch && !inDinner) return;
-        const slotMinute = minute < 30 ? 0 : 30;
-        const slot = `${String(hour).padStart(2, "0")}:${slotMinute === 0 ? "00" : "30"}`;
-        if (!slotMap.has(slot)) return;
-        slotMap.set(slot, (slotMap.get(slot) || 0) + readOrderTotal(order));
-        orderSlotMap.set(slot, (orderSlotMap.get(slot) || 0) + 1);
+        const orderMinutes = hour * 60 + minute;
+        const slot = halfHourServiceSlots.find(
+          (entry) => orderMinutes >= entry.startMinutes && orderMinutes < entry.endMinutes
+        );
+        if (!slot) return;
+        slotMap.set(slot.label, (slotMap.get(slot.label) || 0) + readOrderTotal(order));
+        orderSlotMap.set(slot.label, (orderSlotMap.get(slot.label) || 0) + 1);
       });
 
       salesTrendData = [...slotMap.entries()].map(([label, value]) => ({ label, value }));
@@ -10649,21 +10808,67 @@ export default function MenuManager() {
                     ))}
                 </select>
               </div>
-              <div>
-                <label className="block mb-1 font-bold">Niveau de faim</label>
-                <select
-                  value={formData.hunger_level}
-                  onChange={(e) => setFormData({ ...formData, hunger_level: e.target.value })}
-                  className="w-full px-3 py-2 bg-white text-black border border-gray-300"
-                >
-                  <option value="">--</option>
-                  {HUNGER_LEVELS.map((level) => (
-                    <option key={level} value={level}>
-                      {level}
-                    </option>
-                  ))}
-                </select>
-              </div>
+                <div>
+                  <label className="block mb-1 font-bold">Niveau de faim</label>
+                  <select
+                    value={formData.hunger_level}
+                    onChange={(e) => setFormData({ ...formData, hunger_level: e.target.value })}
+                    className="w-full px-3 py-2 bg-white text-black border border-gray-300"
+                  >
+                    <option value="">--</option>
+                    {HUNGER_LEVELS.map((level) => (
+                      <option key={level} value={level}>
+                        {level}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="md:col-span-2 border border-gray-200 rounded p-3 bg-white">
+                  <div className="font-bold mb-2">Disponibilité</div>
+                  <div className="flex flex-wrap gap-2">
+                    {DISH_AVAILABLE_DAY_OPTIONS.map((day) => {
+                      const checked = formData.available_days.includes(day.key);
+                      return (
+                        <label key={day.key} className="flex items-center gap-2 text-sm font-bold">
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={(e) => {
+                              const next = e.target.checked
+                                ? [...formData.available_days, day.key]
+                                : formData.available_days.filter((key) => key !== day.key);
+                              setFormData({ ...formData, available_days: next });
+                            }}
+                          />
+                          {day.label}
+                        </label>
+                      );
+                    })}
+                  </div>
+                  <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block mb-1 text-xs font-black uppercase">Heure de début</label>
+                      <input
+                        type="time"
+                        value={formData.start_time}
+                        onChange={(e) => setFormData({ ...formData, start_time: e.target.value })}
+                        className="w-full px-3 py-2 bg-white text-black border border-gray-300"
+                      />
+                    </div>
+                    <div>
+                      <label className="block mb-1 text-xs font-black uppercase">Heure de fin</label>
+                      <input
+                        type="time"
+                        value={formData.end_time}
+                        onChange={(e) => setFormData({ ...formData, end_time: e.target.value })}
+                        className="w-full px-3 py-2 bg-white text-black border border-gray-300"
+                      />
+                    </div>
+                  </div>
+                  <p className="mt-2 text-xs text-gray-600">
+                    Laissez vide pour rendre le plat disponible toute la journée.
+                  </p>
+                </div>
               <div className="md:col-span-2 hidden">
                 <label className="block mb-1 font-bold">Description française</label>
                 <textarea
@@ -10894,6 +11099,20 @@ export default function MenuManager() {
                 <label className="flex items-center gap-2 text-black font-bold">
                   <input
                     type="checkbox"
+                    checked={formData.is_formula}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        is_formula: e.target.checked,
+                        formula_category_ids: e.target.checked ? formData.formula_category_ids : [],
+                      })
+                    }
+                  />
+                  Est une formule
+                </label>
+                <label className="flex items-center gap-2 text-black font-bold">
+                  <input
+                    type="checkbox"
                     checked={formData.is_promo}
                     onChange={(e) =>
                       setFormData({
@@ -10906,6 +11125,38 @@ export default function MenuManager() {
                   Badge PROMO
                 </label>
               </div>
+
+              {formData.is_formula ? (
+                <div className="md:col-span-2 border border-gray-200 rounded p-3 bg-white">
+                  <label className="block mb-2 font-bold">Catégories incluses dans la formule</label>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-56 overflow-y-auto">
+                    {categories.length === 0 ? (
+                      <div className="text-sm text-gray-600">Aucune catégorie disponible.</div>
+                    ) : (
+                      categories.map((category) => {
+                        const categoryId = String(category.id || "").trim();
+                        const checked = formData.formula_category_ids.some((id) => String(id) === categoryId);
+                        return (
+                          <label key={`formula-category-${categoryId}`} className="flex items-center gap-2 text-black font-bold px-2 py-1 rounded hover:bg-gray-50">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={(e) => {
+                                if (!categoryId) return;
+                                const next = e.target.checked
+                                  ? [...formData.formula_category_ids, categoryId]
+                                  : formData.formula_category_ids.filter((id) => String(id) !== categoryId);
+                                setFormData({ ...formData, formula_category_ids: next });
+                              }}
+                            />
+                            {getCategoryLabel(category)}
+                          </label>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              ) : null}
 
               <div className="md:col-span-2">
                 <label className="block mb-1 font-bold">Accompagnements disponibles</label>

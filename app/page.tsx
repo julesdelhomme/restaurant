@@ -209,6 +209,7 @@ const UI_TEXT = {
     menu: "Menu",
     callServer: "Appeler le serveur",
     help: "Besoin d'aide ?",
+    categoriesTitle: "Catégories",
     close: "Fermer",
     quantity: "Quantitï¿½",
     emptyCart: "Votre panier est vide.",
@@ -302,6 +303,7 @@ const UI_TEXT = {
     menu: "Menu",
     callServer: "Call the server",
     help: "Need help?",
+    categoriesTitle: "Categories",
     close: "Close",
     quantity: "Quantity",
     emptyCart: "Your cart is empty.",
@@ -395,6 +397,7 @@ const UI_TEXT = {
     menu: "Menï¿½",
     callServer: "Llamar al camarero",
     help: "ï¿½ï¿½Necesitas ayuda?",
+    categoriesTitle: "Categorías",
     close: "Cerrar",
     quantity: "Cantidad",
     emptyCart: "Tu carrito estï¿½ vacï¿½o.",
@@ -488,6 +491,7 @@ const UI_TEXT = {
     menu: "Menï¿½",
     callServer: "Service rufen",
     help: "Hilfe benï¿½tigt?",
+    categoriesTitle: "Kategorien",
     close: "Schlieï¿½xen",
     quantity: "Menge",
     emptyCart: "Ihr Warenkorb ist leer.",
@@ -855,6 +859,7 @@ function buildRuntimeUiText(
     menu: pick("menu", base.menu),
     callServer: pick("callServer", base.callServer),
     help: pick("help", base.help),
+    categoriesTitle: pickAlias("categoriesTitle", ["categories.title", "categories.header"], base.categoriesTitle),
     close: pick("close", base.close),
     quantity: pickAlias("quantity", [], base.quantity),
     kcal: pickAlias("kcal", [], "kcal"),
@@ -2601,6 +2606,8 @@ export default function MenuDigital() {
     },
   ].filter((entry) => entry.url);
   const hideCompactFloatingActions = isStickyActionsCompact && (isCartOpen || !!selectedDish || isVitrineMode);
+  const showCategoryDrawerButton =
+    categoryDrawerEnabled && isStickyActionsCompact && !isCategoryDrawerOpen && !hideCompactFloatingActions;
   const applyRealtimeDisplaySettingsRow = (rawRow: unknown) => {
     if (!rawRow || typeof rawRow !== "object") return;
     const row = rawRow as Record<string, unknown>;
@@ -4395,6 +4402,7 @@ export default function MenuDigital() {
           total_price: number;
           status: string;
           restaurant_id: string | number;
+          service_step?: string;
         } = {
           table_number: String(parsedTableNumber),
           items: kitchenItems,
@@ -4404,6 +4412,7 @@ export default function MenuDigital() {
           ),
           status: "pending",
           restaurant_id: resolvedRestaurantId,
+          service_step: "entree",
         };
         const { id: removedId, ...orderData } = newOrder;
         void removedId;
@@ -4425,6 +4434,7 @@ export default function MenuDigital() {
           total_price: number;
           status: string;
           restaurant_id: string | number;
+          service_step?: string;
         } = {
           table_number: String(parsedTableNumber),
           items: barItems,
@@ -4434,6 +4444,7 @@ export default function MenuDigital() {
           ),
           status: "pending",
           restaurant_id: resolvedRestaurantId,
+          service_step: "entree",
         };
         const { id: removedId, ...orderData } = newOrder;
         void removedId;
@@ -4755,12 +4766,13 @@ export default function MenuDigital() {
           ["--menu-text-color" as string]: globalTextColorValue,
         }}
     >
-      {categoryDrawerEnabled ? (
+      {showCategoryDrawerButton ? (
         <button
           type="button"
           onClick={() => setIsCategoryDrawerOpen(true)}
-          className="fixed left-4 top-4 z-[1100] inline-flex h-12 w-12 items-center justify-center rounded-xl border-4 border-black bg-white text-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]"
-          aria-label="Ouvrir le menu catégories"
+          className="fixed left-4 top-4 z-[45] inline-flex h-12 w-12 items-center justify-center rounded-xl border-4 border-black bg-white text-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]"
+          aria-label={uiText.categoriesTitle}
+          title={uiText.categoriesTitle}
         >
           <span className="flex flex-col gap-1.5" aria-hidden="true">
             <span className="block h-0.5 w-7 bg-black" />
@@ -5416,17 +5428,17 @@ export default function MenuDigital() {
             type="button"
             className="absolute inset-0 bg-black/50"
             onClick={() => setIsCategoryDrawerOpen(false)}
-            aria-label="Fermer le menu catégories"
+            aria-label={uiText.close}
           />
-          <aside className="absolute left-0 top-0 h-full w-[78%] max-w-[320px] bg-white border-r-4 border-black p-4 shadow-[6px_0_0px_0px_rgba(0,0,0,1)]">
+          <aside className="absolute left-0 top-0 h-full w-[78%] max-w-[320px] bg-white border-r-4 border-black p-4 pt-6 shadow-[6px_0_0px_0px_rgba(0,0,0,1)]">
             <div className="flex items-center justify-between mb-3">
-              <span className="font-black text-lg">Catégories</span>
+              <span className="font-black text-lg">{uiText.categoriesTitle}</span>
               <button
                 type="button"
                 onClick={() => setIsCategoryDrawerOpen(false)}
                 className="px-2 py-1 border-2 border-black font-black"
               >
-                Fermer
+                {uiText.close}
               </button>
             </div>
             <div className="space-y-2">
