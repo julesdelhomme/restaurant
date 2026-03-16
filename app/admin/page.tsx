@@ -1145,11 +1145,12 @@ function AdminContent() {
   };
   const resolveItemCourse = (item: Item) => {
     const record = item as unknown as Record<string, unknown>;
+    const dishData = (record.dish ?? null) as Record<string, unknown> | null;
     const itemCategoryId = String(record.category_id ?? record.categoryId ?? "").trim();
     const dishCategoryId =
       itemCategoryId ||
       String(
-        record.dish?.category_id ?? record.dish?.categoryId ?? record.dish_id ?? record.id ?? ""
+        dishData?.category_id ?? dishData?.categoryId ?? record.dish_id ?? record.id ?? ""
       ).trim();
     const categoryRow = dishCategoryId ? categoryById.get(String(dishCategoryId || "").trim()) : undefined;
     const categoryLabel = categoryRow ? getCategoryLabel(categoryRow) : String(record.categorie || record.category || "").trim();
