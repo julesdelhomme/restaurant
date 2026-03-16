@@ -2532,12 +2532,12 @@ export default function MenuDigital() {
     setSuggestionLeadByLang(parsed.suggestionMessagesI18n || {});
     setUiTranslationsByLang(parsed.uiTranslations || {});
     const config = parseJsonObject(row.table_config || row.settings);
-    setCategoryDrawerEnabled(
-      toBoolean(config.category_drawer_enabled ?? config.show_category_drawer, false)
-    );
-    setKeepSuggestionsOnTop(
-      toBoolean(config.keep_suggestions_on_top ?? config.pin_suggestions, false)
-    );
+      setCategoryDrawerEnabled(
+        Boolean(config.category_drawer_enabled ?? config.show_category_drawer)
+      );
+      setKeepSuggestionsOnTop(
+        Boolean(config.keep_suggestions_on_top ?? config.pin_suggestions)
+      );
     if (Object.prototype.hasOwnProperty.call(row, "is_active")) {
       const isActive = typeof row.is_active === "boolean" ? row.is_active : true;
       setIsRestaurantOffline(!isActive);
@@ -2856,12 +2856,12 @@ export default function MenuDigital() {
           displayFound = true;
         }
       }
-      setCategoryDrawerEnabled(
-        toBoolean(tableConfig.category_drawer_enabled ?? tableConfig.show_category_drawer, false)
-      );
-      setKeepSuggestionsOnTop(
-        toBoolean(tableConfig.keep_suggestions_on_top ?? tableConfig.pin_suggestions, false)
-      );
+        setCategoryDrawerEnabled(
+          Boolean(tableConfig.category_drawer_enabled ?? tableConfig.show_category_drawer)
+        );
+        setKeepSuggestionsOnTop(
+          Boolean(tableConfig.keep_suggestions_on_top ?? tableConfig.pin_suggestions)
+        );
       return true;
     };
 
