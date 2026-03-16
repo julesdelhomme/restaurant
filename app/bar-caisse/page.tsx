@@ -850,6 +850,21 @@ export default function BarCaissePage() {
   const [activeTab, setActiveTab] = useState<"boissons" | "caisse" | "inventaire">("boissons");
   const [expandedTables, setExpandedTables] = useState<Record<number, boolean>>({});
 
+  const inventoryByCategory = useMemo(() => {
+    const groups: Record<string, InventoryDish[]> = {};
+    inventory.forEach((item) => {
+      const label = String(item.category || item.categorie || "Sans catégorie").trim() || "Sans catégorie";
+      if (!groups[label]) groups[label] = [];
+      groups[label].push(item);
+    });
+    return Object.entries(groups)
+      .map(([label, items]) => [
+        label,
+        [...items].sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""))),
+      ] as const)
+      .sort((a, b) => a[0].localeCompare(b[0]));
+  }, [inventory]);
+
   const [restaurantId, setRestaurantId] = useState<string | number | null>(null);
   const [restaurantName, setRestaurantName] = useState("Mon Restaurant");
   const [restaurantLogoUrl, setRestaurantLogoUrl] = useState("");
@@ -2245,20 +2260,27 @@ export default function BarCaissePage() {
           </div>
           <div className="space-y-3" translate="no">
             {inventory.length === 0 ? <p className="text-red-700 text-xl font-black text-center py-8">LA TABLE DISHES RENVOIE 0 LIGNE</p> : null}
-            {inventory.map((item) => {
-              const inStock = Boolean(item.active);
-              return (
-                <div key={String(item.id)} className="bg-white border-2 border-black p-3 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] flex items-center justify-between gap-3">
-                  <div>
-                    <div className="font-bold">{String(item.name || `Item ${item.id}`)}</div>
-                    <div className="text-sm text-gray-600">{String(item.category || item.categorie || "Sans catégorie")} - {euro.format(Number(item.price || 0))}</div>
-                  </div>
-                  <button onClick={() => void toggleStock(item)} className={`px-3 py-2 border-2 border-black font-black text-white shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-x-[2px] active:translate-y-[2px] ${inStock ? "bg-green-700" : "bg-red-700"}`}>
-                    {inStock ? "En stock" : "Rupture"}
-                  </button>
+            {inventoryByCategory.map(([categoryLabel, items]) => (
+              <div key={categoryLabel} className="space-y-2">
+                <div className="px-3 py-2 bg-gray-100 border-2 border-black font-black uppercase text-sm">
+                  {categoryLabel}
                 </div>
-              );
-            })}
+                {items.map((item) => {
+                  const inStock = Boolean(item.active);
+                  return (
+                    <div key={String(item.id)} className="bg-white border-2 border-black p-3 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] flex items-center justify-between gap-3">
+                      <div>
+                        <div className="font-bold">{String(item.name || `Item ${item.id}`)}</div>
+                        <div className="text-sm text-gray-600">{euro.format(Number(item.price || 0))}</div>
+                      </div>
+                      <button onClick={() => void toggleStock(item)} className={`px-3 py-2 border-2 border-black font-black text-white shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-x-[2px] active:translate-y-[2px] ${inStock ? "bg-green-700" : "bg-red-700"}`}>
+                        {inStock ? "En stock" : "Rupture"}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
           </div>
         </section>
       ) : null}

@@ -1664,6 +1664,10 @@ export default function MenuManager() {
     card_style: "rounded",
     category_drawer_enabled: false,
     keep_suggestions_on_top: false,
+    service_lunch_start: "",
+    service_lunch_end: "",
+    service_dinner_start: "",
+    service_dinner_end: "",
     smtp_user: "",
     smtp_password: "",
     email_subject: "",
@@ -2867,6 +2871,10 @@ export default function MenuManager() {
           tableConfig.keep_suggestions_on_top ?? tableConfig.pin_suggestions,
           false
         ),
+        service_lunch_start: String(tableConfig.service_lunch_start || tableConfig.lunch_start || "").trim(),
+        service_lunch_end: String(tableConfig.service_lunch_end || tableConfig.lunch_end || "").trim(),
+        service_dinner_start: String(tableConfig.service_dinner_start || tableConfig.dinner_start || "").trim(),
+        service_dinner_end: String(tableConfig.service_dinner_end || tableConfig.dinner_end || "").trim(),
         smtp_user: String(row.smtp_user || ""),
         smtp_password: "",
         email_subject: String(row.email_subject || "Votre ticket de caisse - [Nom du Resto]"),
@@ -4732,6 +4740,16 @@ export default function MenuManager() {
           false
         )
       );
+      const safeServiceLunchStart = normalizeTimeInput(
+        (restaurantForm as Record<string, unknown>).service_lunch_start
+      );
+      const safeServiceLunchEnd = normalizeTimeInput((restaurantForm as Record<string, unknown>).service_lunch_end);
+      const safeServiceDinnerStart = normalizeTimeInput(
+        (restaurantForm as Record<string, unknown>).service_dinner_start
+      );
+      const safeServiceDinnerEnd = normalizeTimeInput(
+        (restaurantForm as Record<string, unknown>).service_dinner_end
+      );
       const safeGoogleReviewUrl = String((restaurantForm as Record<string, unknown>).google_review_url || "").trim();
       const safeInstagramUrl = String((restaurantForm as Record<string, unknown>).instagram_url || "").trim();
       const safeSnapchatUrl = String((restaurantForm as Record<string, unknown>).snapchat_url || "").trim();
@@ -4806,6 +4824,10 @@ export default function MenuManager() {
         quick_add_to_cart_enabled: safeQuickAddToCartEnabled,
         category_drawer_enabled: safeCategoryDrawerEnabled,
         keep_suggestions_on_top: safeKeepSuggestionsOnTop,
+        service_lunch_start: safeServiceLunchStart || null,
+        service_lunch_end: safeServiceLunchEnd || null,
+        service_dinner_start: safeServiceDinnerStart || null,
+        service_dinner_end: safeServiceDinnerEnd || null,
         social_links: {
           instagram: safeInstagramUrl || null,
           snapchat: safeSnapchatUrl || null,
@@ -5860,6 +5882,17 @@ export default function MenuManager() {
   const normalizeSortOrder = (value: unknown): number => {
     const num = Number(value);
     return Number.isFinite(num) ? Math.trunc(num) : 0;
+  };
+  const normalizeTimeInput = (value: unknown): string => {
+    const raw = String(value || "").trim();
+    if (!raw) return "";
+    const match = raw.match(/^(\d{1,2}):(\d{2})/);
+    if (!match) return "";
+    const hours = Math.min(23, Math.max(0, Math.trunc(Number(match[1]))));
+    const minutes = Math.min(59, Math.max(0, Math.trunc(Number(match[2]))));
+    const paddedHours = String(hours).padStart(2, "0");
+    const paddedMinutes = String(minutes).padStart(2, "0");
+    return `${paddedHours}:${paddedMinutes}`;
   };
 
   const sides = sidesLibrary;
@@ -9199,6 +9232,58 @@ export default function MenuManager() {
                   </span>
                 </label>
               </div>
+            </div>
+            <div className={`${activeManagerTab === "appearance" ? "md:col-span-2 border border-gray-200 rounded bg-white p-3" : "hidden"}`}>
+              <div className="text-sm font-black text-black mb-2">Horaires de service</div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="block mb-1 text-xs font-black uppercase">Midi</label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="time"
+                      value={String((restaurantForm as Record<string, unknown>).service_lunch_start || "")}
+                      onChange={(e) =>
+                        setRestaurantForm({ ...restaurantForm, service_lunch_start: e.target.value })
+                      }
+                      className="w-full px-3 py-2 bg-white text-black border border-gray-300 rounded"
+                    />
+                    <span className="text-xs font-black text-gray-600">à</span>
+                    <input
+                      type="time"
+                      value={String((restaurantForm as Record<string, unknown>).service_lunch_end || "")}
+                      onChange={(e) =>
+                        setRestaurantForm({ ...restaurantForm, service_lunch_end: e.target.value })
+                      }
+                      className="w-full px-3 py-2 bg-white text-black border border-gray-300 rounded"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block mb-1 text-xs font-black uppercase">Soir</label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="time"
+                      value={String((restaurantForm as Record<string, unknown>).service_dinner_start || "")}
+                      onChange={(e) =>
+                        setRestaurantForm({ ...restaurantForm, service_dinner_start: e.target.value })
+                      }
+                      className="w-full px-3 py-2 bg-white text-black border border-gray-300 rounded"
+                    />
+                    <span className="text-xs font-black text-gray-600">à</span>
+                    <input
+                      type="time"
+                      value={String((restaurantForm as Record<string, unknown>).service_dinner_end || "")}
+                      onChange={(e) =>
+                        setRestaurantForm({ ...restaurantForm, service_dinner_end: e.target.value })
+                      }
+                      className="w-full px-3 py-2 bg-white text-black border border-gray-300 rounded"
+                    />
+                  </div>
+                </div>
+              </div>
+              <p className="mt-2 text-xs text-gray-600 font-semibold">
+                Ces horaires pilotent l&apos;affichage global des plats si une disponibilité spécifique n&apos;est pas définie.
+              </p>
             </div>
             <div className={activeManagerTab === "appearance" ? "" : "hidden"}>
               <button

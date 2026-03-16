@@ -534,6 +534,84 @@ function normalizeText(value: string) {
     .replace(/[\u0300-\u036f]/g, "");
 }
 
+const DAY_KEY_ALIASES: Record<string, string[]> = {
+  sun: ["0", "7", "sun", "sunday", "dim", "dimanche"],
+  mon: ["1", "mon", "monday", "lun", "lundi"],
+  tue: ["2", "tue", "tues", "tuesday", "mar", "mardi"],
+  wed: ["3", "wed", "weds", "wednesday", "mer", "mercredi"],
+  thu: ["4", "thu", "thur", "thurs", "thursday", "jeu", "jeudi"],
+  fri: ["5", "fri", "friday", "ven", "vendredi"],
+  sat: ["6", "sat", "saturday", "sam", "samedi"],
+};
+
+function normalizeDayKey(value: unknown): string | null {
+  const raw = String(value || "").trim().toLowerCase();
+  if (!raw) return null;
+  for (const [key, aliases] of Object.entries(DAY_KEY_ALIASES)) {
+    if (aliases.includes(raw)) return key;
+  }
+  return null;
+}
+
+function parseAvailableDays(value: unknown): string[] {
+  if (!value) return [];
+  const rawList: Array<unknown> = Array.isArray(value)
+    ? value
+    : typeof value === "string"
+      ? (() => {
+          const trimmed = value.trim();
+          if (!trimmed) return [];
+          if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+            try {
+              const parsed = JSON.parse(trimmed);
+              return Array.isArray(parsed) ? parsed : [];
+            } catch {
+              return [];
+            }
+          }
+          if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+            return trimmed
+              .slice(1, -1)
+              .split(",")
+              .map((entry) => entry.replace(/\"/g, "").trim())
+              .filter(Boolean);
+          }
+          return trimmed.split(",").map((entry) => entry.trim()).filter(Boolean);
+        })()
+      : [];
+  const normalized = rawList
+    .map((entry) => normalizeDayKey(entry))
+    .filter((entry): entry is string => Boolean(entry));
+  return Array.from(new Set(normalized));
+}
+
+function parseTimeToMinutes(value: unknown): number | null {
+  if (value == null) return null;
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+  const parts = raw.split(":");
+  if (parts.length < 2) return null;
+  const hours = Number(parts[0]);
+  const minutes = Number(parts[1]);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
+  const safeHours = Math.min(23, Math.max(0, Math.trunc(hours)));
+  const safeMinutes = Math.min(59, Math.max(0, Math.trunc(minutes)));
+  return safeHours * 60 + safeMinutes;
+}
+
+function isWithinTimeWindow(nowMinutes: number, startMinutes: number | null, endMinutes: number | null): boolean {
+  if (startMinutes == null && endMinutes == null) return true;
+  if (startMinutes != null && endMinutes != null) {
+    if (startMinutes <= endMinutes) {
+      return nowMinutes >= startMinutes && nowMinutes <= endMinutes;
+    }
+    return nowMinutes >= startMinutes || nowMinutes <= endMinutes;
+  }
+  if (startMinutes != null) return nowMinutes >= startMinutes;
+  if (endMinutes != null) return nowMinutes <= endMinutes;
+  return true;
+}
+
 function fixDisplayText(value: string) {
   let output = String(value || "");
   const replacements: Array<[string, string]> = [
@@ -882,6 +960,9 @@ interface Dish {
     is_promo?: boolean | null;
     promo_price?: number | null;
     is_suggestion?: boolean | null;
+    available_days?: string[] | string | null;
+    start_time?: string | null;
+    end_time?: string | null;
     dish_options?: ExtrasItem[];
   product_options?: ProductOptionItem[];
   translations?: Record<string, unknown> | string | null;
@@ -2206,6 +2287,12 @@ export default function MenuDigital() {
   const [categoryDrawerEnabled, setCategoryDrawerEnabled] = useState(false);
   const [keepSuggestionsOnTop, setKeepSuggestionsOnTop] = useState(false);
   const [isCategoryDrawerOpen, setIsCategoryDrawerOpen] = useState(false);
+  const [serviceHours, setServiceHours] = useState({
+    lunch_start: "",
+    lunch_end: "",
+    dinner_start: "",
+    dinner_end: "",
+  });
   const [subCategoryRows, setSubCategoryRows] = useState<SubCategoryItem[]>([]);
   const [sidesLibrary, setSidesLibrary] = useState<SideLibraryItem[]>([]);
   const [selectedSubCategory, setSelectedSubCategory] = useState("");
@@ -2225,6 +2312,7 @@ export default function MenuDigital() {
   const [suggestionLeadByLang, setSuggestionLeadByLang] = useState<Record<string, string>>({});
   const [uiTranslationsByLang, setUiTranslationsByLang] = useState<UiTranslationsByLang>({});
   const [darkMode, setDarkMode] = useState(false);
+  const [timeTick, setTimeTick] = useState(0);
   const [headerLogoLoadError, setHeaderLogoLoadError] = useState(false);
   const [headerLogoLoaded, setHeaderLogoLoaded] = useState(false);
   const [headerLogoCacheBuster, setHeaderLogoCacheBuster] = useState<number>(Date.now());
@@ -2543,6 +2631,12 @@ export default function MenuDigital() {
       (row as Record<string, unknown>).pin_suggestions;
     setCategoryDrawerEnabled(Boolean(rawDrawerEnabled));
     setKeepSuggestionsOnTop(Boolean(rawKeepSuggestions));
+    setServiceHours({
+      lunch_start: String(config.service_lunch_start || config.lunch_start || "").trim(),
+      lunch_end: String(config.service_lunch_end || config.lunch_end || "").trim(),
+      dinner_start: String(config.service_dinner_start || config.dinner_start || "").trim(),
+      dinner_end: String(config.service_dinner_end || config.dinner_end || "").trim(),
+    });
     if (Object.prototype.hasOwnProperty.call(row, "is_active")) {
       const isActive = typeof row.is_active === "boolean" ? row.is_active : true;
       setIsRestaurantOffline(!isActive);
@@ -2664,6 +2758,13 @@ export default function MenuDigital() {
   }, [darkMode]);
 
   useEffect(() => {
+    const timer = window.setInterval(() => {
+      setTimeTick((prev) => prev + 1);
+    }, 60000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
     const channel = supabase
       .channel("client-dishes")
       .on("postgres_changes", { event: "*", schema: "public", table: "dishes" }, () => {
@@ -2766,6 +2867,7 @@ export default function MenuDigital() {
     setIsRestaurantOffline(false);
     setOfflineRestaurantName("");
     setSuggestionLeadByLang({});
+    setServiceHours({ lunch_start: "", lunch_end: "", dinner_start: "", dinner_end: "" });
     setTablePinCodesByNumber({});
     let displayFound = false;
     let restaurantFound = false;
@@ -2873,6 +2975,12 @@ export default function MenuDigital() {
           (restaurantRow as Record<string, unknown>).pin_suggestions;
         setCategoryDrawerEnabled(Boolean(rawDrawerEnabled));
         setKeepSuggestionsOnTop(Boolean(rawKeepSuggestions));
+        setServiceHours({
+          lunch_start: String(tableConfig.service_lunch_start || tableConfig.lunch_start || "").trim(),
+          lunch_end: String(tableConfig.service_lunch_end || tableConfig.lunch_end || "").trim(),
+          dinner_start: String(tableConfig.service_dinner_start || tableConfig.dinner_start || "").trim(),
+          dinner_end: String(tableConfig.service_dinner_end || tableConfig.dinner_end || "").trim(),
+        });
       return true;
     };
 
@@ -3414,6 +3522,37 @@ export default function MenuDigital() {
     return map;
   }, [sortedCategories]);
 
+  const availabilitySnapshot = useMemo(() => {
+    const now = new Date();
+    const nowMinutes = now.getHours() * 60 + now.getMinutes();
+    const dayKeys = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
+    const todayKey = dayKeys[now.getDay()] || "sun";
+    const windows = [
+      {
+        start: parseTimeToMinutes(serviceHours.lunch_start),
+        end: parseTimeToMinutes(serviceHours.lunch_end),
+      },
+      {
+        start: parseTimeToMinutes(serviceHours.dinner_start),
+        end: parseTimeToMinutes(serviceHours.dinner_end),
+      },
+    ].filter((range) => range.start != null || range.end != null);
+    const isWithinServiceWindow =
+      windows.length === 0 ||
+      windows.some((range) => isWithinTimeWindow(nowMinutes, range.start ?? null, range.end ?? null));
+    return { nowMinutes, todayKey, isWithinServiceWindow };
+  }, [serviceHours, timeTick]);
+
+  const isDishAvailableNow = (dish: Dish) => {
+    if (!availabilitySnapshot.isWithinServiceWindow) return false;
+    const availableDays = parseAvailableDays(dish.available_days);
+    if (availableDays.length > 0 && !availableDays.includes(availabilitySnapshot.todayKey)) return false;
+    const dishStart = parseTimeToMinutes(dish.start_time);
+    const dishEnd = parseTimeToMinutes(dish.end_time);
+    if (!isWithinTimeWindow(availabilitySnapshot.nowMinutes, dishStart, dishEnd)) return false;
+    return true;
+  };
+
   const getSideLabel = (side: SideLibraryItem) => {
     const fromTranslations = getNameTranslation(side as unknown as unknown as Record<string, unknown>, lang);
     if (fromTranslations) return fromTranslations;
@@ -3569,16 +3708,18 @@ export default function MenuDigital() {
     if (!keepSuggestionsOnTop) return [];
     const suggestionList = (dishes || []).filter((dish) => {
       if (dish.is_available === false) return false;
+      if (!isDishAvailableNow(dish)) return false;
       return dish.is_suggestion || dish.is_chef_suggestion || dish.is_featured;
     });
     return suggestionList.sort((a, b) => {
       return String(a.name_fr || a.name || "").localeCompare(String(b.name_fr || b.name || ""));
     });
-  }, [dishes, keepSuggestionsOnTop]);
+  }, [dishes, keepSuggestionsOnTop, availabilitySnapshot]);
 
   const filteredDishes = useMemo(() => {
     const list = (dishes || []).filter((dish) => {
       if (dish.is_available === false) return false;
+      if (!isDishAvailableNow(dish)) return false;
       if (!selectedCategoryId) return true;
       return String(dish.category_id) === String(selectedCategoryId);
     });
@@ -3608,7 +3749,15 @@ export default function MenuDigital() {
       return sorted.filter((dish) => !suggestionIds.has(String(dish.id)));
     }
     return sorted;
-  }, [dishes, selectedCategoryId, selectedSubCategory, categorySortMap, keepSuggestionsOnTop, suggestionPinnedDishes]);
+  }, [
+    dishes,
+    selectedCategoryId,
+    selectedSubCategory,
+    categorySortMap,
+    keepSuggestionsOnTop,
+    suggestionPinnedDishes,
+    availabilitySnapshot,
+  ]);
 
   const groupedDishes = useMemo(() => {
     if (!selectedCategoryId) {
@@ -3643,7 +3792,7 @@ export default function MenuDigital() {
   }, [filteredDishes, selectedCategoryId, availableSubCategories, subCategoryRows, lang, keepSuggestionsOnTop, suggestionPinnedDishes, chefSuggestionBadgeLabel]);
 
   const featuredHighlights = useMemo(() => {
-    const visibleDishes = dishes.filter((dish) => dish.is_available !== false);
+    const visibleDishes = dishes.filter((dish) => dish.is_available !== false && isDishAvailableNow(dish));
     const isChefSuggestion = (dish: Dish) => dish.is_chef_suggestion === true || dish.is_featured === true;
     const isDailySpecial = (dish: Dish) => dish.is_daily_special === true || dish.is_special === true;
 
@@ -3669,7 +3818,10 @@ export default function MenuDigital() {
       if (type === "chef" && chefDish) highlights.push({ key: `chef-${String(chefDish.id)}`, dish: chefDish, types: ["chef"] });
     });
     return highlights;
-  }, [dishes, heroBadgeTypeClient]);
+  }, [dishes, heroBadgeTypeClient, availabilitySnapshot]);
+
+  const shouldShowHeroSection =
+    heroEnabledClient && featuredHighlights.length > 0 && (keepSuggestionsOnTop || !selectedCategoryId);
 
   const getFeaturedLabel = (type: "daily" | "chef") => {
     return type === "daily" ? tt("featured_daily") : tt("featured_chef");
@@ -4603,6 +4755,20 @@ export default function MenuDigital() {
           ["--menu-text-color" as string]: globalTextColorValue,
         }}
     >
+      {categoryDrawerEnabled ? (
+        <button
+          type="button"
+          onClick={() => setIsCategoryDrawerOpen(true)}
+          className="fixed left-4 top-4 z-[1100] inline-flex h-12 w-12 items-center justify-center rounded-xl border-4 border-black bg-white text-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]"
+          aria-label="Ouvrir le menu catégories"
+        >
+          <span className="flex flex-col gap-1.5" aria-hidden="true">
+            <span className="block h-0.5 w-7 bg-black" />
+            <span className="block h-0.5 w-7 bg-black" />
+            <span className="block h-0.5 w-7 bg-black" />
+          </span>
+        </button>
+      ) : null}
       <style>{`
         .menu-client-bg-content {
           background-size: cover !important;
@@ -5042,7 +5208,7 @@ export default function MenuDigital() {
         </div>
       )}
 
-      {heroEnabledClient && featuredHighlights.length > 0 && (
+      {shouldShowHeroSection && (
         <div className="mx-0 my-2 space-y-3">
           {featuredHighlights.map((highlight) => {
             const featuredDish = highlight.dish;
@@ -5218,20 +5384,6 @@ export default function MenuDigital() {
         style={!darkMode ? { backgroundColor: "transparent" } : undefined}
       >
           <div className="flex items-center gap-3">
-            {categoryDrawerEnabled ? (
-              <button
-                type="button"
-                onClick={() => setIsCategoryDrawerOpen(true)}
-                className="md:hidden inline-flex items-center justify-center rounded-xl border-4 border-black bg-white text-black p-3"
-                aria-label="Ouvrir le menu catégories"
-              >
-                <span className="flex flex-col gap-1.5" aria-hidden="true">
-                  <span className="block h-0.5 w-7 bg-black" />
-                  <span className="block h-0.5 w-7 bg-black" />
-                  <span className="block h-0.5 w-7 bg-black" />
-                </span>
-              </button>
-            ) : null}
             <div className="flex flex-nowrap gap-3 overflow-x-auto">
               {categoryList.map((category, index) => (
                 <button
@@ -5254,8 +5406,8 @@ export default function MenuDigital() {
                   {category}
                 </button>
               ))}
+            </div>
           </div>
-        </div>
       </div>
 
       {categoryDrawerEnabled && isCategoryDrawerOpen ? (
