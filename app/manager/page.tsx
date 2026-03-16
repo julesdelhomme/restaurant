@@ -476,15 +476,14 @@ interface Dish {
   is_featured?: boolean | null;
   is_special?: boolean | null;
   is_chef_suggestion?: boolean | null;
-  is_daily_special?: boolean | null;
-  is_promo?: boolean | null;
-  promo_price?: number | null;
-  is_suggestion?: boolean | null;
-  sort_order?: number | null;
-  product_options?: ProductOptionItem[];
-  extras?: unknown;
-  extras_list?: unknown;
-}
+    is_daily_special?: boolean | null;
+    is_promo?: boolean | null;
+    promo_price?: number | null;
+    is_suggestion?: boolean | null;
+    product_options?: ProductOptionItem[];
+    extras?: unknown;
+    extras_list?: unknown;
+  }
 
 interface ProductOptionItem {
   id: string;
@@ -906,12 +905,11 @@ interface DishForm {
   description_en: string;
   description_es: string;
   description_de: string;
-  description_i18n: Record<string, string>;
-  price: string;
-  sort_order: string;
-  category_id: string;
-  subcategory_id: string;
-  hunger_level: string;
+    description_i18n: Record<string, string>;
+    price: string;
+    category_id: string;
+    subcategory_id: string;
+    hunger_level: string;
   image_url: string;
   allergens: string;
   calories_min: string;
@@ -1600,11 +1598,10 @@ export default function MenuManager() {
     description_fr: "",
     description_en: "",
     description_es: "",
-    description_de: "",
-    description_i18n: {},
-    price: "",
-    sort_order: "0",
-    category_id: "",
+      description_de: "",
+      description_i18n: {},
+      price: "",
+      category_id: "",
     subcategory_id: "",
     hunger_level: "",
     image_url: "",
@@ -2934,7 +2931,6 @@ export default function MenuManager() {
       .select("*")
       .eq("restaurant_id", scopedRestaurantId)
       .order("category_id", { ascending: true })
-      .order("sort_order", { ascending: true })
       .order("id", { ascending: true });
 
     if (result.error && String((result.error as { code?: string })?.code || "") === "42703") {
@@ -2943,7 +2939,6 @@ export default function MenuManager() {
         .select("*")
         .eq("id_restaurant", scopedRestaurantId)
         .order("category_id", { ascending: true })
-        .order("sort_order", { ascending: true })
         .order("id", { ascending: true });
     }
 
@@ -3527,7 +3522,6 @@ export default function MenuManager() {
       description_de: "",
       description_i18n: {},
       price: "",
-      sort_order: "0",
       category_id: categories[0] ? String(categories[0].id) : "",
       subcategory_id: "",
       hunger_level: "",
@@ -3569,12 +3563,7 @@ export default function MenuManager() {
   };
 
   const handleAddDish = () => {
-    const maxSort = dishes.reduce((acc, dish) => {
-      const raw = Number(dish.sort_order);
-      return Number.isFinite(raw) ? Math.max(acc, raw) : acc;
-    }, 0);
     resetForm();
-    setFormData((prev) => ({ ...prev, sort_order: String(maxSort + 1) }));
     setOpenDishLanguagePanels({ fr: true });
     setShowDishModal(true);
   };
@@ -3797,7 +3786,6 @@ export default function MenuManager() {
         de: directDescriptionByLang.de || dish.description_de || "",
       },
       price: dish.price?.toString() || "",
-      sort_order: Number.isFinite(Number(dish.sort_order)) ? String(Number(dish.sort_order)) : "0",
       category_id: dish.category_id != null ? String(dish.category_id) : "",
       subcategory_id: dish.subcategory_id != null ? String(dish.subcategory_id) : "",
       hunger_level: dish.hunger_level || "",
@@ -4250,9 +4238,6 @@ export default function MenuManager() {
       .split(",")
       .map((value) => value.trim())
       .filter(Boolean);
-    const safeSortOrder = Number.isFinite(Number(formData.sort_order))
-      ? Math.trunc(Number(formData.sort_order))
-      : 0;
     const manualAllergensByName = Object.fromEntries(
       selectedAllergens.map((allergenFr) => {
         const values = Object.fromEntries(
@@ -4292,7 +4277,6 @@ export default function MenuManager() {
       description_es: mergedDescriptionI18n.es || null,
       description_de: mergedDescriptionI18n.de || null,
       price: priceFloat,
-      sort_order: safeSortOrder,
       category_id: formData.category_id || null,
       subcategory_id: formData.subcategory_id || null,
       category: selectedCategory?.name_fr || null,
@@ -5460,31 +5444,6 @@ export default function MenuManager() {
     );
   };
 
-  const handleUpdateDishSortOrder = async (dishId: string | number, sortOrder: number) => {
-    if (!scopedRestaurantId) return;
-    let result = await supabase
-      .from("dishes")
-      .update({ sort_order: sortOrder })
-      .eq("id", dishId)
-      .eq("restaurant_id", scopedRestaurantId);
-    let error = result.error;
-    if (error && String((error as { code?: string })?.code || "") === "42703") {
-      result = await supabase
-        .from("dishes")
-        .update({ sort_order: sortOrder })
-        .eq("id", dishId)
-        .eq("id_restaurant", scopedRestaurantId);
-      error = result.error;
-    }
-    if (error) {
-      alert(error.message);
-      return;
-    }
-    setDishes((prev) =>
-      prev.map((dish) => (String(dish.id) === String(dishId) ? { ...dish, sort_order: sortOrder } : dish))
-    );
-  };
-
   const handleDeleteSubCategory = async (id: string | number) => {
     if (!scopedRestaurantId) return;
 
@@ -5891,9 +5850,6 @@ export default function MenuManager() {
       const aCategory = categoryOrder.get(String(a.category_id)) ?? 0;
       const bCategory = categoryOrder.get(String(b.category_id)) ?? 0;
       if (aCategory !== bCategory) return aCategory - bCategory;
-      const aOrder = Number.isFinite(Number(a.sort_order)) ? Number(a.sort_order) : 0;
-      const bOrder = Number.isFinite(Number(b.sort_order)) ? Number(b.sort_order) : 0;
-      if (aOrder !== bOrder) return aOrder - bOrder;
       return String(a.name_fr || a.name || "").localeCompare(String(b.name_fr || b.name || ""));
     });
   }, [preparedDishes, sortedCategories]);
@@ -8752,7 +8708,6 @@ export default function MenuManager() {
                 <tr className="text-sm font-bold text-black">
                   <th className="p-3 w-[30%]">Plat</th>
                   <th className="p-3 w-[14%]">Catégorie</th>
-                  <th className="p-3 w-[8%]">Ordre</th>
                   <th className="p-3 w-[10%]">Prix</th>
                   <th className="p-3 w-[20%]">Badges</th>
                   <th className="p-3 w-[14%]">Options</th>
@@ -8778,19 +8733,6 @@ export default function MenuManager() {
                     <td className="p-3 align-top text-sm break-words">
                       {categories.find((category) => String(category.id) === String(dish.category_id))?.name_fr ||
                         dish.categorie}
-                    </td>
-                    <td className="p-3 align-top">
-                      <input
-                        type="number"
-                        min="0"
-                        value={Number.isFinite(Number(dish.sort_order)) ? String(Number(dish.sort_order)) : "0"}
-                        onChange={(e) => {
-                          const targetId = dish.id ?? "";
-                          if (!targetId) return;
-                          void handleUpdateDishSortOrder(targetId, normalizeSortOrder(e.target.value) ?? 0);
-                        }}
-                        className="w-20 px-2 py-1 border border-gray-300 rounded text-sm"
-                      />
                     </td>
                     <td className="p-3 align-top font-bold whitespace-nowrap">{formatEuro(Number(dish.price || 0))}</td>
                     <td className="p-3 align-top">
@@ -10573,17 +10515,6 @@ export default function MenuManager() {
                   onChange={(e) => setFormData({ ...formData, price: e.target.value })}
                   className="w-full px-3 py-2 bg-white text-black border border-gray-300"
                 />
-              </div>
-              <div>
-                <label className="block mb-1 font-bold">Ordre d&apos;affichage</label>
-                <input
-                  type="number"
-                  min="0"
-                  value={formData.sort_order}
-                  onChange={(e) => setFormData({ ...formData, sort_order: e.target.value })}
-                  className="w-full px-3 py-2 bg-white text-black border border-gray-300"
-                />
-                <p className="text-xs text-gray-600 mt-1">Plus le nombre est petit, plus le plat remonte.</p>
               </div>
               <div>
                 <label className="block mb-1 font-bold">Prix promo (&euro;)</label>

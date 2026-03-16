@@ -877,13 +877,12 @@ interface Dish {
   suggestion_message?: string | null;
   is_featured?: boolean | null;
   is_special?: boolean | null;
-  is_chef_suggestion?: boolean | null;
-  is_daily_special?: boolean | null;
-  is_promo?: boolean | null;
-  promo_price?: number | null;
-  is_suggestion?: boolean | null;
-  sort_order?: number | null;
-  dish_options?: ExtrasItem[];
+    is_chef_suggestion?: boolean | null;
+    is_daily_special?: boolean | null;
+    is_promo?: boolean | null;
+    promo_price?: number | null;
+    is_suggestion?: boolean | null;
+    dish_options?: ExtrasItem[];
   product_options?: ProductOptionItem[];
   translations?: Record<string, unknown> | string | null;
 }
@@ -2532,12 +2531,18 @@ export default function MenuDigital() {
     setSuggestionLeadByLang(parsed.suggestionMessagesI18n || {});
     setUiTranslationsByLang(parsed.uiTranslations || {});
     const config = parseJsonObject(row.table_config || row.settings);
-      setCategoryDrawerEnabled(
-        Boolean(config.category_drawer_enabled ?? config.show_category_drawer)
-      );
-      setKeepSuggestionsOnTop(
-        Boolean(config.keep_suggestions_on_top ?? config.pin_suggestions)
-      );
+    const rawDrawerEnabled =
+      config.category_drawer_enabled ??
+      config.show_category_drawer ??
+      (row as Record<string, unknown>).category_drawer_enabled ??
+      (row as Record<string, unknown>).show_category_drawer;
+    const rawKeepSuggestions =
+      config.keep_suggestions_on_top ??
+      config.pin_suggestions ??
+      (row as Record<string, unknown>).keep_suggestions_on_top ??
+      (row as Record<string, unknown>).pin_suggestions;
+    setCategoryDrawerEnabled(Boolean(rawDrawerEnabled));
+    setKeepSuggestionsOnTop(Boolean(rawKeepSuggestions));
     if (Object.prototype.hasOwnProperty.call(row, "is_active")) {
       const isActive = typeof row.is_active === "boolean" ? row.is_active : true;
       setIsRestaurantOffline(!isActive);
@@ -2856,12 +2861,18 @@ export default function MenuDigital() {
           displayFound = true;
         }
       }
-        setCategoryDrawerEnabled(
-          Boolean(tableConfig.category_drawer_enabled ?? tableConfig.show_category_drawer)
-        );
-        setKeepSuggestionsOnTop(
-          Boolean(tableConfig.keep_suggestions_on_top ?? tableConfig.pin_suggestions)
-        );
+        const rawDrawerEnabled =
+          tableConfig.category_drawer_enabled ??
+          tableConfig.show_category_drawer ??
+          (restaurantRow as Record<string, unknown>).category_drawer_enabled ??
+          (restaurantRow as Record<string, unknown>).show_category_drawer;
+        const rawKeepSuggestions =
+          tableConfig.keep_suggestions_on_top ??
+          tableConfig.pin_suggestions ??
+          (restaurantRow as Record<string, unknown>).keep_suggestions_on_top ??
+          (restaurantRow as Record<string, unknown>).pin_suggestions;
+        setCategoryDrawerEnabled(Boolean(rawDrawerEnabled));
+        setKeepSuggestionsOnTop(Boolean(rawKeepSuggestions));
       return true;
     };
 
@@ -3561,9 +3572,6 @@ export default function MenuDigital() {
       return dish.is_suggestion || dish.is_chef_suggestion || dish.is_featured;
     });
     return suggestionList.sort((a, b) => {
-      const aOrder = Number.isFinite(Number(a.sort_order)) ? Number(a.sort_order) : 0;
-      const bOrder = Number.isFinite(Number(b.sort_order)) ? Number(b.sort_order) : 0;
-      if (aOrder !== bOrder) return aOrder - bOrder;
       return String(a.name_fr || a.name || "").localeCompare(String(b.name_fr || b.name || ""));
     });
   }, [dishes, keepSuggestionsOnTop]);
@@ -3578,19 +3586,21 @@ export default function MenuDigital() {
       !selectedSubCategory || !selectedCategoryId
         ? list
         : list.filter((dish) => String(dish.subcategory_id) === String(selectedSubCategory));
-    const sortByDish = (a: Dish, b: Dish) => {
-      const aOrder = Number.isFinite(Number(a.sort_order)) ? Number(a.sort_order) : 0;
-      const bOrder = Number.isFinite(Number(b.sort_order)) ? Number(b.sort_order) : 0;
-      if (aOrder !== bOrder) return aOrder - bOrder;
-      return String(a.name_fr || a.name || "").localeCompare(String(b.name_fr || b.name || ""));
-    };
-    const sortByCategoryAndDish = (a: Dish, b: Dish) => {
+    const isSuggestionDish = (dish: Dish) =>
+      Boolean(dish.is_suggestion || dish.is_chef_suggestion || dish.is_featured);
+    const filteredVisible =
+      selectedCategoryId && !keepSuggestionsOnTop
+        ? filteredBySub.filter((dish) => !isSuggestionDish(dish))
+        : filteredBySub;
+    const sortByName = (a: Dish, b: Dish) =>
+      String(a.name_fr || a.name || "").localeCompare(String(b.name_fr || b.name || ""));
+    const sortByCategoryAndName = (a: Dish, b: Dish) => {
       const aCat = categorySortMap.get(String(a.category_id ?? "")) ?? 0;
       const bCat = categorySortMap.get(String(b.category_id ?? "")) ?? 0;
       if (aCat !== bCat) return aCat - bCat;
-      return sortByDish(a, b);
+      return sortByName(a, b);
     };
-    const sorted = [...filteredBySub].sort(selectedCategoryId ? sortByDish : sortByCategoryAndDish);
+    const sorted = [...filteredVisible].sort(selectedCategoryId ? sortByName : sortByCategoryAndName);
     if (keepSuggestionsOnTop) {
       const suggestionIds = new Set(
         suggestionPinnedDishes.map((dish) => String(dish.id))
@@ -5207,36 +5217,43 @@ export default function MenuDigital() {
         className={`menu-surface-shell border-4 border-black rounded-none p-3 mx-0 my-2 ${!darkMode ? "bg-transparent" : "bg-white/95"}`}
         style={!darkMode ? { backgroundColor: "transparent" } : undefined}
       >
-        <div className="flex items-center gap-2">
-          {categoryDrawerEnabled ? (
-            <button
-              type="button"
-              onClick={() => setIsCategoryDrawerOpen(true)}
-              className="md:hidden px-4 py-3 rounded-lg font-black text-base border-2 border-black bg-white text-black whitespace-nowrap"
-            >
-              Catégories
-            </button>
-          ) : null}
-          <div className="flex flex-nowrap gap-2 overflow-x-auto">
-            {categoryList.map((category, index) => (
+          <div className="flex items-center gap-3">
+            {categoryDrawerEnabled ? (
               <button
-                key={category}
-                onClick={() => {
-                  setSelectedCategory(index);
-                  if (index === 0) setSelectedSubCategory("");
-                }}
-                className={`px-5 py-3 rounded-lg font-black text-lg md:text-xl border-2 border-black text-black whitespace-nowrap ${
-                  selectedCategory === index ? "bg-black text-white" : "bg-white"
-                }`}
-                style={
-                  selectedCategory === index
-                    ? { backgroundColor: bannerBgColor, color: bannerContentTextColor, borderColor: darkMode ? "#d99a2b" : "#000000" }
-                    : undefined
-                }
+                type="button"
+                onClick={() => setIsCategoryDrawerOpen(true)}
+                className="md:hidden inline-flex items-center justify-center rounded-xl border-4 border-black bg-white text-black p-3"
+                aria-label="Ouvrir le menu catégories"
               >
-                {category}
+                <span className="flex flex-col gap-1.5" aria-hidden="true">
+                  <span className="block h-0.5 w-7 bg-black" />
+                  <span className="block h-0.5 w-7 bg-black" />
+                  <span className="block h-0.5 w-7 bg-black" />
+                </span>
               </button>
-            ))}
+            ) : null}
+            <div className="flex flex-nowrap gap-3 overflow-x-auto">
+              {categoryList.map((category, index) => (
+                <button
+                  key={category}
+                  onClick={() => {
+                    setSelectedCategory(index);
+                    if (index === 0) setSelectedSubCategory("");
+                  }}
+                  className={`px-6 py-4 rounded-xl font-black text-xl md:text-2xl border-black whitespace-nowrap transition ${
+                    selectedCategory === index
+                      ? "bg-black text-white border-4 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]"
+                      : "bg-white text-black border-2"
+                  }`}
+                  style={
+                    selectedCategory === index
+                      ? { backgroundColor: bannerBgColor, color: bannerContentTextColor, borderColor: darkMode ? "#d99a2b" : "#000000" }
+                      : undefined
+                  }
+                >
+                  {category}
+                </button>
+              ))}
           </div>
         </div>
       </div>
