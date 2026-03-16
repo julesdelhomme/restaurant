@@ -7850,9 +7850,12 @@ export default function MenuManager() {
                       <div className="flex items-center gap-1">
                         <button
                           type="button"
-                          onClick={() =>
-                            void handleUpdateCategorySortOrder(cat.id, normalizeSortOrder(cat.sort_order) - 1)
-                          }
+                            onClick={() =>
+                              void handleUpdateCategorySortOrder(
+                                cat.id,
+                                (normalizeSortOrder(cat.sort_order) ?? 0) - 1
+                              )
+                            }
                           className="px-2 py-0.5 border border-gray-300 rounded bg-white text-xs"
                           title="Monter"
                         >
@@ -7862,17 +7865,23 @@ export default function MenuManager() {
                           type="number"
                           min="0"
                           value={Number.isFinite(Number(cat.sort_order)) ? String(Number(cat.sort_order)) : "0"}
-                          onChange={(e) =>
-                            void handleUpdateCategorySortOrder(cat.id, normalizeSortOrder(e.target.value))
-                          }
+                            onChange={(e) =>
+                              void handleUpdateCategorySortOrder(
+                                cat.id,
+                                normalizeSortOrder(e.target.value) ?? 0
+                              )
+                            }
                           className="w-14 px-1 py-0.5 border border-gray-300 rounded bg-white text-xs"
                           title="Ordre d'affichage"
                         />
                         <button
                           type="button"
-                          onClick={() =>
-                            void handleUpdateCategorySortOrder(cat.id, normalizeSortOrder(cat.sort_order) + 1)
-                          }
+                            onClick={() =>
+                              void handleUpdateCategorySortOrder(
+                                cat.id,
+                                (normalizeSortOrder(cat.sort_order) ?? 0) + 1
+                              )
+                            }
                           className="px-2 py-0.5 border border-gray-300 rounded bg-white text-xs"
                           title="Descendre"
                         >
@@ -8775,7 +8784,11 @@ export default function MenuManager() {
                         type="number"
                         min="0"
                         value={Number.isFinite(Number(dish.sort_order)) ? String(Number(dish.sort_order)) : "0"}
-                        onChange={(e) => void handleUpdateDishSortOrder(dish.id, normalizeSortOrder(e.target.value))}
+                        onChange={(e) => {
+                          const targetId = dish.id ?? "";
+                          if (!targetId) return;
+                          void handleUpdateDishSortOrder(targetId, normalizeSortOrder(e.target.value) ?? 0);
+                        }}
                         className="w-20 px-2 py-1 border border-gray-300 rounded text-sm"
                       />
                     </td>
