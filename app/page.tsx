@@ -882,6 +882,7 @@ interface Dish {
   is_promo?: boolean | null;
   promo_price?: number | null;
   is_suggestion?: boolean | null;
+  sort_order?: number | null;
   dish_options?: ExtrasItem[];
   product_options?: ProductOptionItem[];
   translations?: Record<string, unknown> | string | null;
@@ -1334,6 +1335,7 @@ interface CategoryItem {
   name_de?: string | null;
   translations?: Record<string, unknown> | string | null;
   destination?: string | null;
+  sort_order?: number | null;
 }
 
 interface SubCategoryItem {
@@ -2202,6 +2204,9 @@ export default function MenuDigital() {
   const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [sideError, setSideError] = useState("");
   const [categories, setCategories] = useState<CategoryItem[]>([]);
+  const [categoryDrawerEnabled, setCategoryDrawerEnabled] = useState(false);
+  const [keepSuggestionsOnTop, setKeepSuggestionsOnTop] = useState(false);
+  const [isCategoryDrawerOpen, setIsCategoryDrawerOpen] = useState(false);
   const [subCategoryRows, setSubCategoryRows] = useState<SubCategoryItem[]>([]);
   const [sidesLibrary, setSidesLibrary] = useState<SideLibraryItem[]>([]);
   const [selectedSubCategory, setSelectedSubCategory] = useState("");
@@ -2526,6 +2531,13 @@ export default function MenuDigital() {
     setOrderValidationCode(parsed.orderValidationCode || "1234");
     setSuggestionLeadByLang(parsed.suggestionMessagesI18n || {});
     setUiTranslationsByLang(parsed.uiTranslations || {});
+    const config = parseJsonObject(row.table_config || row.settings);
+    setCategoryDrawerEnabled(
+      toBoolean(config.category_drawer_enabled ?? config.show_category_drawer, false)
+    );
+    setKeepSuggestionsOnTop(
+      toBoolean(config.keep_suggestions_on_top ?? config.pin_suggestions, false)
+    );
     if (Object.prototype.hasOwnProperty.call(row, "is_active")) {
       const isActive = typeof row.is_active === "boolean" ? row.is_active : true;
       setIsRestaurantOffline(!isActive);
@@ -2712,6 +2724,12 @@ export default function MenuDigital() {
   }, [isInteractionDisabled, isCartOpen]);
 
   useEffect(() => {
+    if (!categoryDrawerEnabled) {
+      setIsCategoryDrawerOpen(false);
+    }
+  }, [categoryDrawerEnabled]);
+
+  useEffect(() => {
     if (!isVitrineMode) return;
     const targetRestaurantId = String((restaurant as Record<string, unknown> | null)?.id || scopedRestaurantId || "").trim();
     if (!targetRestaurantId) return;
@@ -2838,6 +2856,12 @@ export default function MenuDigital() {
           displayFound = true;
         }
       }
+      setCategoryDrawerEnabled(
+        toBoolean(tableConfig.category_drawer_enabled ?? tableConfig.show_category_drawer, false)
+      );
+      setKeepSuggestionsOnTop(
+        toBoolean(tableConfig.keep_suggestions_on_top ?? tableConfig.pin_suggestions, false)
+      );
       return true;
     };
 
@@ -3355,10 +3379,29 @@ export default function MenuDigital() {
     return getNameTranslation(category as unknown as unknown as Record<string, unknown>, lang) || category.name_fr;
   };
 
+  const sortedCategories = useMemo(() => {
+    return [...categories].sort((a, b) => {
+      const aOrder = Number.isFinite(Number(a.sort_order)) ? Number(a.sort_order) : 0;
+      const bOrder = Number.isFinite(Number(b.sort_order)) ? Number(b.sort_order) : 0;
+      if (aOrder !== bOrder) return aOrder - bOrder;
+      return String(a.name_fr || "").localeCompare(String(b.name_fr || ""));
+    });
+  }, [categories]);
+
   const categoryList = useMemo(() => {
     const allLabel = uiText.categories[0];
-    return [allLabel, ...categories.map((category) => getCategoryLabel(category))];
-  }, [lang, categories]);
+    return [allLabel, ...sortedCategories.map((category) => getCategoryLabel(category))];
+  }, [lang, sortedCategories]);
+
+  const categorySortMap = useMemo(() => {
+    const map = new Map<string | number, number>();
+    sortedCategories.forEach((category, index) => {
+      const raw = Number(category.sort_order);
+      const order = Number.isFinite(raw) ? raw : index;
+      map.set(category.id, order);
+    });
+    return map;
+  }, [sortedCategories]);
 
   const getSideLabel = (side: SideLibraryItem) => {
     const fromTranslations = getNameTranslation(side as unknown as unknown as Record<string, unknown>, lang);
@@ -3424,15 +3467,15 @@ export default function MenuDigital() {
 
   const selectedCategoryId = useMemo(() => {
     if (selectedCategory === 0) return null;
-    const category = categories[selectedCategory - 1];
+    const category = sortedCategories[selectedCategory - 1];
     return category?.id ?? null;
-  }, [selectedCategory, categories]);
+  }, [selectedCategory, sortedCategories]);
 
   const categoryById = useMemo(() => {
     const map = new Map<string | number, CategoryItem>();
-    categories.forEach((category) => map.set(category.id, category));
+    sortedCategories.forEach((category) => map.set(category.id, category));
     return map;
-  }, [categories]);
+  }, [sortedCategories]);
 
   const getCategoryDestination = (categoryId?: string | number | null) => {
     if (!categoryId) return "cuisine";
@@ -3511,19 +3554,59 @@ export default function MenuDigital() {
     }
   }, [selectedCategory, availableSubCategories, selectedSubCategory]);
 
+  const suggestionPinnedDishes = useMemo(() => {
+    if (!keepSuggestionsOnTop) return [];
+    const suggestionList = (dishes || []).filter((dish) => {
+      if (dish.is_available === false) return false;
+      return dish.is_suggestion || dish.is_chef_suggestion || dish.is_featured;
+    });
+    return suggestionList.sort((a, b) => {
+      const aOrder = Number.isFinite(Number(a.sort_order)) ? Number(a.sort_order) : 0;
+      const bOrder = Number.isFinite(Number(b.sort_order)) ? Number(b.sort_order) : 0;
+      if (aOrder !== bOrder) return aOrder - bOrder;
+      return String(a.name_fr || a.name || "").localeCompare(String(b.name_fr || b.name || ""));
+    });
+  }, [dishes, keepSuggestionsOnTop]);
+
   const filteredDishes = useMemo(() => {
     const list = (dishes || []).filter((dish) => {
       if (dish.is_available === false) return false;
       if (!selectedCategoryId) return true;
       return String(dish.category_id) === String(selectedCategoryId);
     });
-    if (!selectedSubCategory || !selectedCategoryId) return list;
-    return list.filter((dish) => String(dish.subcategory_id) === String(selectedSubCategory));
-  }, [dishes, selectedCategoryId, selectedSubCategory]);
+    const filteredBySub =
+      !selectedSubCategory || !selectedCategoryId
+        ? list
+        : list.filter((dish) => String(dish.subcategory_id) === String(selectedSubCategory));
+    const sortByDish = (a: Dish, b: Dish) => {
+      const aOrder = Number.isFinite(Number(a.sort_order)) ? Number(a.sort_order) : 0;
+      const bOrder = Number.isFinite(Number(b.sort_order)) ? Number(b.sort_order) : 0;
+      if (aOrder !== bOrder) return aOrder - bOrder;
+      return String(a.name_fr || a.name || "").localeCompare(String(b.name_fr || b.name || ""));
+    };
+    const sortByCategoryAndDish = (a: Dish, b: Dish) => {
+      const aCat = categorySortMap.get(String(a.category_id ?? "")) ?? 0;
+      const bCat = categorySortMap.get(String(b.category_id ?? "")) ?? 0;
+      if (aCat !== bCat) return aCat - bCat;
+      return sortByDish(a, b);
+    };
+    const sorted = [...filteredBySub].sort(selectedCategoryId ? sortByDish : sortByCategoryAndDish);
+    if (keepSuggestionsOnTop) {
+      const suggestionIds = new Set(
+        suggestionPinnedDishes.map((dish) => String(dish.id))
+      );
+      return sorted.filter((dish) => !suggestionIds.has(String(dish.id)));
+    }
+    return sorted;
+  }, [dishes, selectedCategoryId, selectedSubCategory, categorySortMap, keepSuggestionsOnTop, suggestionPinnedDishes]);
 
   const groupedDishes = useMemo(() => {
     if (!selectedCategoryId) {
-      return [{ title: "", items: filteredDishes }];
+      const baseGroups = [{ title: "", items: filteredDishes }];
+      if (keepSuggestionsOnTop && suggestionPinnedDishes.length > 0) {
+        return [{ title: chefSuggestionBadgeLabel, items: suggestionPinnedDishes }, ...baseGroups];
+      }
+      return baseGroups;
     }
     const groups: Record<string, Dish[]> = {};
     filteredDishes.forEach((dish) => {
@@ -3532,6 +3615,9 @@ export default function MenuDigital() {
       groups[key].push(dish);
     });
     const ordered: Array<{ title: string; items: Dish[] }> = [];
+    if (keepSuggestionsOnTop && suggestionPinnedDishes.length > 0) {
+      ordered.push({ title: chefSuggestionBadgeLabel, items: suggestionPinnedDishes });
+    }
     availableSubCategories.forEach((sub) => {
       const key = String(sub.id);
       if (groups[key] && groups[key].length > 0) {
@@ -3544,7 +3630,7 @@ export default function MenuDigital() {
       ordered.push({ title: sub ? getSubCategoryLabel(sub) : uiText.labels.others, items });
     });
     return ordered;
-  }, [filteredDishes, selectedCategoryId, availableSubCategories, subCategoryRows, lang]);
+  }, [filteredDishes, selectedCategoryId, availableSubCategories, subCategoryRows, lang, keepSuggestionsOnTop, suggestionPinnedDishes, chefSuggestionBadgeLabel]);
 
   const featuredHighlights = useMemo(() => {
     const visibleDishes = dishes.filter((dish) => dish.is_available !== false);
@@ -5121,28 +5207,80 @@ export default function MenuDigital() {
         className={`menu-surface-shell border-4 border-black rounded-none p-3 mx-0 my-2 ${!darkMode ? "bg-transparent" : "bg-white/95"}`}
         style={!darkMode ? { backgroundColor: "transparent" } : undefined}
       >
-        <div className="flex flex-nowrap gap-2 overflow-x-auto">
-          {categoryList.map((category, index) => (
+        <div className="flex items-center gap-2">
+          {categoryDrawerEnabled ? (
             <button
-              key={category}
-              onClick={() => {
-                setSelectedCategory(index);
-                if (index === 0) setSelectedSubCategory("");
-              }}
-              className={`px-4 py-2 rounded-lg font-black text-lg border-2 border-black text-black whitespace-nowrap ${
-                selectedCategory === index ? "bg-black text-white" : "bg-white"
-              }`}
-              style={
-                selectedCategory === index
-                  ? { backgroundColor: bannerBgColor, color: bannerContentTextColor, borderColor: darkMode ? "#d99a2b" : "#000000" }
-                  : undefined
-              }
+              type="button"
+              onClick={() => setIsCategoryDrawerOpen(true)}
+              className="md:hidden px-4 py-3 rounded-lg font-black text-base border-2 border-black bg-white text-black whitespace-nowrap"
             >
-              {category}
+              Catégories
             </button>
-          ))}
+          ) : null}
+          <div className="flex flex-nowrap gap-2 overflow-x-auto">
+            {categoryList.map((category, index) => (
+              <button
+                key={category}
+                onClick={() => {
+                  setSelectedCategory(index);
+                  if (index === 0) setSelectedSubCategory("");
+                }}
+                className={`px-5 py-3 rounded-lg font-black text-lg md:text-xl border-2 border-black text-black whitespace-nowrap ${
+                  selectedCategory === index ? "bg-black text-white" : "bg-white"
+                }`}
+                style={
+                  selectedCategory === index
+                    ? { backgroundColor: bannerBgColor, color: bannerContentTextColor, borderColor: darkMode ? "#d99a2b" : "#000000" }
+                    : undefined
+                }
+              >
+                {category}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
+
+      {categoryDrawerEnabled && isCategoryDrawerOpen ? (
+        <div className="fixed inset-0 z-50 md:hidden">
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/50"
+            onClick={() => setIsCategoryDrawerOpen(false)}
+            aria-label="Fermer le menu catégories"
+          />
+          <aside className="absolute left-0 top-0 h-full w-[78%] max-w-[320px] bg-white border-r-4 border-black p-4 shadow-[6px_0_0px_0px_rgba(0,0,0,1)]">
+            <div className="flex items-center justify-between mb-3">
+              <span className="font-black text-lg">Catégories</span>
+              <button
+                type="button"
+                onClick={() => setIsCategoryDrawerOpen(false)}
+                className="px-2 py-1 border-2 border-black font-black"
+              >
+                Fermer
+              </button>
+            </div>
+            <div className="space-y-2">
+              {categoryList.map((category, index) => (
+                <button
+                  key={`drawer-${category}`}
+                  type="button"
+                  onClick={() => {
+                    setSelectedCategory(index);
+                    if (index === 0) setSelectedSubCategory("");
+                    setIsCategoryDrawerOpen(false);
+                  }}
+                  className={`w-full text-left px-3 py-2 rounded-lg font-black border-2 ${
+                    selectedCategory === index ? "bg-black text-white border-black" : "bg-white text-black border-black"
+                  }`}
+                >
+                  {category}
+                </button>
+              ))}
+            </div>
+          </aside>
+        </div>
+      ) : null}
 
       {selectedCategory !== 0 && availableSubCategories.length > 0 && (
         <div

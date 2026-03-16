@@ -480,6 +480,7 @@ interface Dish {
   is_promo?: boolean | null;
   promo_price?: number | null;
   is_suggestion?: boolean | null;
+  sort_order?: number | null;
   product_options?: ProductOptionItem[];
   extras?: unknown;
   extras_list?: unknown;
@@ -883,6 +884,7 @@ interface CategoryItem {
   name_es?: string | null;
   name_de?: string | null;
   destination?: string | null;
+  sort_order?: number | null;
 }
 
 interface SubCategoryItem {
@@ -906,6 +908,7 @@ interface DishForm {
   description_de: string;
   description_i18n: Record<string, string>;
   price: string;
+  sort_order: string;
   category_id: string;
   subcategory_id: string;
   hunger_level: string;
@@ -1577,6 +1580,7 @@ export default function MenuManager() {
     name_es: "",
     name_de: "",
     destination: "cuisine",
+    sort_order: "0",
   });
   const [categoryFormI18n, setCategoryFormI18n] = useState<Record<string, string>>({});
 
@@ -1599,6 +1603,7 @@ export default function MenuManager() {
     description_de: "",
     description_i18n: {},
     price: "",
+    sort_order: "0",
     category_id: "",
     subcategory_id: "",
     hunger_level: "",
@@ -1660,6 +1665,8 @@ export default function MenuManager() {
     menu_layout: "classic_grid",
     card_layout: "default",
     card_style: "rounded",
+    category_drawer_enabled: false,
+    keep_suggestions_on_top: false,
     smtp_user: "",
     smtp_password: "",
     email_subject: "",
@@ -2855,6 +2862,14 @@ export default function MenuManager() {
           parseCardLayoutToken(hydratedRestaurant.card_style) ??
           "default",
         card_style: resolvedCardStyle,
+        category_drawer_enabled: toBoolean(
+          tableConfig.category_drawer_enabled ?? tableConfig.show_category_drawer,
+          false
+        ),
+        keep_suggestions_on_top: toBoolean(
+          tableConfig.keep_suggestions_on_top ?? tableConfig.pin_suggestions,
+          false
+        ),
         smtp_user: String(row.smtp_user || ""),
         smtp_password: "",
         email_subject: String(row.email_subject || "Votre ticket de caisse - [Nom du Resto]"),
@@ -2879,6 +2894,7 @@ export default function MenuManager() {
       .from("categories")
       .select("*")
       .eq("restaurant_id", scopedRestaurantId)
+      .order("sort_order", { ascending: true })
       .order("id", { ascending: true });
 
     if (result.error && String((result.error as { code?: string })?.code || "") === "42703") {
@@ -2886,6 +2902,15 @@ export default function MenuManager() {
         .from("categories")
         .select("*")
         .eq("id_restaurant", scopedRestaurantId)
+        .order("sort_order", { ascending: true })
+        .order("id", { ascending: true });
+    }
+
+    if (result.error && String((result.error as { code?: string })?.code || "") === "42703") {
+      result = await supabase
+        .from("categories")
+        .select("*")
+        .eq("restaurant_id", scopedRestaurantId)
         .order("id", { ascending: true });
     }
 
@@ -2909,6 +2934,7 @@ export default function MenuManager() {
       .select("*")
       .eq("restaurant_id", scopedRestaurantId)
       .order("category_id", { ascending: true })
+      .order("sort_order", { ascending: true })
       .order("id", { ascending: true });
 
     if (result.error && String((result.error as { code?: string })?.code || "") === "42703") {
@@ -2916,6 +2942,16 @@ export default function MenuManager() {
         .from("dishes")
         .select("*")
         .eq("id_restaurant", scopedRestaurantId)
+        .order("category_id", { ascending: true })
+        .order("sort_order", { ascending: true })
+        .order("id", { ascending: true });
+    }
+
+    if (result.error && String((result.error as { code?: string })?.code || "") === "42703") {
+      result = await supabase
+        .from("dishes")
+        .select("*")
+        .eq("restaurant_id", scopedRestaurantId)
         .order("category_id", { ascending: true })
         .order("id", { ascending: true });
     }
@@ -3532,7 +3568,12 @@ export default function MenuManager() {
   };
 
   const handleAddDish = () => {
+    const maxSort = dishes.reduce((acc, dish) => {
+      const raw = Number(dish.sort_order);
+      return Number.isFinite(raw) ? Math.max(acc, raw) : acc;
+    }, 0);
     resetForm();
+    setFormData((prev) => ({ ...prev, sort_order: String(maxSort + 1) }));
     setOpenDishLanguagePanels({ fr: true });
     setShowDishModal(true);
   };
@@ -3755,6 +3796,7 @@ export default function MenuManager() {
         de: directDescriptionByLang.de || dish.description_de || "",
       },
       price: dish.price?.toString() || "",
+      sort_order: Number.isFinite(Number(dish.sort_order)) ? String(Number(dish.sort_order)) : "0",
       category_id: dish.category_id != null ? String(dish.category_id) : "",
       subcategory_id: dish.subcategory_id != null ? String(dish.subcategory_id) : "",
       hunger_level: dish.hunger_level || "",
@@ -4207,6 +4249,9 @@ export default function MenuManager() {
       .split(",")
       .map((value) => value.trim())
       .filter(Boolean);
+    const safeSortOrder = Number.isFinite(Number(formData.sort_order))
+      ? Math.trunc(Number(formData.sort_order))
+      : 0;
     const manualAllergensByName = Object.fromEntries(
       selectedAllergens.map((allergenFr) => {
         const values = Object.fromEntries(
@@ -4246,6 +4291,7 @@ export default function MenuManager() {
       description_es: mergedDescriptionI18n.es || null,
       description_de: mergedDescriptionI18n.de || null,
       price: priceFloat,
+      sort_order: safeSortOrder,
       category_id: formData.category_id || null,
       subcategory_id: formData.subcategory_id || null,
       category: selectedCategory?.name_fr || null,
@@ -4685,6 +4731,22 @@ export default function MenuManager() {
         (restaurantForm as Record<string, unknown>).quick_add_to_cart_enabled,
         toBoolean(parseObjectRecord((restaurant as Record<string, unknown>)?.table_config).quick_add_to_cart_enabled, false)
       );
+      const safeCategoryDrawerEnabled = toBoolean(
+        (restaurantForm as Record<string, unknown>).category_drawer_enabled,
+        toBoolean(
+          parseObjectRecord((restaurant as Record<string, unknown>)?.table_config).category_drawer_enabled ??
+            parseObjectRecord((restaurant as Record<string, unknown>)?.table_config).show_category_drawer,
+          false
+        )
+      );
+      const safeKeepSuggestionsOnTop = toBoolean(
+        (restaurantForm as Record<string, unknown>).keep_suggestions_on_top,
+        toBoolean(
+          parseObjectRecord((restaurant as Record<string, unknown>)?.table_config).keep_suggestions_on_top ??
+            parseObjectRecord((restaurant as Record<string, unknown>)?.table_config).pin_suggestions,
+          false
+        )
+      );
       const safeGoogleReviewUrl = String((restaurantForm as Record<string, unknown>).google_review_url || "").trim();
       const safeInstagramUrl = String((restaurantForm as Record<string, unknown>).instagram_url || "").trim();
       const safeSnapchatUrl = String((restaurantForm as Record<string, unknown>).snapchat_url || "").trim();
@@ -4757,6 +4819,8 @@ export default function MenuManager() {
         global_text_color: safeTextColor,
         card_text_color: safeCardTextColor,
         quick_add_to_cart_enabled: safeQuickAddToCartEnabled,
+        category_drawer_enabled: safeCategoryDrawerEnabled,
+        keep_suggestions_on_top: safeKeepSuggestionsOnTop,
         social_links: {
           instagram: safeInstagramUrl || null,
           snapchat: safeSnapchatUrl || null,
@@ -5270,6 +5334,7 @@ export default function MenuManager() {
       name_es: (categoryI18n.es || "").trim() || null,
       name_de: (categoryI18n.de || "").trim() || null,
       destination: normalizeCategoryDestination(categoryForm.destination),
+      sort_order: normalizeSortOrder(categoryForm.sort_order),
     };
     let error: { message?: string; code?: string } | null = null;
     if (editingCategoryId) {
@@ -5298,6 +5363,7 @@ export default function MenuManager() {
           name_es: (categoryI18n.es || "").trim() || null,
           name_de: (categoryI18n.de || "").trim() || null,
           destination: normalizeCategoryDestination(categoryForm.destination),
+          sort_order: normalizeSortOrder(categoryForm.sort_order),
         };
         const legacyInsert = await supabase.from("categories").insert([legacyPayload]);
         error = legacyInsert.error as { message?: string; code?: string } | null;
@@ -5307,7 +5373,7 @@ export default function MenuManager() {
       alert(error.message);
       return;
     }
-    setCategoryForm({ name_fr: "", name_en: "", name_es: "", name_de: "", destination: "cuisine" });
+    setCategoryForm({ name_fr: "", name_en: "", name_es: "", name_de: "", destination: "cuisine", sort_order: "0" });
     setCategoryFormI18n({});
     setEditingCategoryId(null);
     setShowCategoryModal(false);
@@ -5359,6 +5425,62 @@ export default function MenuManager() {
       prev.map((category) =>
         String(category.id) === String(id) ? { ...category, destination } : category
       )
+    );
+  };
+
+  const handleUpdateCategorySortOrder = async (id: string | number, sortOrder: number) => {
+    if (!scopedRestaurantId) return;
+
+    const updateResult = await supabase
+      .from("categories")
+      .update({ sort_order: sortOrder })
+      .eq("id", id)
+      .eq("restaurant_id", scopedRestaurantId);
+    let error = updateResult.error;
+
+    if (error && String((error as { code?: string })?.code || "") === "42703") {
+      const legacyUpdate = await supabase
+        .from("categories")
+        .update({ sort_order: sortOrder })
+        .eq("id", id)
+        .eq("id_restaurant", scopedRestaurantId);
+      error = legacyUpdate.error;
+    }
+
+    if (error) {
+      alert(error.message);
+      return;
+    }
+
+    setCategories((prev) =>
+      prev.map((category) =>
+        String(category.id) === String(id) ? { ...category, sort_order: sortOrder } : category
+      )
+    );
+  };
+
+  const handleUpdateDishSortOrder = async (dishId: string | number, sortOrder: number) => {
+    if (!scopedRestaurantId) return;
+    let result = await supabase
+      .from("dishes")
+      .update({ sort_order: sortOrder })
+      .eq("id", dishId)
+      .eq("restaurant_id", scopedRestaurantId);
+    let error = result.error;
+    if (error && String((error as { code?: string })?.code || "") === "42703") {
+      result = await supabase
+        .from("dishes")
+        .update({ sort_order: sortOrder })
+        .eq("id", dishId)
+        .eq("id_restaurant", scopedRestaurantId);
+      error = result.error;
+    }
+    if (error) {
+      alert(error.message);
+      return;
+    }
+    setDishes((prev) =>
+      prev.map((dish) => (String(dish.id) === String(dishId) ? { ...dish, sort_order: sortOrder } : dish))
     );
   };
 
@@ -5748,8 +5870,39 @@ export default function MenuManager() {
     return category.name_fr || `Catégorie ${category.id}`;
   };
 
+  const sortedCategories = useMemo(() => {
+    return [...categories].sort((a, b) => {
+      const aOrder = Number.isFinite(Number(a.sort_order)) ? Number(a.sort_order) : 0;
+      const bOrder = Number.isFinite(Number(b.sort_order)) ? Number(b.sort_order) : 0;
+      if (aOrder !== bOrder) return aOrder - bOrder;
+      return String(a.name_fr || "").localeCompare(String(b.name_fr || ""));
+    });
+  }, [categories]);
+
+  const preparedDishesSorted = useMemo(() => {
+    const categoryOrder = new Map(
+      sortedCategories.map((category, index) => [
+        String(category.id),
+        Number.isFinite(Number(category.sort_order)) ? Number(category.sort_order) : index,
+      ])
+    );
+    return [...preparedDishes].sort((a, b) => {
+      const aCategory = categoryOrder.get(String(a.category_id)) ?? 0;
+      const bCategory = categoryOrder.get(String(b.category_id)) ?? 0;
+      if (aCategory !== bCategory) return aCategory - bCategory;
+      const aOrder = Number.isFinite(Number(a.sort_order)) ? Number(a.sort_order) : 0;
+      const bOrder = Number.isFinite(Number(b.sort_order)) ? Number(b.sort_order) : 0;
+      if (aOrder !== bOrder) return aOrder - bOrder;
+      return String(a.name_fr || a.name || "").localeCompare(String(b.name_fr || b.name || ""));
+    });
+  }, [preparedDishes, sortedCategories]);
+
   const normalizeCategoryDestination = (value: unknown): "cuisine" | "bar" => {
     return String(value || "").trim().toLowerCase() === "bar" ? "bar" : "cuisine";
+  };
+  const normalizeSortOrder = (value: unknown): number => {
+    const num = Number(value);
+    return Number.isFinite(num) ? Math.trunc(num) : 0;
   };
 
   const sides = sidesLibrary;
@@ -6930,7 +7083,7 @@ export default function MenuManager() {
         hasCookingChoice: Boolean(dish.ask_cooking ?? parsedDescription.askCooking),
       };
     };
-    preparedDishes.forEach((dish) => {
+    preparedDishesSorted.forEach((dish) => {
       const categoryLabel =
         categories.find((category) => String(category.id) === String(dish.category_id))?.name_fr ||
         String(dish.categorie || "Autres");
@@ -7441,7 +7594,7 @@ export default function MenuManager() {
       };
 
       const grouped = new Map<string, Dish[]>();
-      preparedDishes.forEach((dish) => {
+      preparedDishesSorted.forEach((dish) => {
         const categoryLabel =
           categories.find((category) => String(category.id) === String(dish.category_id))?.name_fr || String(dish.categorie || "Autres");
         const current = grouped.get(categoryLabel) || [];
@@ -7687,12 +7840,44 @@ export default function MenuManager() {
                 <div className="text-sm font-bold text-red-600 mb-3">Aucune catégorie créée</div>
               ) : (
                 <div className="flex flex-wrap gap-2 mb-3">
-                  {categories.map((cat) => (
+                  {sortedCategories.map((cat) => (
                     <span
                       key={cat.id}
                       className="px-3 py-1 rounded-full border border-gray-300 font-bold text-sm flex items-center gap-2"
                     >
                       {getCategoryLabel(cat)}
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            void handleUpdateCategorySortOrder(cat.id, normalizeSortOrder(cat.sort_order) - 1)
+                          }
+                          className="px-2 py-0.5 border border-gray-300 rounded bg-white text-xs"
+                          title="Monter"
+                        >
+                          ▲
+                        </button>
+                        <input
+                          type="number"
+                          min="0"
+                          value={Number.isFinite(Number(cat.sort_order)) ? String(Number(cat.sort_order)) : "0"}
+                          onChange={(e) =>
+                            void handleUpdateCategorySortOrder(cat.id, normalizeSortOrder(e.target.value))
+                          }
+                          className="w-14 px-1 py-0.5 border border-gray-300 rounded bg-white text-xs"
+                          title="Ordre d'affichage"
+                        />
+                        <button
+                          type="button"
+                          onClick={() =>
+                            void handleUpdateCategorySortOrder(cat.id, normalizeSortOrder(cat.sort_order) + 1)
+                          }
+                          className="px-2 py-0.5 border border-gray-300 rounded bg-white text-xs"
+                          title="Descendre"
+                        >
+                          ▼
+                        </button>
+                      </div>
                       <select
                         value={normalizeCategoryDestination(cat.destination)}
                         onChange={(e) => {
@@ -7716,6 +7901,7 @@ export default function MenuManager() {
                             name_es: cat.name_es || "",
                             name_de: cat.name_de || "",
                             destination: normalizeCategoryDestination(cat.destination),
+                            sort_order: Number.isFinite(Number(cat.sort_order)) ? String(Number(cat.sort_order)) : "0",
                           });
                           setCategoryFormI18n({
                             ...categoryToken,
@@ -7744,7 +7930,7 @@ export default function MenuManager() {
               type="button"
               onClick={() => {
                 setEditingCategoryId(null);
-                setCategoryForm({ name_fr: "", name_en: "", name_es: "", name_de: "", destination: "cuisine" });
+                setCategoryForm({ name_fr: "", name_en: "", name_es: "", name_de: "", destination: "cuisine", sort_order: "0" });
                 setCategoryFormI18n({});
                 setShowCategoryModal(true);
               }}
@@ -7761,7 +7947,7 @@ export default function MenuManager() {
                   className="px-3 py-2 bg-white text-black border border-gray-300"
                 >
                   <option value="">Catégorie</option>
-                  {categories.map((cat) => (
+                  {sortedCategories.map((cat) => (
                     <option key={cat.id} value={cat.id}>
                       {getCategoryLabel(cat)}
                     </option>
@@ -8556,6 +8742,7 @@ export default function MenuManager() {
                 <tr className="text-sm font-bold text-black">
                   <th className="p-3 w-[30%]">Plat</th>
                   <th className="p-3 w-[14%]">Catégorie</th>
+                  <th className="p-3 w-[8%]">Ordre</th>
                   <th className="p-3 w-[10%]">Prix</th>
                   <th className="p-3 w-[20%]">Badges</th>
                   <th className="p-3 w-[14%]">Options</th>
@@ -8563,7 +8750,7 @@ export default function MenuManager() {
                 </tr>
               </thead>
               <tbody>
-                {preparedDishes.map((dish) => (
+                {preparedDishesSorted.map((dish) => (
                   <tr key={dish.id} className="border-t border-gray-200 hover:bg-gray-100">
                     <td className="p-3 align-top">
                       <div className="font-black flex items-center gap-2">
@@ -8581,6 +8768,15 @@ export default function MenuManager() {
                     <td className="p-3 align-top text-sm break-words">
                       {categories.find((category) => String(category.id) === String(dish.category_id))?.name_fr ||
                         dish.categorie}
+                    </td>
+                    <td className="p-3 align-top">
+                      <input
+                        type="number"
+                        min="0"
+                        value={Number.isFinite(Number(dish.sort_order)) ? String(Number(dish.sort_order)) : "0"}
+                        onChange={(e) => void handleUpdateDishSortOrder(dish.id, normalizeSortOrder(e.target.value))}
+                        className="w-20 px-2 py-1 border border-gray-300 rounded text-sm"
+                      />
                     </td>
                     <td className="p-3 align-top font-bold whitespace-nowrap">{formatEuro(Number(dish.price || 0))}</td>
                     <td className="p-3 align-top">
@@ -9003,6 +9199,22 @@ export default function MenuManager() {
                 <label className="flex items-start gap-2 text-sm font-bold text-black">
                   <input
                     type="checkbox"
+                    checked={Boolean((restaurantForm as Record<string, unknown>).category_drawer_enabled)}
+                    onChange={(e) =>
+                      setRestaurantForm({ ...restaurantForm, category_drawer_enabled: e.target.checked })
+                    }
+                    className="mt-0.5"
+                  />
+                  <span>
+                    <span className="block">Activer le menu latéral des catégories (mobile)</span>
+                    <span className="mt-0.5 block text-xs font-semibold text-gray-600">
+                      Affiche un tiroir pour naviguer rapidement entre les catégories sur téléphone.
+                    </span>
+                  </span>
+                </label>
+                <label className="flex items-start gap-2 text-sm font-bold text-black">
+                  <input
+                    type="checkbox"
                     checked={consultationModeEnabled}
                     onChange={(e) => setConsultationModeEnabled(e.target.checked)}
                     className="mt-0.5"
@@ -9011,6 +9223,22 @@ export default function MenuManager() {
                     <span className="block">Mode commande serveur</span>
                     <span className="mt-0.5 block text-xs font-semibold text-gray-600">
                       Désactive l&apos;ajout au panier et le tunnel de commande côté client.
+                    </span>
+                  </span>
+                </label>
+                <label className="flex items-start gap-2 text-sm font-bold text-black">
+                  <input
+                    type="checkbox"
+                    checked={Boolean((restaurantForm as Record<string, unknown>).keep_suggestions_on_top)}
+                    onChange={(e) =>
+                      setRestaurantForm({ ...restaurantForm, keep_suggestions_on_top: e.target.checked })
+                    }
+                    className="mt-0.5"
+                  />
+                  <span>
+                    <span className="block">Garder les suggestions en haut</span>
+                    <span className="mt-0.5 block text-xs font-semibold text-gray-600">
+                      Les suggestions restent visibles en haut même lorsqu&apos;une catégorie est sélectionnée.
                     </span>
                   </span>
                 </label>
@@ -10082,6 +10310,14 @@ export default function MenuManager() {
                 <option value="cuisine">Envoyer vers : Cuisine</option>
                 <option value="bar">Envoyer vers : Bar/Caisse</option>
               </select>
+              <input
+                type="number"
+                min="0"
+                value={categoryForm.sort_order}
+                onChange={(e) => setCategoryForm({ ...categoryForm, sort_order: e.target.value })}
+                placeholder="Ordre (0 = haut)"
+                className="w-full px-3 py-2 bg-white text-black border border-gray-300"
+              />
               {activeLanguageCodes
                 .filter((code) => code !== "fr")
                 .map((code) => (
@@ -10108,7 +10344,7 @@ export default function MenuManager() {
                 onClick={() => {
                   setShowCategoryModal(false);
                   setEditingCategoryId(null);
-                  setCategoryForm({ name_fr: "", name_en: "", name_es: "", name_de: "", destination: "cuisine" });
+                  setCategoryForm({ name_fr: "", name_en: "", name_es: "", name_de: "", destination: "cuisine", sort_order: "0" });
                   setCategoryFormI18n({});
                 }}
                 className="px-5 py-2 font-black border-2 border-black"
@@ -10325,6 +10561,17 @@ export default function MenuManager() {
                 />
               </div>
               <div>
+                <label className="block mb-1 font-bold">Ordre d&apos;affichage</label>
+                <input
+                  type="number"
+                  min="0"
+                  value={formData.sort_order}
+                  onChange={(e) => setFormData({ ...formData, sort_order: e.target.value })}
+                  className="w-full px-3 py-2 bg-white text-black border border-gray-300"
+                />
+                <p className="text-xs text-gray-600 mt-1">Plus le nombre est petit, plus le plat remonte.</p>
+              </div>
+              <div>
                 <label className="block mb-1 font-bold">Prix promo (&euro;)</label>
                 <input
                   type="number"
@@ -10348,7 +10595,7 @@ export default function MenuManager() {
                   className="w-full px-3 py-2 bg-white text-black border border-gray-300"
                 >
                   <option value="">--</option>
-                  {categories.map((cat) => (
+                  {sortedCategories.map((cat) => (
                     <option key={cat.id} value={String(cat.id)}>
                       {getCategoryLabel(cat)}
                     </option>
