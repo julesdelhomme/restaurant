@@ -3527,6 +3527,7 @@ export default function MenuManager() {
       description_de: "",
       description_i18n: {},
       price: "",
+      sort_order: "0",
       category_id: categories[0] ? String(categories[0].id) : "",
       subcategory_id: "",
       hunger_level: "",
