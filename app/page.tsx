@@ -2280,6 +2280,7 @@ export default function MenuDigital() {
   const [showLangMenu, setShowLangMenu] = useState(false);
   const [selectedDish, setSelectedDish] = useState<Dish | null>(null);
   const [formulaDish, setFormulaDish] = useState<Dish | null>(null);
+  const [formulaLinkedDishIds, setFormulaLinkedDishIds] = useState<string[]>([]);
   const [formulaSelections, setFormulaSelections] = useState<Record<string, string>>({});
   const [formulaSelectionError, setFormulaSelectionError] = useState("");
   const [dishModalQuantity, setDishModalQuantity] = useState(1);
@@ -2732,6 +2733,52 @@ export default function MenuDigital() {
       window.removeEventListener("resize", updateStickyState);
     };
   }, []);
+  useEffect(() => {
+    let isActive = true;
+    const fetchFormulaLinks = async () => {
+      const formulaId = String((formulaDish as unknown as Record<string, unknown> | null)?.id || "").trim();
+      if (!formulaId) {
+        setFormulaLinkedDishIds([]);
+        return;
+      }
+      let result = scopedRestaurantId
+        ? await supabase
+            .from("formula_dish_links")
+            .select("dish_id,restaurant_id")
+            .eq("formula_dish_id", formulaId)
+            .eq("restaurant_id", scopedRestaurantId)
+        : await supabase
+            .from("formula_dish_links")
+            .select("dish_id")
+            .eq("formula_dish_id", formulaId);
+      if (result.error && String((result.error as { code?: string })?.code || "") === "42703") {
+        result = await supabase
+          .from("formula_dish_links")
+          .select("dish_id")
+          .eq("formula_dish_id", formulaId);
+      }
+      if (result.error) {
+        const errorCode = String((result.error as { code?: string })?.code || "");
+        if (errorCode === "42P01") {
+          if (isActive) setFormulaLinkedDishIds([]);
+          return;
+        }
+        console.warn("formula_dish_links fetch failed:", toLoggableSupabaseError(result.error));
+        if (isActive) setFormulaLinkedDishIds([]);
+        return;
+      }
+      const ids = Array.isArray(result.data)
+        ? result.data
+            .map((row) => String((row as Record<string, unknown>).dish_id || "").trim())
+            .filter(Boolean)
+        : [];
+      if (isActive) setFormulaLinkedDishIds(ids);
+    };
+    void fetchFormulaLinks();
+    return () => {
+      isActive = false;
+    };
+  }, [formulaDish, scopedRestaurantId]);
   const fetchConsultationModeState = async () => {
     const applyRow = (row: unknown) => {
       if (!row || typeof row !== "object") return false;
@@ -3702,6 +3749,21 @@ export default function MenuDigital() {
     return map;
   }, [dishes]);
 
+  const formulaLinkedDishIdsByCategory = useMemo(() => {
+    const map = new Map<string, Set<string>>();
+    if (!formulaDish || formulaLinkedDishIds.length === 0) return map;
+    formulaLinkedDishIds.forEach((dishId) => {
+      const dish = dishById.get(String(dishId || "").trim());
+      if (!dish) return;
+      const categoryId = String(dish.category_id || "").trim();
+      if (!categoryId) return;
+      const current = map.get(categoryId) || new Set<string>();
+      current.add(String(dish.id || "").trim());
+      map.set(categoryId, current);
+    });
+    return map;
+  }, [formulaDish, formulaLinkedDishIds, dishById]);
+
   const normalizedFormulaCategoryIds = useMemo(() => {
     const raw = (formulaDish as unknown as Record<string, unknown> | null)?.formula_category_ids;
     if (!raw) return [] as string[];
@@ -3736,16 +3798,22 @@ export default function MenuDigital() {
     const map = new Map<string, Dish[]>();
     if (formulaCategories.length === 0) return map;
     formulaCategories.forEach((category) => {
+      const categoryId = String(category.id || "").trim();
+      const linkedIds = formulaLinkedDishIdsByCategory.get(categoryId);
+      const restrictToLinked = linkedIds != null && linkedIds.size > 0;
       const options = dishes
-        .filter((dish) => String(dish.category_id) === String(category.id))
+        .filter((dish) => String(dish.category_id) === categoryId)
         .filter((dish) => dish.is_available !== false)
         .filter((dish) => isDishAvailableNow(dish))
-        .filter((dish) => !toBooleanFlag((dish as Record<string, unknown>).is_formula ?? dish.is_formula))
+        .filter((dish) => !toBooleanFlag((dish as any).is_formula))
         .filter((dish) => String(dish.id) !== String(formulaDish?.id || ""));
-      map.set(String(category.id), options);
+      const filteredOptions = restrictToLinked
+        ? options.filter((dish) => linkedIds?.has(String(dish.id || "").trim()))
+        : options;
+      map.set(categoryId, filteredOptions);
     });
     return map;
-  }, [dishes, formulaCategories, formulaDish, availabilitySnapshot]);
+  }, [dishes, formulaCategories, formulaDish, availabilitySnapshot, formulaLinkedDishIdsByCategory]);
 
   const getCategoryDestination = (categoryId?: string | number | null) => {
     if (!categoryId) return "cuisine";
@@ -4923,7 +4991,8 @@ export default function MenuDigital() {
         <button
           type="button"
           onClick={() => setIsCategoryDrawerOpen(true)}
-          className="fixed left-4 top-4 z-[45] inline-flex h-12 w-12 items-center justify-center rounded-xl border-4 border-black bg-white text-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]"
+          className="fixed left-4 z-[45] inline-flex h-12 w-12 items-center justify-center rounded-xl border-4 border-black bg-white text-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]"
+          style={{ top: "calc(env(safe-area-inset-top) + 4.5rem)" }}
           aria-label={uiText.categoriesTitle}
           title={uiText.categoriesTitle}
         >

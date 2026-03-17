@@ -945,10 +945,12 @@ interface DishForm {
   is_promo: boolean;
     promo_price: string;
     is_suggestion: boolean;
-    is_formula: boolean;
-    formula_category_ids: string[];
-    only_in_formula: boolean;
-    max_options: string;
+  is_formula: boolean;
+  formula_category_ids: string[];
+  formula_dish_ids: string[];
+  only_in_formula: boolean;
+  linked_formula_ids: string[];
+  max_options: string;
   selected_side_ids: Array<string | number>;
   extras_list: ExtrasItem[];
   product_options: ProductOptionItem[];
@@ -1464,6 +1466,8 @@ export default function MenuManager() {
   const scopedRestaurantId = String(scopedRestaurantIdFromPath || scopedRestaurantIdFromQuery || "").trim();
   const impersonateMode = String(searchParams.get("impersonate") || "").trim() === "1";
   const [dishes, setDishes] = useState<Dish[]>([]);
+  const [formulaLinksByFormulaId, setFormulaLinksByFormulaId] = useState<Map<string, string[]>>(new Map());
+  const [formulaLinksByDishId, setFormulaLinksByDishId] = useState<Map<string, string[]>>(new Map());
   const [orders, setOrders] = useState<Order[]>([]);
   const [reviews, setReviews] = useState<ReviewRow[]>([]);
   const [stats, setStats] = useState<Stats>({
@@ -1503,6 +1507,22 @@ export default function MenuManager() {
   const [criticalStock, setCriticalStock] = useState<Dish[]>([]);
   const [subCategoryRows, setSubCategoryRows] = useState<SubCategoryItem[]>([]);
   const [sidesLibrary, setSidesLibrary] = useState<SideLibraryItem[]>([]);
+  const formulaDishes = useMemo(
+    () =>
+      dishes.filter((dish) =>
+        toBoolean((dish as Record<string, unknown>).is_formula ?? dish.is_formula, false)
+      ),
+    [dishes]
+  );
+  const dishesById = useMemo(() => {
+    const map = new Map<string, Dish>();
+    dishes.forEach((dish) => {
+      const key = String(dish.id || "").trim();
+      if (!key) return;
+      map.set(key, dish);
+    });
+    return map;
+  }, [dishes]);
   const [tableAssignments, setTableAssignments] = useState<TableAssignment[]>([]);
   const [analyticsTab, setAnalyticsTab] = useState<"live" | "product" | "trends" | "ops">("live");
   const [analyticsRange, setAnalyticsRange] = useState<"today" | "7d" | "30d">("today");
@@ -1647,7 +1667,9 @@ export default function MenuManager() {
     is_suggestion: false,
     is_formula: false,
     formula_category_ids: [],
+    formula_dish_ids: [],
     only_in_formula: false,
+    linked_formula_ids: [],
     max_options: "1",
     selected_side_ids: [],
     extras_list: [],
@@ -2955,6 +2977,61 @@ export default function MenuManager() {
     setCategories((result.data || []) as CategoryItem[]);
   };
 
+  const fetchFormulaDishLinks = async (sourceDishes: Dish[]) => {
+    const formulaIds = sourceDishes
+      .filter((dish) => toBoolean((dish as Record<string, unknown>).is_formula ?? dish.is_formula, false))
+      .map((dish) => String(dish.id || "").trim())
+      .filter(Boolean);
+    if (formulaIds.length === 0) {
+      setFormulaLinksByFormulaId(new Map());
+      setFormulaLinksByDishId(new Map());
+      return;
+    }
+
+    let result = scopedRestaurantId
+      ? await supabase
+          .from("formula_dish_links")
+          .select("formula_dish_id,dish_id,restaurant_id")
+          .in("formula_dish_id", formulaIds as never)
+          .eq("restaurant_id", scopedRestaurantId)
+      : await supabase
+          .from("formula_dish_links")
+          .select("formula_dish_id,dish_id,restaurant_id")
+          .in("formula_dish_id", formulaIds as never);
+
+    if (result.error && hasMissingColumnError(result.error, "restaurant_id")) {
+      result = await supabase
+        .from("formula_dish_links")
+        .select("formula_dish_id,dish_id")
+        .in("formula_dish_id", formulaIds as never);
+    }
+
+    if (result.error) {
+      console.warn("formula_dish_links fetch failed:", toLoggableSupabaseError(result.error));
+      setFormulaLinksByFormulaId(new Map());
+      setFormulaLinksByDishId(new Map());
+      return;
+    }
+
+    const byFormula = new Map<string, string[]>();
+    const byDish = new Map<string, string[]>();
+    (result.data || []).forEach((row) => {
+      if (!row || typeof row !== "object") return;
+      const record = row as Record<string, unknown>;
+      const formulaId = String(record.formula_dish_id || "").trim();
+      const dishId = String(record.dish_id || "").trim();
+      if (!formulaId || !dishId) return;
+      const formulaList = byFormula.get(formulaId) || [];
+      if (!formulaList.includes(dishId)) formulaList.push(dishId);
+      byFormula.set(formulaId, formulaList);
+      const dishList = byDish.get(dishId) || [];
+      if (!dishList.includes(formulaId)) dishList.push(formulaId);
+      byDish.set(dishId, dishList);
+    });
+    setFormulaLinksByFormulaId(byFormula);
+    setFormulaLinksByDishId(byDish);
+  };
+
   const fetchDishes = async () => {
     if (!scopedRestaurantId) {
       setDishes([]);
@@ -3141,6 +3218,7 @@ export default function MenuManager() {
         product_options: optionsByDishId.get(String(dish.id || "").trim()) || [],
       }));
       setDishes(normalizedWithOptions);
+      await fetchFormulaDishLinks(normalizedWithOptions);
       setAllergenLibrary((prev) => {
         if (prev.length > 0) return prev;
         const discoveredRows: AllergenLibraryRow[] = [];
@@ -3158,6 +3236,8 @@ export default function MenuManager() {
       });
     } else {
       setDishes([]);
+      setFormulaLinksByFormulaId(new Map());
+      setFormulaLinksByDishId(new Map());
     }
   };
 
@@ -3582,7 +3662,9 @@ export default function MenuManager() {
       is_suggestion: false,
       is_formula: false,
       formula_category_ids: [],
+      formula_dish_ids: [],
       only_in_formula: false,
+      linked_formula_ids: [],
       max_options: "1",
       selected_side_ids: [],
       extras_list: [],
@@ -3677,6 +3759,9 @@ export default function MenuManager() {
         : [];
     const isFormula = toBoolean((dishRecord as Record<string, unknown>).is_formula, false);
     const onlyInFormula = toBoolean((dishRecord as Record<string, unknown>).only_in_formula, false);
+    const currentDishId = String(dish.id || "").trim();
+    const linkedFormulaIds = currentDishId ? formulaLinksByDishId.get(currentDishId) || [] : [];
+    const linkedFormulaDishIds = currentDishId ? formulaLinksByFormulaId.get(currentDishId) || [] : [];
     const manualAllergensByName = parseJsonObject(dietaryI18nNode.allergens_manual);
     const dietaryAllergensListRaw =
       (dietary as Record<string, unknown>).allergens_selected ??
@@ -3899,7 +3984,9 @@ export default function MenuManager() {
       ),
       is_formula: isFormula,
       formula_category_ids: isFormula ? normalizedFormulaCategoryIds : [],
+      formula_dish_ids: isFormula ? linkedFormulaDishIds : [],
       only_in_formula: onlyInFormula,
+      linked_formula_ids: !isFormula ? linkedFormulaIds : [],
       max_options: String(dish.max_options ?? 1),
       selected_side_ids: Array.isArray(dish.selected_sides)
         ? dish.selected_sides
@@ -4332,6 +4419,20 @@ export default function MenuManager() {
     const normalizedFormulaCategoryIds = Array.from(
       new Set((formData.formula_category_ids || []).map((value) => String(value || "").trim()).filter(Boolean))
     );
+    const normalizedFormulaDishIds = Array.from(
+      new Set((formData.formula_dish_ids || []).map((value) => String(value || "").trim()).filter(Boolean))
+    ).filter((dishId) => {
+      if (!formData.is_formula) return false;
+      const dish = dishesById.get(dishId);
+      if (!dish) return false;
+      const categoryId = String(dish.category_id || "").trim();
+      if (!categoryId) return false;
+      if (normalizedFormulaCategoryIds.length === 0) return false;
+      return normalizedFormulaCategoryIds.includes(categoryId);
+    });
+    const normalizedLinkedFormulaIds = Array.from(
+      new Set((formData.linked_formula_ids || []).map((value) => String(value || "").trim()).filter(Boolean))
+    ).filter((formulaId) => formulaId);
 
     const dishData = {
       name: formData.name_fr,
@@ -4673,6 +4774,81 @@ export default function MenuManager() {
             console.error("Erreur insertion variantes product_options:", insertVariantsResult.error);
             alert(`Plat sauvegardé mais erreur d'enregistrement des variantes: ${insertVariantsResult.error.message}`);
             return;
+          }
+        }
+
+        const formulaLinkMigrationHint = " Exécutez la migration add_formula_dish_links.sql.";
+        if (formData.is_formula) {
+          const sanitizedFormulaDishIds = normalizedFormulaDishIds.filter((dishId) => dishId !== savedDishId);
+          let deleteLinksResult = await supabase
+            .from("formula_dish_links")
+            .delete()
+            .eq("formula_dish_id", savedDishIdRaw as never);
+          if (deleteLinksResult.error) {
+            console.warn("Erreur suppression formula_dish_links (formule):", deleteLinksResult.error.message);
+            if (String((deleteLinksResult.error as { code?: string })?.code || "") === "42P01") {
+              alert(`Plat sauvegardé mais la table formula_dish_links est absente.${formulaLinkMigrationHint}`);
+            } else {
+              alert(`Plat sauvegardé mais erreur de synchronisation formule: ${deleteLinksResult.error.message}`);
+            }
+          } else if (sanitizedFormulaDishIds.length > 0) {
+            const rowsWithRestaurant = sanitizedFormulaDishIds.map((dishId) => ({
+              formula_dish_id: savedDishIdRaw,
+              dish_id: dishId,
+              restaurant_id: scopedRestaurantId || null,
+            }));
+            let insertLinksResult = await supabase.from("formula_dish_links").insert(rowsWithRestaurant as never);
+            if (insertLinksResult.error && hasMissingColumnError(insertLinksResult.error, "restaurant_id")) {
+              const rowsWithoutRestaurant = sanitizedFormulaDishIds.map((dishId) => ({
+                formula_dish_id: savedDishIdRaw,
+                dish_id: dishId,
+              }));
+              insertLinksResult = await supabase.from("formula_dish_links").insert(rowsWithoutRestaurant as never);
+            }
+            if (insertLinksResult.error) {
+              console.warn("Erreur insertion formula_dish_links (formule):", insertLinksResult.error.message);
+              if (String((insertLinksResult.error as { code?: string })?.code || "") === "42P01") {
+                alert(`Plat sauvegardé mais la table formula_dish_links est absente.${formulaLinkMigrationHint}`);
+              } else {
+                alert(`Plat sauvegardé mais erreur de synchronisation formule: ${insertLinksResult.error.message}`);
+              }
+            }
+          }
+        } else {
+          const sanitizedLinkedFormulaIds = normalizedLinkedFormulaIds.filter((formulaId) => formulaId !== savedDishId);
+          let deleteLinksResult = await supabase
+            .from("formula_dish_links")
+            .delete()
+            .eq("dish_id", savedDishIdRaw as never);
+          if (deleteLinksResult.error) {
+            console.warn("Erreur suppression formula_dish_links (plat):", deleteLinksResult.error.message);
+            if (String((deleteLinksResult.error as { code?: string })?.code || "") === "42P01") {
+              alert(`Plat sauvegardé mais la table formula_dish_links est absente.${formulaLinkMigrationHint}`);
+            } else {
+              alert(`Plat sauvegardé mais erreur de synchronisation formule: ${deleteLinksResult.error.message}`);
+            }
+          } else if (sanitizedLinkedFormulaIds.length > 0) {
+            const rowsWithRestaurant = sanitizedLinkedFormulaIds.map((formulaId) => ({
+              formula_dish_id: formulaId,
+              dish_id: savedDishIdRaw,
+              restaurant_id: scopedRestaurantId || null,
+            }));
+            let insertLinksResult = await supabase.from("formula_dish_links").insert(rowsWithRestaurant as never);
+            if (insertLinksResult.error && hasMissingColumnError(insertLinksResult.error, "restaurant_id")) {
+              const rowsWithoutRestaurant = sanitizedLinkedFormulaIds.map((formulaId) => ({
+                formula_dish_id: formulaId,
+                dish_id: savedDishIdRaw,
+              }));
+              insertLinksResult = await supabase.from("formula_dish_links").insert(rowsWithoutRestaurant as never);
+            }
+            if (insertLinksResult.error) {
+              console.warn("Erreur insertion formula_dish_links (plat):", insertLinksResult.error.message);
+              if (String((insertLinksResult.error as { code?: string })?.code || "") === "42P01") {
+                alert(`Plat sauvegardé mais la table formula_dish_links est absente.${formulaLinkMigrationHint}`);
+              } else {
+                alert(`Plat sauvegardé mais erreur de synchronisation formule: ${insertLinksResult.error.message}`);
+              }
+            }
           }
         }
       } else {
@@ -6327,7 +6503,9 @@ export default function MenuManager() {
 
     const totalTablesCount = configuredTableNumbers.length;
     const occupancyIgnoredStatuses = new Set(["cancelled", "canceled", "annule", "annulee"]);
-    const serviceConfig = parseObjectRecord((restaurant as Record<string, unknown>)?.table_config);
+    const tableConfig = parseObjectRecord((restaurant as Record<string, unknown>)?.table_config);
+    const settingsConfig = parseObjectRecord((restaurant as Record<string, unknown>)?.settings);
+    const serviceConfig = { ...tableConfig, ...settingsConfig };
     const lunchStartMinutes = parseTimeToMinutes(serviceConfig.service_lunch_start ?? serviceConfig.lunch_start);
     const lunchEndMinutes = parseTimeToMinutes(serviceConfig.service_lunch_end ?? serviceConfig.lunch_end);
     const dinnerStartMinutes = parseTimeToMinutes(serviceConfig.service_dinner_start ?? serviceConfig.dinner_start);
@@ -11175,8 +11353,87 @@ export default function MenuManager() {
                       })
                     )}
                   </div>
+                  <div className="mt-4 border-t border-gray-200 pt-3">
+                    <label className="block mb-2 font-bold">Plats autorisés par catégorie</label>
+                    <p className="text-xs text-gray-600 mb-2">
+                      Si aucun plat n&apos;est coché pour une catégorie, tous les plats de cette catégorie seront proposés.
+                    </p>
+                    {formData.formula_category_ids.length === 0 ? (
+                      <div className="text-sm text-gray-600">Sélectionnez d&apos;abord les catégories.</div>
+                    ) : (
+                      formData.formula_category_ids.map((categoryId) => {
+                        const category = categories.find((row) => String(row.id) === String(categoryId));
+                        const options = dishes.filter((dish) => {
+                          if (String(dish.category_id) !== String(categoryId)) return false;
+                          if (String(dish.id || "").trim() === String(editingDish?.id || "").trim()) return false;
+                          return !toBoolean((dish as Record<string, unknown>).is_formula ?? dish.is_formula, false);
+                        });
+                        return (
+                          <div key={`formula-dishes-${categoryId}`} className="border border-gray-200 rounded p-2 mb-3">
+                            <div className="text-sm font-black mb-2">{category ? getCategoryLabel(category) : `Catégorie ${categoryId}`}</div>
+                            {options.length === 0 ? (
+                              <div className="text-xs text-gray-500">Aucun plat disponible.</div>
+                            ) : (
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-52 overflow-y-auto">
+                                {options.map((dish) => {
+                                  const dishId = String(dish.id || "").trim();
+                                  const checked = formData.formula_dish_ids.some((id) => String(id) === dishId);
+                                  return (
+                                    <label key={`formula-dish-${categoryId}-${dishId}`} className="flex items-center gap-2 text-black font-bold px-2 py-1 rounded hover:bg-gray-50">
+                                      <input
+                                        type="checkbox"
+                                        checked={checked}
+                                        onChange={(e) => {
+                                          if (!dishId) return;
+                                          const next = e.target.checked
+                                            ? [...formData.formula_dish_ids, dishId]
+                                            : formData.formula_dish_ids.filter((id) => String(id) !== dishId);
+                                          setFormData({ ...formData, formula_dish_ids: next });
+                                        }}
+                                      />
+                                      {dish.name_fr || dish.name || `Plat #${dish.id}`}
+                                    </label>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
                 </div>
-              ) : null}
+              ) : (
+                <div className="md:col-span-2 border border-gray-200 rounded p-3 bg-white">
+                  <label className="block mb-2 font-bold">Formules associées (optionnel)</label>
+                  {formulaDishes.length === 0 ? (
+                    <div className="text-sm text-gray-600">Aucune formule disponible.</div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-56 overflow-y-auto">
+                      {formulaDishes.map((formula) => {
+                        const formulaId = String(formula.id || "").trim();
+                        if (!formulaId) return null;
+                        const checked = formData.linked_formula_ids.some((id) => String(id) === formulaId);
+                        return (
+                          <label key={`linked-formula-${formulaId}`} className="flex items-center gap-2 text-black font-bold px-2 py-1 rounded hover:bg-gray-50">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={(e) => {
+                                const next = e.target.checked
+                                  ? [...formData.linked_formula_ids, formulaId]
+                                  : formData.linked_formula_ids.filter((id) => String(id) !== formulaId);
+                                setFormData({ ...formData, linked_formula_ids: next });
+                              }}
+                            />
+                            {formula.name_fr || formula.name || `Formule #${formula.id}`}
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div className="md:col-span-2">
                 <label className="block mb-1 font-bold">Accompagnements disponibles</label>
