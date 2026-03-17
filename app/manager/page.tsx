@@ -1509,9 +1509,7 @@ export default function MenuManager() {
   const [sidesLibrary, setSidesLibrary] = useState<SideLibraryItem[]>([]);
   const formulaDishes = useMemo(
     () =>
-      dishes.filter((dish) =>
-        toBoolean((dish as Record<string, unknown>).is_formula ?? dish.is_formula, false)
-      ),
+      dishes.filter((dish) => toBoolean((dish as any).is_formula ?? dish.is_formula, false)),
     [dishes]
   );
   const dishesById = useMemo(() => {
