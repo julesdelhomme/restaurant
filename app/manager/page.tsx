@@ -491,6 +491,7 @@ interface Dish {
     is_suggestion?: boolean | null;
     is_formula?: boolean | null;
     formula_category_ids?: Array<string | number> | null;
+    only_in_formula?: boolean | null;
     available_days?: string[] | string | null;
     start_time?: string | null;
     end_time?: string | null;
@@ -942,11 +943,12 @@ interface DishForm {
   is_chef_suggestion: boolean;
   is_daily_special: boolean;
   is_promo: boolean;
-  promo_price: string;
-  is_suggestion: boolean;
-  is_formula: boolean;
-  formula_category_ids: string[];
-  max_options: string;
+    promo_price: string;
+    is_suggestion: boolean;
+    is_formula: boolean;
+    formula_category_ids: string[];
+    only_in_formula: boolean;
+    max_options: string;
   selected_side_ids: Array<string | number>;
   extras_list: ExtrasItem[];
   product_options: ProductOptionItem[];
@@ -1645,6 +1647,7 @@ export default function MenuManager() {
     is_suggestion: false,
     is_formula: false,
     formula_category_ids: [],
+    only_in_formula: false,
     max_options: "1",
     selected_side_ids: [],
     extras_list: [],
@@ -3579,6 +3582,7 @@ export default function MenuManager() {
       is_suggestion: false,
       is_formula: false,
       formula_category_ids: [],
+      only_in_formula: false,
       max_options: "1",
       selected_side_ids: [],
       extras_list: [],
@@ -3672,6 +3676,7 @@ export default function MenuManager() {
             .filter(Boolean)
         : [];
     const isFormula = toBoolean((dishRecord as Record<string, unknown>).is_formula, false);
+    const onlyInFormula = toBoolean((dishRecord as Record<string, unknown>).only_in_formula, false);
     const manualAllergensByName = parseJsonObject(dietaryI18nNode.allergens_manual);
     const dietaryAllergensListRaw =
       (dietary as Record<string, unknown>).allergens_selected ??
@@ -3894,6 +3899,7 @@ export default function MenuManager() {
       ),
       is_formula: isFormula,
       formula_category_ids: isFormula ? normalizedFormulaCategoryIds : [],
+      only_in_formula: onlyInFormula,
       max_options: String(dish.max_options ?? 1),
       selected_side_ids: Array.isArray(dish.selected_sides)
         ? dish.selected_sides
@@ -4372,6 +4378,7 @@ export default function MenuManager() {
       is_suggestion: unifiedSuggestionFlag,
       is_formula: !!formData.is_formula,
       formula_category_ids: formData.is_formula ? normalizedFormulaCategoryIds : null,
+      only_in_formula: !!formData.only_in_formula,
       is_promo: !!formData.is_promo,
       promo_price: formData.is_promo ? (parsedPromoPrice == null ? null : Number(parsedPromoPrice)) : null,
       is_featured: unifiedSuggestionFlag,
@@ -11109,6 +11116,19 @@ export default function MenuManager() {
                     }
                   />
                   Est une formule
+                </label>
+                <label className="flex items-center gap-2 text-black font-bold">
+                  <input
+                    type="checkbox"
+                    checked={formData.only_in_formula}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        only_in_formula: e.target.checked,
+                      })
+                    }
+                  />
+                  Uniquement en formule
                 </label>
                 <label className="flex items-center gap-2 text-black font-bold">
                   <input
