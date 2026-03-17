@@ -326,8 +326,76 @@ export default function KitchenPage() {
     if (/plat|main|dish|principal/.test(normalized)) return "plat";
     return "plat";
   };
+  const resolveCourseFromSequence = (value: unknown) => {
+    const raw = Number(value);
+    if (!Number.isFinite(raw) || raw <= 0) return "";
+    const sequence = Math.max(1, Math.trunc(raw));
+    if (sequence === 1) return "entree";
+    if (sequence >= 3) return "dessert";
+    return "plat";
+  };
+  const parseFormulaEntryList = (value: unknown): Array<Record<string, unknown>> => {
+    let source = value;
+    if (typeof source === "string") {
+      const raw = source.trim();
+      if (!raw) return [];
+      try {
+        source = JSON.parse(raw);
+      } catch {
+        return [];
+      }
+    }
+    if (Array.isArray(source)) {
+      return source.filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === "object");
+    }
+    if (source && typeof source === "object") {
+      return [source as Record<string, unknown>];
+    }
+    return [];
+  };
+  const resolveFormulaSequenceForItem = (item: Item) => {
+    const record = item as unknown as Record<string, unknown>;
+    const targetDishId = normalizeEntityId(
+      record.dish_id ??
+        record.id ??
+        (record.dish && typeof record.dish === "object" ? (record.dish as Record<string, unknown>).id : "")
+    );
+    const sources = [
+      record.selected_options,
+      record.selectedOptions,
+      record.options,
+      record.formula_items,
+      record.formulaItems,
+    ];
+    let fallbackSequence: number | null = null;
+    for (const source of sources) {
+      const entries = parseFormulaEntryList(source);
+      for (const entry of entries) {
+        const kind = normalizeLookupText(entry.kind ?? entry.type ?? entry.group ?? "");
+        const isFormulaEntry =
+          kind === "formula" ||
+          kind.includes("formula") ||
+          entry.formula_dish_id != null ||
+          entry.sequence != null;
+        if (!isFormulaEntry) continue;
+        const rawSequence = Number(entry.sequence ?? entry.service_step_sequence ?? entry.step);
+        if (!Number.isFinite(rawSequence) || rawSequence <= 0) continue;
+        const sequence = Math.max(1, Math.trunc(rawSequence));
+        const entryDishId = normalizeEntityId(entry.dish_id ?? entry.dishId ?? entry.id ?? "");
+        if (!targetDishId || !entryDishId || entryDishId === targetDishId) {
+          return sequence;
+        }
+        if (fallbackSequence == null) {
+          fallbackSequence = sequence;
+        }
+      }
+    }
+    return fallbackSequence;
+  };
   const resolveItemCourse = (item: Item) => {
     const record = item as unknown as Record<string, unknown>;
+    const sequenceCourse = resolveCourseFromSequence(resolveFormulaSequenceForItem(item));
+    if (sequenceCourse) return sequenceCourse;
     const itemCategoryId = normalizeEntityId(
       record.category_id ??
         record.categoryId ??
@@ -340,7 +408,7 @@ export default function KitchenPage() {
     return resolveCourseFromLabel(categoryLabel || fallbackCategory);
   };
   const resolveOrderServiceStep = (order: Order, items: Item[]) => {
-    const foodItems = items.filter((item) => isKitchenCourse(item));
+    const foodItems = items.filter((item) => isKitchenCourse(item) && !isItemReady(item));
     if (foodItems.length === 0) return "";
     const availableSteps = new Set(foodItems.map((item) => resolveItemCourse(item)));
     const normalized = normalizeServiceStep(order.service_step);
@@ -349,7 +417,7 @@ export default function KitchenPage() {
     return fallback || normalized || "";
   };
   const resolveNextServiceStep = (order: Order, items: Item[]) => {
-    const foodItems = items.filter((item) => isKitchenCourse(item));
+    const foodItems = items.filter((item) => isKitchenCourse(item) && !isItemReady(item));
     if (foodItems.length === 0) return "";
     const availableSteps = new Set(foodItems.map((item) => resolveItemCourse(item)));
     const current = resolveOrderServiceStep(order, items);
@@ -1414,21 +1482,25 @@ export default function KitchenPage() {
       return resolveItemCourse(item) === currentStep ? setItemStatus(item, "ready") : item;
     });
     const nextStatus = deriveOrderStatusFromItems(nextItems);
+    const nextServiceStep = resolveOrderServiceStep(targetOrder, nextItems);
 
     setOrders((prev) =>
       prev.map((order) =>
         String(order.id) === String(orderId)
-          ? { ...order, items: nextItems, order_items: null, status: nextStatus }
+          ? { ...order, items: nextItems, order_items: null, status: nextStatus, service_step: nextServiceStep || null }
           : order
       )
     );
 
     let updateResult = await supabase
       .from("orders")
-      .update({ items: nextItems, status: nextStatus })
+      .update({ items: nextItems, status: nextStatus, service_step: nextServiceStep || null })
       .eq("id", orderId);
     if (updateResult.error && nextStatus === "ready") {
-      const fallback = await supabase.from("orders").update({ items: nextItems, status: "pret" }).eq("id", orderId);
+      const fallback = await supabase
+        .from("orders")
+        .update({ items: nextItems, status: "pret", service_step: nextServiceStep || null })
+        .eq("id", orderId);
       updateResult = fallback;
     }
 

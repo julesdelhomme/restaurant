@@ -1465,6 +1465,9 @@ interface CartItem {
   specialRequest?: string;
   fromRecommendation?: boolean;
   formulaSelections?: FormulaSelection[];
+  formulaDishId?: string;
+  formulaDishName?: string;
+  formulaUnitPrice?: number | null;
 }
 
 interface FormulaSelection {
@@ -1473,6 +1476,13 @@ interface FormulaSelection {
   dishId: string;
   dishName: string;
   dishNameFr: string;
+  sequence?: number | null;
+}
+
+interface FormulaDishLink {
+  formulaDishId: string;
+  dishId: string;
+  sequence: number | null;
 }
 
 function parseOptionsFromDescription(description?: string | null): ParsedOptions {
@@ -2280,7 +2290,9 @@ export default function MenuDigital() {
   const [showLangMenu, setShowLangMenu] = useState(false);
   const [selectedDish, setSelectedDish] = useState<Dish | null>(null);
   const [formulaDish, setFormulaDish] = useState<Dish | null>(null);
-  const [formulaLinkedDishIds, setFormulaLinkedDishIds] = useState<string[]>([]);
+  const [formulaSourceDish, setFormulaSourceDish] = useState<Dish | null>(null);
+  const [formulaLinksByFormulaId, setFormulaLinksByFormulaId] = useState<Map<string, FormulaDishLink[]>>(new Map());
+  const [formulaLinksByDishId, setFormulaLinksByDishId] = useState<Map<string, FormulaDishLink[]>>(new Map());
   const [formulaSelections, setFormulaSelections] = useState<Record<string, string>>({});
   const [formulaSelectionError, setFormulaSelectionError] = useState("");
   const [dishModalQuantity, setDishModalQuantity] = useState(1);
@@ -2311,6 +2323,8 @@ export default function MenuDigital() {
   const [cartBump, setCartBump] = useState(false);
   const [isStickyActionsCompact, setIsStickyActionsCompact] = useState(false);
   const actionDockSentinelRef = useRef<HTMLDivElement | null>(null);
+  const categoryTabsRef = useRef<HTMLDivElement | null>(null);
+  const [isCategoryTabsOutOfView, setIsCategoryTabsOutOfView] = useState(false);
   const vitrineViewTrackedRef = useRef<Record<string, boolean>>({});
   const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [sideError, setSideError] = useState("");
@@ -2496,6 +2510,17 @@ export default function MenuDigital() {
     const discountedBase = promoPrice != null && promoPrice < basePrice ? promoPrice : basePrice;
     return discountedBase + optionSupplement;
   };
+  const getCartItemUnitPrice = (item: CartItem) => {
+    const formulaPrice = Number(item.formulaUnitPrice);
+    if (Number.isFinite(formulaPrice) && formulaPrice > 0) {
+      return formulaPrice;
+    }
+    return getDishUnitPrice(
+      item.dish,
+      getSelectedProductOptionsList(item.selectedProductOptions, item.selectedProductOption),
+      item.selectedProductOption
+    );
+  };
   const getDishSuggestionBadge = (dish: Dish) => {
     const source = dish as unknown as any;
     return Boolean(source.is_suggestion || source.is_chef_suggestion || source.is_featured);
@@ -2650,7 +2675,7 @@ export default function MenuDigital() {
   const hideCompactFloatingActions =
     isStickyActionsCompact && (isCartOpen || !!selectedDish || !!formulaDish || isVitrineMode);
   const showCategoryDrawerButton =
-    categoryDrawerEnabled && isStickyActionsCompact && !isCategoryDrawerOpen && !hideCompactFloatingActions;
+    categoryDrawerEnabled && isCategoryTabsOutOfView && !isCategoryDrawerOpen && !hideCompactFloatingActions;
   const applyRealtimeDisplaySettingsRow = (rawRow: unknown) => {
     if (!rawRow || typeof rawRow !== "object") return;
     const row = rawRow as any;
@@ -2734,51 +2759,24 @@ export default function MenuDigital() {
     };
   }, []);
   useEffect(() => {
-    let isActive = true;
-    const fetchFormulaLinks = async () => {
-      const formulaId = String((formulaDish as unknown as any | null)?.id || "").trim();
-      if (!formulaId) {
-        setFormulaLinkedDishIds([]);
+    if (typeof window === "undefined") return;
+    const updateCategoryTabsVisibility = () => {
+      const rect = categoryTabsRef.current?.getBoundingClientRect();
+      if (!rect) {
+        setIsCategoryTabsOutOfView(false);
         return;
       }
-      let result = scopedRestaurantId
-        ? await supabase
-            .from("formula_dish_links")
-            .select("dish_id,restaurant_id")
-            .eq("formula_dish_id", formulaId)
-            .eq("restaurant_id", scopedRestaurantId)
-        : await supabase
-            .from("formula_dish_links")
-            .select("dish_id")
-            .eq("formula_dish_id", formulaId);
-      if (result.error && String((result.error as { code?: string })?.code || "") === "42703") {
-        result = await supabase
-          .from("formula_dish_links")
-          .select("dish_id")
-          .eq("formula_dish_id", formulaId);
-      }
-      if (result.error) {
-        const errorCode = String((result.error as { code?: string })?.code || "");
-        if (errorCode === "42P01") {
-          if (isActive) setFormulaLinkedDishIds([]);
-          return;
-        }
-        console.warn("formula_dish_links fetch failed:", toLoggableSupabaseError(result.error));
-        if (isActive) setFormulaLinkedDishIds([]);
-        return;
-      }
-      const ids = Array.isArray(result.data)
-        ? result.data
-            .map((row) => String((row as any).dish_id || "").trim())
-            .filter(Boolean)
-        : [];
-      if (isActive) setFormulaLinkedDishIds(ids);
+      // Drawer trigger appears only when tabs are fully above viewport.
+      setIsCategoryTabsOutOfView(rect.bottom <= 0);
     };
-    void fetchFormulaLinks();
+    updateCategoryTabsVisibility();
+    window.addEventListener("scroll", updateCategoryTabsVisibility, { passive: true });
+    window.addEventListener("resize", updateCategoryTabsVisibility);
     return () => {
-      isActive = false;
+      window.removeEventListener("scroll", updateCategoryTabsVisibility);
+      window.removeEventListener("resize", updateCategoryTabsVisibility);
     };
-  }, [formulaDish, scopedRestaurantId]);
+  }, []);
   const fetchConsultationModeState = async () => {
     const applyRow = (row: unknown) => {
       if (!row || typeof row !== "object") return false;
@@ -2925,6 +2923,7 @@ export default function MenuDigital() {
     }
     if (isInteractionDisabled && formulaDish) {
       setFormulaDish(null);
+      setFormulaSourceDish(null);
       setFormulaSelections({});
       setFormulaSelectionError("");
     }
@@ -2961,6 +2960,63 @@ export default function MenuDigital() {
   useEffect(() => {
     setOrderValidationCodeInput("");
   }, [tableNumber]);
+
+  const fetchFormulaLinksForMenu = async (sourceDishes: Dish[]) => {
+    const formulaIds = sourceDishes
+      .filter((dish) => toBooleanFlag((dish as any).is_formula ?? dish.is_formula))
+      .map((dish) => String(dish.id || "").trim())
+      .filter(Boolean);
+    if (formulaIds.length === 0) {
+      setFormulaLinksByFormulaId(new Map());
+      setFormulaLinksByDishId(new Map());
+      return;
+    }
+
+    let result: any = scopedRestaurantId
+      ? await supabase
+          .from("formula_dish_links")
+          .select("formula_dish_id,dish_id,restaurant_id,sequence")
+          .eq("restaurant_id", scopedRestaurantId)
+      : await supabase
+          .from("formula_dish_links")
+          .select("formula_dish_id,dish_id,sequence");
+    if (result.error && String((result.error as { code?: string })?.code || "") === "42703") {
+      result = await supabase
+        .from("formula_dish_links")
+        .select("formula_dish_id,dish_id,sequence");
+    }
+    if (result.error) {
+      const code = String((result.error as { code?: string })?.code || "").trim();
+      if (code !== "42P01") {
+        console.warn("formula_dish_links fetch failed (menu public):", toLoggableSupabaseError(result.error));
+      }
+      setFormulaLinksByFormulaId(new Map());
+      setFormulaLinksByDishId(new Map());
+      return;
+    }
+
+    const formulaIdSet = new Set(formulaIds);
+    const byFormula = new Map<string, FormulaDishLink[]>();
+    const byDish = new Map<string, FormulaDishLink[]>();
+    (result.data || []).forEach((rawRow: unknown) => {
+      if (!rawRow || typeof rawRow !== "object") return;
+      const row = rawRow as any;
+      const formulaDishId = String(row.formula_dish_id || "").trim();
+      const dishId = String(row.dish_id || "").trim();
+      if (!formulaDishId || !dishId || !formulaIdSet.has(formulaDishId)) return;
+      const rawSequence = Number(row.sequence);
+      const sequence = Number.isFinite(rawSequence) ? Math.max(1, Math.trunc(rawSequence)) : null;
+      const link: FormulaDishLink = { formulaDishId, dishId, sequence };
+      const formulaLinks = byFormula.get(formulaDishId) || [];
+      if (!formulaLinks.some((entry) => entry.dishId === dishId)) formulaLinks.push(link);
+      byFormula.set(formulaDishId, formulaLinks);
+      const dishLinks = byDish.get(dishId) || [];
+      if (!dishLinks.some((entry) => entry.formulaDishId === formulaDishId)) dishLinks.push(link);
+      byDish.set(dishId, dishLinks);
+    });
+    setFormulaLinksByFormulaId(byFormula);
+    setFormulaLinksByDishId(byDish);
+  };
 
   const fetchData = async () => {
     console.log("ID utilisÃ©:", scopedRestaurantId, "[client.fetchData]");
@@ -3517,9 +3573,12 @@ export default function MenuDigital() {
         product_options: optionsByDishId.get(String(dish.id || "").trim()) || [],
       }));
       setDishes(normalizedWithOptions as Dish[]);
+      await fetchFormulaLinksForMenu(normalizedWithOptions as Dish[]);
     } else {
       console.error("Erreur Supabase dishes:", toLoggableSupabaseError(dishesError));
       setDishes([]);
+      setFormulaLinksByFormulaId(new Map());
+      setFormulaLinksByDishId(new Map());
     }
 
     let sideRowsResult = scopedRestaurantId
@@ -3665,6 +3724,7 @@ export default function MenuDigital() {
     const dishRecord = dish as unknown as any;
     const onlyInFormula = toBooleanFlag(dishRecord.only_in_formula ?? dish.only_in_formula);
     const isFormulaDish = toBooleanFlag(dishRecord.is_formula ?? dish.is_formula);
+    if (isFormulaDish) return false;
     if (onlyInFormula && !isFormulaDish) return false;
     return true;
   };
@@ -3749,11 +3809,34 @@ export default function MenuDigital() {
     return map;
   }, [dishes]);
 
-  const formulaLinkedDishIdsByCategory = useMemo(() => {
+  const linkedFormulasByDishId = useMemo(() => {
+    const map = new Map<string, Dish[]>();
+    formulaLinksByDishId.forEach((links, dishId) => {
+      const formulas = links
+        .map((link) => dishById.get(link.formulaDishId))
+        .filter(
+          (formula): formula is Dish =>
+            Boolean(formula) && toBooleanFlag(((formula as unknown as any).is_formula ?? formula?.is_formula) as unknown)
+        );
+      if (formulas.length === 0) return;
+      const uniqueById = new Map<string, Dish>();
+      formulas.forEach((formula) => uniqueById.set(String(formula.id || "").trim(), formula));
+      const sorted = [...uniqueById.values()].sort(
+        (a, b) => getDishBasePrice(a) - getDishBasePrice(b)
+      );
+      map.set(dishId, sorted);
+    });
+    return map;
+  }, [formulaLinksByDishId, dishById]);
+
+  const formulaLinkedOptionsByCategory = useMemo(() => {
     const map = new Map<string, Set<string>>();
-    if (!formulaDish || formulaLinkedDishIds.length === 0) return map;
-    formulaLinkedDishIds.forEach((dishId) => {
-      const dish = dishById.get(String(dishId || "").trim());
+    const formulaDishId = String(formulaDish?.id || "").trim();
+    if (!formulaDishId) return map;
+    const links = formulaLinksByFormulaId.get(formulaDishId) || [];
+    if (links.length === 0) return map;
+    links.forEach((link) => {
+      const dish = dishById.get(String(link.dishId || "").trim());
       if (!dish) return;
       const categoryId = String(dish.category_id || "").trim();
       if (!categoryId) return;
@@ -3762,7 +3845,7 @@ export default function MenuDigital() {
       map.set(categoryId, current);
     });
     return map;
-  }, [formulaDish, formulaLinkedDishIds, dishById]);
+  }, [formulaDish, formulaLinksByFormulaId, dishById]);
 
   const normalizedFormulaCategoryIds = useMemo(() => {
     const raw = (formulaDish as unknown as any | null)?.formula_category_ids;
@@ -3799,7 +3882,7 @@ export default function MenuDigital() {
     if (formulaCategories.length === 0) return map;
     formulaCategories.forEach((category) => {
       const categoryId = String(category.id || "").trim();
-      const linkedIds = formulaLinkedDishIdsByCategory.get(categoryId);
+      const linkedIds = formulaLinkedOptionsByCategory.get(categoryId);
       const restrictToLinked = linkedIds != null && linkedIds.size > 0;
       const options = dishes
         .filter((dish) => String(dish.category_id) === categoryId)
@@ -3813,7 +3896,41 @@ export default function MenuDigital() {
       map.set(categoryId, filteredOptions);
     });
     return map;
-  }, [dishes, formulaCategories, formulaDish, availabilitySnapshot, formulaLinkedDishIdsByCategory]);
+  }, [dishes, formulaCategories, formulaDish, availabilitySnapshot, formulaLinkedOptionsByCategory]);
+
+  const formulaSequenceByDishId = useMemo(() => {
+    const map = new Map<string, number>();
+    const formulaDishId = String(formulaDish?.id || "").trim();
+    if (!formulaDishId) return map;
+    const links = formulaLinksByFormulaId.get(formulaDishId) || [];
+    links.forEach((link) => {
+      const sequence = Number(link.sequence);
+      if (!Number.isFinite(sequence)) return;
+      const dishId = String(link.dishId || "").trim();
+      if (!dishId) return;
+      map.set(dishId, Math.max(1, Math.trunc(sequence)));
+    });
+    return map;
+  }, [formulaDish, formulaLinksByFormulaId]);
+
+  const selectedDishLinkedFormulas = useMemo(() => {
+    if (!selectedDish) return [] as Dish[];
+    const dishId = String(selectedDish.id || "").trim();
+    return linkedFormulasByDishId.get(dishId) || [];
+  }, [selectedDish, linkedFormulasByDishId]);
+
+  useEffect(() => {
+    if (!formulaDish || !formulaSourceDish) return;
+    const sourceDishId = String(formulaSourceDish.id || "").trim();
+    const sourceCategoryId = String(formulaSourceDish.category_id || "").trim();
+    if (!sourceDishId || !sourceCategoryId) return;
+    const options = formulaOptionsByCategory.get(sourceCategoryId) || [];
+    if (!options.some((dish) => String(dish.id || "").trim() === sourceDishId)) return;
+    setFormulaSelections((prev) => {
+      if (prev[sourceCategoryId] === sourceDishId) return prev;
+      return { ...prev, [sourceCategoryId]: sourceDishId };
+    });
+  }, [formulaDish, formulaSourceDish, formulaOptionsByCategory]);
 
   const getCategoryDestination = (categoryId?: string | number | null) => {
     if (!categoryId) return "cuisine";
@@ -4165,6 +4282,8 @@ export default function MenuDigital() {
           JSON.stringify(c.selectedSideIds || []) === JSON.stringify(item.selectedSideIds || []) &&
           JSON.stringify(c.selectedExtras || []) === JSON.stringify(item.selectedExtras || []) &&
           JSON.stringify(c.formulaSelections || []) === JSON.stringify(item.formulaSelections || []) &&
+          (c.formulaDishId || "") === (item.formulaDishId || "") &&
+          Number(c.formulaUnitPrice || 0) === Number(item.formulaUnitPrice || 0) &&
           (c.selectedCooking || "") === (item.selectedCooking || "") &&
           (c.specialRequest || "") === (item.specialRequest || "")
       );
@@ -4448,7 +4567,10 @@ export default function MenuDigital() {
         0
       );
       const normalizedSelectedProductOptions = getSelectedProductOptionsList(item.selectedProductOptions, item.selectedProductOption);
-      const unitPrice = getDishUnitPrice(item.dish, normalizedSelectedProductOptions, item.selectedProductOption);
+      const unitPrice = getCartItemUnitPrice({
+        ...item,
+        selectedProductOptions: normalizedSelectedProductOptions,
+      });
       const drinkItem = isDrinkCategory(item.dish.category_id);
       const selectedSideIds = Array.isArray(item.selectedSideIds)
         ? item.selectedSideIds.map((id) => String(id || "").trim()).filter(Boolean)
@@ -4531,21 +4653,48 @@ export default function MenuDigital() {
           label_fr: cookingLabelFr || stableCookingValue,
         });
       }
+      const formulaDishId = String(item.formulaDishId || "").trim() || null;
+      const formulaDishName = String(item.formulaDishName || "").trim() || null;
+      const formulaUnitPriceRaw = Number(item.formulaUnitPrice);
+      const formulaUnitPrice =
+        Number.isFinite(formulaUnitPriceRaw) && formulaUnitPriceRaw > 0 ? formulaUnitPriceRaw : null;
       const formulaSelections = Array.isArray(item.formulaSelections) ? item.formulaSelections : [];
       if (formulaSelections.length > 0) {
         formulaSelections.forEach((selection) => {
           if (!selection?.dishId) return;
+          const rawSequence = Number(selection.sequence);
+          const sequence = Number.isFinite(rawSequence) && rawSequence > 0 ? Math.trunc(rawSequence) : null;
           selectedOptionsPayload.push({
             kind: "formula",
+            formula_dish_id: formulaDishId,
+            formula_dish_name: formulaDishName,
             category_id: selection.categoryId || null,
             category_label: selection.categoryLabel || null,
             dish_id: selection.dishId || null,
             value: selection.dishName || selection.dishNameFr || null,
             label_fr: selection.dishNameFr || selection.dishName || null,
             name_fr: selection.dishNameFr || selection.dishName || null,
+            sequence,
           });
         });
       }
+      const formulaItemsPayload = formulaSelections
+        .map((selection) => {
+          if (!selection?.dishId) return null;
+          const rawSequence = Number(selection.sequence);
+          const sequence = Number.isFinite(rawSequence) && rawSequence > 0 ? Math.trunc(rawSequence) : null;
+          return {
+            formula_dish_id: formulaDishId,
+            formula_dish_name: formulaDishName,
+            category_id: selection.categoryId || null,
+            category_label: selection.categoryLabel || null,
+            dish_id: selection.dishId || null,
+            dish_name: selection.dishName || selection.dishNameFr || null,
+            dish_name_fr: selection.dishNameFr || selection.dishName || null,
+            sequence,
+          };
+        })
+        .filter(Boolean);
         return {
           dish_id: String(item.dish.id || "").trim(),
           id: String(item.dish.id || "").trim(),
@@ -4573,7 +4722,10 @@ export default function MenuDigital() {
         selected_cooking: stableCookingValue || null,
         selected_cooking_key: cookingKey || null,
         selected_cooking_label_fr: cookingLabelFr,
-        formula_items: formulaSelections.length > 0 ? formulaSelections : null,
+        formula_dish_id: formulaDishId,
+        formula_dish_name: formulaDishName,
+        formula_unit_price: formulaUnitPrice,
+        formula_items: formulaItemsPayload.length > 0 ? formulaItemsPayload : null,
         special_request: String(item.specialRequest || "").trim(),
         from_recommendation: !!item.fromRecommendation,
       };
@@ -4584,12 +4736,7 @@ export default function MenuDigital() {
         (acc, extra) => acc + parsePriceNumber(extra.price),
         0
       );
-      return (
-        sum +
-        (getDishUnitPrice(item.dish, getSelectedProductOptionsList(item.selectedProductOptions, item.selectedProductOption), item.selectedProductOption) +
-          extrasPrice) *
-          item.quantity
-      );
+      return sum + (getCartItemUnitPrice(item) + extrasPrice) * item.quantity;
     }, 0);
 
       const barItems = orderItems.filter((item) => String((item as any).destination || "").trim().toLowerCase() === "bar");
@@ -4665,9 +4812,13 @@ export default function MenuDigital() {
       setOrderSuccess(true);
     }
 
-  const openFormulaModal = (dish: Dish) => {
-    const sourceDish = dishes.find((row) => String(row.id) === String(dish.id)) || dish;
-    setFormulaDish(sourceDish);
+  const openFormulaModal = (formula: Dish, sourceDish?: Dish | null) => {
+    const sourceFormula = dishes.find((row) => String(row.id) === String(formula.id)) || formula;
+    const resolvedSourceDish = sourceDish
+      ? dishes.find((row) => String(row.id) === String(sourceDish.id)) || sourceDish
+      : null;
+    setFormulaDish(sourceFormula);
+    setFormulaSourceDish(resolvedSourceDish);
     setFormulaSelections({});
     setFormulaSelectionError("");
     setSelectedDish(null);
@@ -4678,7 +4829,7 @@ export default function MenuDigital() {
 
   const handleSelectDish = (dish: Dish) => {
     if (toBooleanFlag((dish as any).is_formula ?? dish.is_formula)) {
-      openFormulaModal(dish);
+      openFormulaModal(dish, null);
       return;
     }
     const sourceDish = dishes.find((row) => String(row.id) === String(dish.id)) || dish;
@@ -4727,7 +4878,7 @@ export default function MenuDigital() {
 
   const handleQuickAddFromList = (dish: Dish) => {
     if (toBooleanFlag((dish as any).is_formula ?? dish.is_formula)) {
-      openFormulaModal(dish);
+      openFormulaModal(dish, null);
       return;
     }
     if (dishNeedsQuickAddModal(dish)) {
@@ -5266,7 +5417,7 @@ export default function MenuDigital() {
           isVitrineMode || hideCompactFloatingActions
             ? "hidden"
             : isStickyActionsCompact
-            ? "fixed top-2 left-1/2 -translate-x-1/2 w-auto max-w-max z-[999] rounded-full border-2 shadow-lg backdrop-blur-md justify-center pointer-events-none"
+            ? "fixed top-2 left-1/2 -translate-x-1/2 w-auto max-w-max z-[80] rounded-full border-2 shadow-lg backdrop-blur-md justify-center pointer-events-none"
             : "sticky top-0 left-0 w-full z-20 menu-surface-shell border-b-4"
         } px-3 py-2 flex gap-2 ${
           darkMode
@@ -5280,7 +5431,7 @@ export default function MenuDigital() {
         style={
           isStickyActionsCompact
             ? {
-                zIndex: 999,
+                zIndex: 80,
                 backgroundColor: darkMode ? "rgba(0,0,0,0.6)" : "rgba(255,255,255,0.45)",
                 backdropFilter: "blur(10px)",
                 WebkitBackdropFilter: "blur(10px)",
@@ -5446,6 +5597,8 @@ export default function MenuDigital() {
         <div className="mx-0 my-2 space-y-3">
           {featuredHighlights.map((highlight) => {
             const featuredDish = highlight.dish;
+            const featuredLinkedFormulas = linkedFormulasByDishId.get(String(featuredDish.id || "").trim()) || [];
+            const featuredPrimaryFormula = featuredLinkedFormulas[0] || null;
             const primaryType = highlight.types[0] || "daily";
             const featuredOverlay = cardLayout === "overlay" && Boolean(featuredDish.image_url);
             const primaryBackground = cardSurfaceBg;
@@ -5579,6 +5732,19 @@ export default function MenuDigital() {
                           </span>
                         )}
                         <div className="flex flex-wrap items-center justify-end gap-2 sm:flex-nowrap">
+                          {featuredPrimaryFormula && !isInteractionDisabled ? (
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                openFormulaModal(featuredPrimaryFormula, featuredDish);
+                              }}
+                              className="text-sm md:text-base font-black px-4 py-2.5 rounded-lg border-2 border-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] whitespace-nowrap shrink-0"
+                              style={{ backgroundColor: "#FFF8E1", color: "#111111" }}
+                            >
+                              Prendre en formule ({getDishBasePrice(featuredPrimaryFormula).toFixed(2)} €)
+                            </button>
+                          ) : null}
                           {quickAddToCartEnabled ? (
                             <button
                               type="button"
@@ -5614,6 +5780,7 @@ export default function MenuDigital() {
       )}
 
       <div
+        ref={categoryTabsRef}
         className={`menu-surface-shell border-4 border-black rounded-none p-3 mx-0 my-2 ${!darkMode ? "bg-transparent" : "bg-white/95"}`}
         style={!darkMode ? { backgroundColor: "transparent" } : undefined}
       >
@@ -5645,10 +5812,10 @@ export default function MenuDigital() {
       </div>
 
       {categoryDrawerEnabled && isCategoryDrawerOpen ? (
-        <div className="fixed inset-0 z-50 md:hidden">
+        <div className="fixed inset-0 z-[1200] md:hidden">
           <button
             type="button"
-            className="absolute inset-0 bg-black/50"
+            className="absolute inset-0 bg-black/65"
             onClick={() => setIsCategoryDrawerOpen(false)}
             aria-label={uiText.close}
           />
@@ -5746,6 +5913,8 @@ export default function MenuDigital() {
                 const isOverlayCard = cardLayout === "overlay" && Boolean(dish.image_url);
                 const isBicolorCard = cardLayout === "bicolor";
                 const isPromoDish = getPromoPriceForDish(dish) != null;
+                const linkedFormulas = linkedFormulasByDishId.get(String(dish.id || "").trim()) || [];
+                const primaryLinkedFormula = linkedFormulas[0] || null;
                 const cardTextColor = isOverlayCard ? "text-white" : cardTextIsLight ? "text-white" : "text-black";
                 const badgeBaseClass = isOverlayCard
                   ? "bg-black/50 border-white/70 text-white backdrop-blur-[1px]"
@@ -5927,6 +6096,11 @@ export default function MenuDigital() {
                           </span>
                         ))}
                       </div>
+                      {linkedFormulas.length > 0 ? (
+                        <div className="mb-2 inline-flex items-center gap-1 rounded-full border-2 border-black bg-white px-2 py-1 text-xs font-black text-black">
+                          Disponible en formule
+                        </div>
+                      ) : null}
                       <div className="mt-1 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
                         {getPromoPriceForDish(dish) != null ? (
                           <div
@@ -5952,6 +6126,24 @@ export default function MenuDigital() {
                           </span>
                         )}
                         <div className="w-full sm:w-auto sm:ml-auto flex flex-wrap items-center gap-2 sm:justify-end">
+                          {primaryLinkedFormula && !isInteractionDisabled ? (
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                openFormulaModal(primaryLinkedFormula, dish);
+                              }}
+                              className={`h-11 px-3.5 py-2 rounded-lg inline-flex items-center justify-center text-sm sm:text-base font-black border-2 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] whitespace-nowrap ${
+                                isOverlayCard ? "border-white" : "border-black"
+                              }`}
+                              style={{
+                                backgroundColor: isOverlayCard ? "#FFF8E1" : "#FFF8E1",
+                                color: "#111111",
+                              }}
+                            >
+                              Prendre en formule ({getDishBasePrice(primaryLinkedFormula).toFixed(2)} €)
+                            </button>
+                          ) : null}
                           {quickAddToCartEnabled ? (
                             <button
                               type="button"
@@ -6006,6 +6198,7 @@ export default function MenuDigital() {
                 className="absolute top-4 right-4 w-10 h-10 bg-white text-black rounded-full font-bold flex items-center justify-center border-4 border-black"
                 onClick={() => {
                   setFormulaDish(null);
+                  setFormulaSourceDish(null);
                   setFormulaSelections({});
                   setFormulaSelectionError("");
                 }}
@@ -6025,6 +6218,11 @@ export default function MenuDigital() {
                 {Number(getDishBasePrice(formulaDish) || 0).toFixed(2)}
                 <Euro size={16} />
               </div>
+              {formulaSourceDish ? (
+                <div className="mb-3 rounded-lg border border-black/20 bg-black/5 px-3 py-2 text-sm font-semibold text-black">
+                  Produit principal: {getDishName(formulaSourceDish, lang)}
+                </div>
+              ) : null}
               {formulaCategories.length === 0 ? (
                 <div className="text-sm text-black/70">{uiText.noDishes}</div>
               ) : (
@@ -6074,32 +6272,42 @@ export default function MenuDigital() {
               <button
                 className="w-full py-3 bg-black text-white font-black rounded-xl border-4 border-black"
                 onClick={() => {
-                  const missingCategory = normalizedFormulaCategoryIds.find(
-                    (categoryId) => !formulaSelections[String(categoryId || "").trim()]
-                  );
+                  const missingCategory = normalizedFormulaCategoryIds.find((categoryId) => {
+                    const normalizedCategoryId = String(categoryId || "").trim();
+                    if (!normalizedCategoryId) return false;
+                    const options = formulaOptionsByCategory.get(normalizedCategoryId) || [];
+                    if (options.length === 0) return false;
+                    return !formulaSelections[normalizedCategoryId];
+                  });
                   if (missingCategory) {
                     setFormulaSelectionError(formulaUi.missing);
                     return;
                   }
                   const selections: FormulaSelection[] = normalizedFormulaCategoryIds
-                    .map((categoryId) => {
+                    .map((categoryId, categoryIndex) => {
                       const normalizedCategoryId = String(categoryId || "").trim();
                       const selectedId = String(formulaSelections[normalizedCategoryId] || "").trim();
                       if (!normalizedCategoryId || !selectedId) return null;
                       const category = categoryById.get(normalizedCategoryId);
                       const selectedDish = dishById.get(selectedId);
                       if (!selectedDish) return null;
+                      const linkedSequence = formulaSequenceByDishId.get(selectedId);
+                      const sequence =
+                        Number.isFinite(Number(linkedSequence)) && Number(linkedSequence) > 0
+                          ? Number(linkedSequence)
+                          : categoryIndex + 1;
                       return {
                         categoryId: normalizedCategoryId,
                         categoryLabel: category ? getCategoryLabel(category) : "",
                         dishId: selectedId,
                         dishName: getDishName(selectedDish, lang),
                         dishNameFr: String(selectedDish.name_fr || selectedDish.name || selectedDish.nom || "").trim() || getDishName(selectedDish, lang),
+                        sequence,
                       };
                     })
                     .filter(Boolean) as FormulaSelection[];
                   addToCart({
-                    dish: formulaDish,
+                    dish: formulaSourceDish || formulaDish,
                     quantity: 1,
                     selectedSides: [],
                     selectedSideIds: [],
@@ -6109,8 +6317,12 @@ export default function MenuDigital() {
                     selectedCooking: "",
                     specialRequest: "",
                     formulaSelections: selections,
+                    formulaDishId: String(formulaDish.id || "").trim() || undefined,
+                    formulaDishName: getDishName(formulaDish, lang),
+                    formulaUnitPrice: getDishBasePrice(formulaDish),
                   });
                   setFormulaDish(null);
+                  setFormulaSourceDish(null);
                   setFormulaSelections({});
                   setFormulaSelectionError("");
                 }}
@@ -6154,6 +6366,27 @@ export default function MenuDigital() {
                 {getDishName(selectedDish, lang)}
               </h2>
               <p className="text-black mb-2">{getDescription(selectedDish, lang)}</p>
+              {selectedDishLinkedFormulas.length > 0 ? (
+                <div className="mb-3 rounded-lg border-2 border-black bg-amber-50 p-3">
+                  <div className="text-sm font-black text-black mb-1">Amelioration: disponible en formule</div>
+                  <div className="flex flex-col gap-2">
+                    {selectedDishLinkedFormulas.map((formula) => {
+                      const formulaId = String(formula.id || "").trim();
+                      if (!formulaId) return null;
+                      return (
+                        <button
+                          key={`dish-upsell-formula-${formulaId}`}
+                          type="button"
+                          onClick={() => openFormulaModal(formula, selectedDish)}
+                          className="w-full text-left px-3 py-2 rounded-lg border-2 border-black bg-white font-black text-black"
+                        >
+                          {getDishName(formula, lang)} - {getDishBasePrice(formula).toFixed(2)} €
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : null}
               {(getHungerLevel(selectedDish, lang) || (showCaloriesClient && getCaloriesLabel(selectedDish, kcalLabel))) && (
                 <div className="flex flex-wrap gap-3 text-xs font-bold text-black mb-3">
                   {getHungerLevel(selectedDish, lang) && (
@@ -6518,11 +6751,7 @@ export default function MenuDigital() {
                           (sum, extra) => sum + parsePriceNumber(extra.price),
                           0
                         );
-                        const itemUnitPrice = getDishUnitPrice(
-                          item.dish,
-                          getSelectedProductOptionsList(item.selectedProductOptions, item.selectedProductOption),
-                          item.selectedProductOption
-                        );
+                        const itemUnitPrice = getCartItemUnitPrice(item);
                         return (
                           <div
                             key={idx}
@@ -6605,11 +6834,7 @@ export default function MenuDigital() {
                           );
                           return (
                             sum +
-                            (getDishUnitPrice(
-                              item.dish,
-                              getSelectedProductOptionsList(item.selectedProductOptions, item.selectedProductOption),
-                              item.selectedProductOption
-                            ) +
+                            (getCartItemUnitPrice(item) +
                               extrasPrice) *
                               item.quantity
                           );

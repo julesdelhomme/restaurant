@@ -4438,6 +4438,87 @@ export default function MenuManager() {
     const normalizedLinkedFormulaIds = Array.from(
       new Set((formData.linked_formula_ids || []).map((value) => String(value || "").trim()).filter(Boolean))
     ).filter((formulaId) => formulaId);
+    const parseFormulaCategoryIds = (value: unknown): string[] => {
+      if (Array.isArray(value)) {
+        return value.map((entry) => String(entry || "").trim()).filter(Boolean);
+      }
+      if (typeof value === "string") {
+        const raw = value.trim();
+        if (!raw) return [];
+        try {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) {
+            return parsed.map((entry) => String(entry || "").trim()).filter(Boolean);
+          }
+        } catch {
+          // Ignore malformed JSON and fall back to simple CSV parsing.
+        }
+        return raw
+          .replace(/[{}]/g, "")
+          .split(",")
+          .map((entry) => String(entry || "").trim())
+          .filter(Boolean);
+      }
+      return [];
+    };
+    const inferSequenceFromCategoryId = (categoryId: string, fallback: number) => {
+      const category = categories.find((row) => String(row.id || "").trim() === categoryId);
+      const categoryLabel = normalizeText(String(category ? getCategoryLabel(category) : categoryId));
+      if (/(entree|starter|appetizer)/.test(categoryLabel)) return 1;
+      if (/(dessert|sucre|sweet)/.test(categoryLabel)) return 3;
+      if (/(plat|main|dish|principal)/.test(categoryLabel)) return 2;
+      return Math.max(1, fallback);
+    };
+    const buildFormulaCategorySequenceMap = (formulaCategoryIds: string[]) => {
+      const map = new Map<string, number>();
+      formulaCategoryIds.forEach((categoryId, index) => {
+        if (!categoryId || map.has(categoryId)) return;
+        map.set(categoryId, inferSequenceFromCategoryId(categoryId, index + 1));
+      });
+      return map;
+    };
+    const normalizedFormulaCategorySequenceById = buildFormulaCategorySequenceMap(normalizedFormulaCategoryIds);
+    const resolveDishSequenceForFormula = (formulaCategoryIds: string[], dishId: string) => {
+      const dish = dishesById.get(String(dishId || "").trim());
+      const categoryId = String(dish?.category_id || "").trim();
+      if (!dish || !categoryId) return 2;
+      const sequenceMap = buildFormulaCategorySequenceMap(formulaCategoryIds);
+      return sequenceMap.get(categoryId) ?? inferSequenceFromCategoryId(categoryId, sequenceMap.size + 1);
+    };
+    type FormulaLinkInsertRow = {
+      formula_dish_id: string | number;
+      dish_id: string | number;
+      sequence: number;
+    };
+    const insertFormulaLinks = async (rows: FormulaLinkInsertRow[]) => {
+      if (rows.length === 0) return { error: null } as { error: any };
+      const rowsWithRestaurant = rows.map((row) => ({
+        ...row,
+        restaurant_id: scopedRestaurantId || null,
+      }));
+      let insertLinksResult = await supabase.from("formula_dish_links").insert(rowsWithRestaurant as never);
+      if (insertLinksResult.error && hasMissingColumnError(insertLinksResult.error, "restaurant_id")) {
+        insertLinksResult = await supabase.from("formula_dish_links").insert(rows as never);
+      }
+      if (insertLinksResult.error && hasMissingColumnError(insertLinksResult.error, "sequence")) {
+        const rowsWithoutSequence = rows.map((row) => ({
+          formula_dish_id: row.formula_dish_id,
+          dish_id: row.dish_id,
+          restaurant_id: scopedRestaurantId || null,
+        }));
+        insertLinksResult = await supabase.from("formula_dish_links").insert(rowsWithoutSequence as never);
+        if (insertLinksResult.error && hasMissingColumnError(insertLinksResult.error, "restaurant_id")) {
+          const rowsWithoutSequenceOrRestaurant = rows.map((row) => ({
+            formula_dish_id: row.formula_dish_id,
+            dish_id: row.dish_id,
+          }));
+          insertLinksResult = await supabase
+            .from("formula_dish_links")
+            .insert(rowsWithoutSequenceOrRestaurant as never);
+        }
+      }
+      return insertLinksResult;
+    };
 
     const dishData = {
       name: formData.name_fr,
@@ -4797,19 +4878,20 @@ export default function MenuManager() {
               alert(`Plat sauvegardé mais erreur de synchronisation formule: ${deleteLinksResult.error.message}`);
             }
           } else if (sanitizedFormulaDishIds.length > 0) {
-            const rowsWithRestaurant = sanitizedFormulaDishIds.map((dishId) => ({
-              formula_dish_id: savedDishIdRaw,
-              dish_id: dishId,
-              restaurant_id: scopedRestaurantId || null,
-            }));
-            let insertLinksResult = await supabase.from("formula_dish_links").insert(rowsWithRestaurant as never);
-            if (insertLinksResult.error && hasMissingColumnError(insertLinksResult.error, "restaurant_id")) {
-              const rowsWithoutRestaurant = sanitizedFormulaDishIds.map((dishId) => ({
-                formula_dish_id: savedDishIdRaw,
+            const linkRows = sanitizedFormulaDishIds.map((dishId) => {
+              const linkedDish = dishesById.get(String(dishId || "").trim());
+              const linkedCategoryId = String(linkedDish?.category_id || "").trim();
+              const sequence = linkedCategoryId
+                ? normalizedFormulaCategorySequenceById.get(linkedCategoryId) ??
+                  inferSequenceFromCategoryId(linkedCategoryId, normalizedFormulaCategorySequenceById.size + 1)
+                : 2;
+              return {
+                formula_dish_id: String(savedDishIdRaw || "").trim(),
                 dish_id: dishId,
-              }));
-              insertLinksResult = await supabase.from("formula_dish_links").insert(rowsWithoutRestaurant as never);
-            }
+                sequence: Math.max(1, Math.trunc(sequence)),
+              };
+            });
+            const insertLinksResult = await insertFormulaLinks(linkRows);
             if (insertLinksResult.error) {
               console.warn("Erreur insertion formula_dish_links (formule):", insertLinksResult.error.message);
               if (String((insertLinksResult.error as { code?: string })?.code || "") === "42P01") {
@@ -4833,19 +4915,17 @@ export default function MenuManager() {
               alert(`Plat sauvegardé mais erreur de synchronisation formule: ${deleteLinksResult.error.message}`);
             }
           } else if (sanitizedLinkedFormulaIds.length > 0) {
-            const rowsWithRestaurant = sanitizedLinkedFormulaIds.map((formulaId) => ({
-              formula_dish_id: formulaId,
-              dish_id: savedDishIdRaw,
-              restaurant_id: scopedRestaurantId || null,
-            }));
-            let insertLinksResult = await supabase.from("formula_dish_links").insert(rowsWithRestaurant as never);
-            if (insertLinksResult.error && hasMissingColumnError(insertLinksResult.error, "restaurant_id")) {
-              const rowsWithoutRestaurant = sanitizedLinkedFormulaIds.map((formulaId) => ({
+            const linkRows = sanitizedLinkedFormulaIds.map((formulaId) => {
+              const formulaDish = dishesById.get(String(formulaId || "").trim());
+              const formulaCategoryIds = parseFormulaCategoryIds((formulaDish as any)?.formula_category_ids);
+              const sequence = resolveDishSequenceForFormula(formulaCategoryIds, savedDishId);
+              return {
                 formula_dish_id: formulaId,
-                dish_id: savedDishIdRaw,
-              }));
-              insertLinksResult = await supabase.from("formula_dish_links").insert(rowsWithoutRestaurant as never);
-            }
+                dish_id: String(savedDishIdRaw || "").trim(),
+                sequence: Math.max(1, Math.trunc(sequence)),
+              };
+            });
+            const insertLinksResult = await insertFormulaLinks(linkRows);
             if (insertLinksResult.error) {
               console.warn("Erreur insertion formula_dish_links (plat):", insertLinksResult.error.message);
               if (String((insertLinksResult.error as { code?: string })?.code || "") === "42P01") {
