@@ -1,4 +1,4 @@
-﻿// -*- coding: utf-8 -*-
+// -*- coding: utf-8 -*-
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -67,7 +67,7 @@ function findTotalTablesValue(raw: unknown, depth = 0): number | null {
   }
 
   if (typeof raw !== "object") return null;
-  const source = raw as Record<string, unknown>;
+  const source = raw as any;
   const directFromRow = readPositiveInteger(source.table_count);
   if (directFromRow != null) return directFromRow;
   return (
@@ -174,12 +174,12 @@ function parseObjectRecord(raw: unknown): Record<string, unknown> {
   if (typeof raw === "string") {
     try {
       const parsed = JSON.parse(raw) as unknown;
-      return parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : {};
+      return parsed && typeof parsed === "object" ? (parsed as any) : {};
     } catch {
       return {};
     }
   }
-  return typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  return typeof raw === "object" ? (raw as any) : {};
 }
 
 function normalizeManagerFontFamily(raw: unknown) {
@@ -391,7 +391,7 @@ function extractAllergenNamesFromDishPayload(rawDish: Record<string, unknown>): 
   const dietary =
     typeof dietaryRaw === "string"
       ? parseObjectRecord(dietaryRaw)
-      : (dietaryRaw as Record<string, unknown> | null) || {};
+      : (dietaryRaw as any | null) || {};
   const i18n = parseObjectRecord(dietary.i18n);
   const manual = parseObjectRecord(i18n.allergens_manual);
   const manualKeys = Object.keys(manual).map((key) => String(key || "").trim()).filter(Boolean);
@@ -762,7 +762,7 @@ function parseI18nToken(value?: string | null) {
     const parsed = JSON.parse(decodeURIComponent(raw.replace(I18N_TOKEN, "")));
     if (!parsed || typeof parsed !== "object") return {} as Record<string, string>;
     return Object.fromEntries(
-      Object.entries(parsed as Record<string, unknown>).map(([k, v]) => [
+      Object.entries(parsed as any).map(([k, v]) => [
         String(k || "").toLowerCase(),
         String(v ?? ""),
       ])
@@ -777,12 +777,12 @@ function parseJsonObject(raw: unknown): Record<string, unknown> {
   if (typeof raw === "string") {
     try {
       const parsed = JSON.parse(raw) as unknown;
-      return parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : {};
+      return parsed && typeof parsed === "object" ? (parsed as any) : {};
     } catch {
       return {};
     }
   }
-  return raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  return raw && typeof raw === "object" ? (raw as any) : {};
 }
 
 function buildI18nToken(values: Record<string, string>) {
@@ -1025,10 +1025,10 @@ function parseOptionsFromDescription(description?: string | null) {
           result.extrasList = parsed
             .map((row) => {
               if (!row || typeof row !== "object") return null;
-              const item = row as Record<string, unknown>;
+              const item = row as any;
               const namesObj = (item.names_i18n && typeof item.names_i18n === "object"
-                ? (item.names_i18n as Record<string, unknown>)
-                : {}) as Record<string, unknown>;
+                ? (item.names_i18n as any)
+                : {}) as any;
               const names: Record<string, string> = {};
               Object.entries(namesObj).forEach(([k, v]) => {
                 const key = String(k || "").trim().toLowerCase();
@@ -1127,9 +1127,9 @@ function parseExtrasFromUnknown(raw: unknown): ExtrasItem[] {
     Array.isArray(source)
       ? source
       : typeof source === "object" && source !== null
-        ? ((source as Record<string, unknown>).extras ??
-          (source as Record<string, unknown>).items ??
-          (source as Record<string, unknown>).list)
+        ? ((source as any).extras ??
+          (source as any).items ??
+          (source as any).list)
         : [];
 
   if (!Array.isArray(candidate)) return [];
@@ -1137,7 +1137,7 @@ function parseExtrasFromUnknown(raw: unknown): ExtrasItem[] {
   return candidate
     .map((item) => {
       if (!item || typeof item !== "object") return null;
-      const row = item as Record<string, unknown>;
+      const row = item as any;
       const nameFr =
         String(
           row.name_fr ?? row.name ?? row.label_fr ?? row.label ?? row.title ?? ""
@@ -1158,7 +1158,7 @@ function parseExtrasFromUnknown(raw: unknown): ExtrasItem[] {
         name_de: String(row.name_de ?? row.label_de ?? "").trim(),
         names_i18n: row.names_i18n && typeof row.names_i18n === "object"
           ? Object.fromEntries(
-              Object.entries(row.names_i18n as Record<string, unknown>).map(([k, v]) => [
+              Object.entries(row.names_i18n as any).map(([k, v]) => [
                 String(k || "").toLowerCase(),
                 String(v ?? ""),
               ])
@@ -1302,12 +1302,12 @@ function parseDisplaySettingsFromSettingsJson(raw: unknown) {
     typeof raw === "string"
       ? (() => {
           try {
-            return JSON.parse(raw) as Record<string, unknown>;
+            return JSON.parse(raw) as any;
           } catch {
             return null;
           }
         })()
-      : (raw as Record<string, unknown> | null);
+      : (raw as any | null);
   if (!source || typeof source !== "object") return null;
   const show = toBoolean(source.show_calories, true);
   const langs = parseEnabledLanguageEntries(source.enabled_languages);
@@ -1332,18 +1332,18 @@ function parseMarketingOptions(raw: unknown) {
     typeof raw === "string"
       ? (() => {
           try {
-            return JSON.parse(raw) as Record<string, unknown>;
+            return JSON.parse(raw) as any;
           } catch {
             return null;
           }
         })()
-      : (raw as Record<string, unknown> | null);
+      : (raw as any | null);
 
   const marketingContainer =
     source && typeof source === "object" && source.marketing_options && typeof source.marketing_options === "object"
-      ? (source.marketing_options as Record<string, unknown>)
+      ? (source.marketing_options as any)
       : source && typeof source === "object" && source.marketing && typeof source.marketing === "object"
-        ? (source.marketing as Record<string, unknown>)
+        ? (source.marketing as any)
         : source;
 
   const rawRules =
@@ -1351,9 +1351,9 @@ function parseMarketingOptions(raw: unknown) {
       ? marketingContainer.suggestion_rules
       : [];
   const suggestionRules = rawRules
-    .map((item) => {
+    .map((item: unknown) => {
       if (!item || typeof item !== "object") return null;
-      const row = item as Record<string, unknown>;
+      const row = item as any;
       const from = String(row.from_category_id || "").trim();
       const to = String(row.to_category_id || "").trim();
       if (!from || !to) return null;
@@ -1404,7 +1404,7 @@ function SafeResponsiveContainer({ children }: { children: React.ReactElement })
 
 function toLoggableSupabaseError(error: unknown) {
   if (!error || typeof error !== "object") return { message: String(error || "Unknown error") };
-  const raw = error as Record<string, unknown>;
+  const raw = error as any;
   return {
     code: typeof raw.code === "string" ? raw.code : undefined,
     message: typeof raw.message === "string" ? raw.message : undefined,
@@ -1430,7 +1430,7 @@ function extractMissingColumnName(errorMessage: unknown) {
 
 function hasMissingColumnError(error: unknown, expectedColumn?: string) {
   if (!error || typeof error !== "object") return false;
-  const row = error as Record<string, unknown>;
+  const row = error as any;
   const code = String(row.code || "").trim().toUpperCase();
   const message = String(row.message || "").trim();
   const hint = String(row.hint || "").trim();
@@ -2025,7 +2025,7 @@ export default function MenuManager() {
       .map((criterion) => {
         const values = reviews
           .map((review) => {
-            const row = review as unknown as Record<string, unknown>;
+            const row = review as unknown as any;
             for (const field of criterion.fields) {
               const candidate = Number(row[field]);
               if (Number.isFinite(candidate) && candidate >= 1 && candidate <= 5) return candidate;
@@ -2319,7 +2319,7 @@ export default function MenuManager() {
       .eq("id", resolvedTargetId)
       .single();
     if (!restaurantByIdError && restaurantDataById) {
-      const parsed = parseDisplaySettingsFromRow(restaurantDataById as Record<string, unknown>);
+      const parsed = parseDisplaySettingsFromRow(restaurantDataById as any);
       applyDisplaySettings(
         parsed.showCalories,
         parsed.enabledLanguages,
@@ -2405,7 +2405,7 @@ export default function MenuManager() {
       console.log("Valeur envoyée au serveur:", {
         heroEnabled: strictHeroEnabled,
         show_featured: payload.show_featured,
-        hero_enabled_table_config: (payload.table_config as Record<string, unknown> | undefined)?.hero_enabled,
+        hero_enabled_table_config: (payload.table_config as any | undefined)?.hero_enabled,
       });
       const response = await supabase
         .from("restaurants")
@@ -2432,7 +2432,7 @@ export default function MenuManager() {
     }
 
     if (!result.error) {
-      const row = result.data as Record<string, unknown> | null;
+      const row = result.data as any | null;
       if (row) {
         const parsed = parseDisplaySettingsFromRow(row);
         applyDisplaySettings(
@@ -2603,7 +2603,7 @@ export default function MenuManager() {
 
   useEffect(() => {
     if (!restaurant) return;
-    setForceFirstLoginPasswordChange(toBoolean((restaurant as Record<string, unknown>).first_login, false));
+    setForceFirstLoginPasswordChange(toBoolean((restaurant as any).first_login, false));
   }, [restaurant]);
 
   useEffect(() => {
@@ -2686,7 +2686,7 @@ export default function MenuManager() {
           console.warn("Manager: erreur de lecture restaurant scoped:", toLoggableSupabaseError(byScopedId.error));
         }
 
-        row = byScopedId.data as Record<string, unknown> | null;
+        row = byScopedId.data as any | null;
         if (!row) {
           const byOwner = await supabase
             .from("restaurants")
@@ -2703,7 +2703,14 @@ export default function MenuManager() {
             return;
           }
 
-          row = byOwner.data as Record<string, unknown>;
+          row = byOwner.data as any;
+          if (!row) {
+            setManagerAccessError(
+              `AccÃ¨s refusÃ© (RLS). VÃ©rifiez que restaurants.owner_id = ${authUserId} pour l'id ${scopedRestaurantId}.`
+            );
+            setRestaurant(null);
+            return;
+          }
           resolvedRestaurantId = normalizeRestaurantId(row.id);
           if (resolvedRestaurantId && resolvedRestaurantId !== scopedRestaurantId) {
             resolvedAccessMessage = `Aucune configuration trouvée pour l'id ${scopedRestaurantId}. Configuration du restaurant ${resolvedRestaurantId} chargée via owner_id.`;
@@ -2727,64 +2734,64 @@ export default function MenuManager() {
         setManagerAccessError("");
       }
 
-      const tableConfig = parseObjectRecord((row as Record<string, unknown>).table_config);
+      const tableConfig = parseObjectRecord((row as any).table_config);
       const resolvedDensityStyle = normalizeDensityStyle(
-        (row as Record<string, unknown>).card_density ??
-          (row as Record<string, unknown>).density_style ??
+        (row as any).card_density ??
+          (row as any).density_style ??
           tableConfig.card_density ??
           tableConfig.density_style ??
           "spacious"
       );
       const resolvedFontFamily = normalizeManagerFontFamily(
-        (row as Record<string, unknown>).font_family ?? tableConfig.font_family
+        (row as any).font_family ?? tableConfig.font_family
       );
       const resolvedBgOpacity = normalizeBackgroundOpacity(
-        (row as Record<string, unknown>).bg_opacity ?? tableConfig.bg_opacity,
+        (row as any).bg_opacity ?? tableConfig.bg_opacity,
         1
       );
       const resolvedCardStyle = normalizeCardStyle(
-        (row as Record<string, unknown>).card_style ?? tableConfig.card_style
+        (row as any).card_style ?? tableConfig.card_style
       );
       const hydratedRestaurant = {
         ...row,
         name: String(row.name ?? "").trim(),
-        otp_enabled: toBoolean((row as Record<string, unknown>).otp_enabled, false),
+        otp_enabled: toBoolean((row as any).otp_enabled, false),
         logo_url: String(row.logo_url || "").trim(),
         background_url:
           String(row.background_url || "").trim() ||
           String(row.background_image_url || "").trim() ||
           String(row.bg_image_url || "").trim(),
         text_color: normalizeHexColor(
-          row.text_color ?? parseObjectRecord((row as Record<string, unknown>).table_config).text_color,
+          row.text_color ?? parseObjectRecord((row as any).table_config).text_color,
           "#111111"
         ),
         card_bg_color: normalizeHexColor(row.card_bg_color, "#FFFFFF"),
         card_bg_opacity: normalizeOpacityPercent(
-          row.card_bg_opacity ?? parseObjectRecord((row as Record<string, unknown>).table_config).card_bg_opacity,
+          row.card_bg_opacity ?? parseObjectRecord((row as any).table_config).card_bg_opacity,
           toBoolean(
             row.card_transparent ??
-              parseObjectRecord((row as Record<string, unknown>).table_config).card_transparent ??
-              parseObjectRecord((row as Record<string, unknown>).table_config).cards_transparent,
+              parseObjectRecord((row as any).table_config).card_transparent ??
+              parseObjectRecord((row as any).table_config).cards_transparent,
             false
           )
             ? 0
             : 100
         ),
         card_text_color: normalizeHexColor(
-          row.card_text_color ?? parseObjectRecord((row as Record<string, unknown>).table_config).card_text_color,
+          row.card_text_color ?? parseObjectRecord((row as any).table_config).card_text_color,
           "#111111"
         ),
         card_transparent: toBoolean(
           row.card_transparent ??
-            parseObjectRecord((row as Record<string, unknown>).table_config).card_transparent ??
-            parseObjectRecord((row as Record<string, unknown>).table_config).cards_transparent,
+            parseObjectRecord((row as any).table_config).card_transparent ??
+            parseObjectRecord((row as any).table_config).cards_transparent,
           false
         ),
         font_family: resolvedFontFamily,
-        menu_layout: normalizeMenuLayout((row as Record<string, unknown>).menu_layout),
+        menu_layout: normalizeMenuLayout((row as any).menu_layout),
         card_layout:
-          parseCardLayoutToken((row as Record<string, unknown>).card_layout) ??
-          parseCardLayoutToken((row as Record<string, unknown>).card_style) ??
+          parseCardLayoutToken((row as any).card_layout) ??
+          parseCardLayoutToken((row as any).card_style) ??
           "default",
         card_style: resolvedCardStyle,
         card_density: resolvedDensityStyle,
@@ -2792,9 +2799,9 @@ export default function MenuManager() {
         bg_opacity: resolvedBgOpacity,
       };
       setRestaurant(hydratedRestaurant as Restaurant);
-      setManagerOtpEnabled(toBoolean((row as Record<string, unknown>).otp_enabled, false));
+      setManagerOtpEnabled(toBoolean((row as any).otp_enabled, false));
       setManagerOtpError("");
-      setForceFirstLoginPasswordChange(toBoolean((row as Record<string, unknown>).first_login, false));
+      setForceFirstLoginPasswordChange(toBoolean((row as any).first_login, false));
       const socialLinks = parseObjectRecord(tableConfig.social_links);
       const customTagsRaw = Array.isArray(row.custom_tags) ? row.custom_tags : [];
       const parsed = parseCategoryConfig(customTagsRaw) as {
@@ -2804,7 +2811,7 @@ export default function MenuManager() {
       };
       setAutoPrintKitchen(
         Boolean(
-          (row as Record<string, unknown>).auto_print ?? tableConfig.auto_print ??
+          (row as any).auto_print ?? tableConfig.auto_print ??
             parseAutoPrintSetting(customTagsRaw)
         )
       );
@@ -2977,7 +2984,7 @@ export default function MenuManager() {
 
   const fetchFormulaDishLinks = async (sourceDishes: Dish[]) => {
     const formulaIds = sourceDishes
-      .filter((dish) => toBoolean((dish as Record<string, unknown>).is_formula ?? dish.is_formula, false))
+      .filter((dish) => toBoolean((dish as any).is_formula ?? dish.is_formula, false))
       .map((dish) => String(dish.id || "").trim())
       .filter(Boolean);
     if (formulaIds.length === 0) {
@@ -2986,7 +2993,7 @@ export default function MenuManager() {
       return;
     }
 
-    let result = scopedRestaurantId
+    let result: any = scopedRestaurantId
       ? await supabase
           .from("formula_dish_links")
           .select("formula_dish_id,dish_id,restaurant_id")
@@ -3013,9 +3020,9 @@ export default function MenuManager() {
 
     const byFormula = new Map<string, string[]>();
     const byDish = new Map<string, string[]>();
-    (result.data || []).forEach((row) => {
+    (result.data || []).forEach((row: unknown) => {
       if (!row || typeof row !== "object") return;
-      const record = row as Record<string, unknown>;
+      const record = row as any;
       const formulaId = String(record.formula_dish_id || "").trim();
       const dishId = String(record.dish_id || "").trim();
       if (!formulaId || !dishId) return;
@@ -3086,13 +3093,13 @@ export default function MenuManager() {
           category_id: dish.category_id ?? null,
           subcategory_id: dish.subcategory_id ?? null,
           categorie: String(
-            (dish as unknown as Record<string, unknown>).category ??
-              (dish as unknown as Record<string, unknown>)["catégorie"] ??
-              (legacyCategoryKey ? (dish as unknown as Record<string, unknown>)[legacyCategoryKey] : undefined) ??
+            (dish as unknown as any).category ??
+              (dish as unknown as any)["catégorie"] ??
+              (legacyCategoryKey ? (dish as unknown as any)[legacyCategoryKey] : undefined) ??
               dish.categorie ??
               ""
           ),
-          sub_category: String(dish.sub_category ?? (dish as unknown as Record<string, unknown>).sous_categorie ?? ""),
+          sub_category: String(dish.sub_category ?? (dish as unknown as any).sous_categorie ?? ""),
           hunger_level: dish.hunger_level ?? "",
           is_featured: isChefSuggestion,
           is_special: isDailySpecial,
@@ -3209,8 +3216,8 @@ export default function MenuManager() {
         extras_list: mergeExtrasUnique(
           extrasByDishId.get(String(dish.id || "").trim()) || [],
           mergeExtrasUnique(
-            parseExtrasFromUnknown((dish as Record<string, unknown>).extras),
-            parseExtrasFromUnknown((dish as Record<string, unknown>).extras_list)
+            parseExtrasFromUnknown((dish as any).extras),
+            parseExtrasFromUnknown((dish as any).extras_list)
           )
         ),
         product_options: optionsByDishId.get(String(dish.id || "").trim()) || [],
@@ -3222,7 +3229,7 @@ export default function MenuManager() {
         const discoveredRows: AllergenLibraryRow[] = [];
         const seen = new Set<string>();
         normalizedWithOptions.forEach((dish) => {
-          const discovered = extractAllergenNamesFromDishPayload(dish as unknown as Record<string, unknown>);
+          const discovered = extractAllergenNamesFromDishPayload(dish as unknown as any);
           discovered.forEach((nameFr) => {
             const key = normalizeText(nameFr);
             if (!key || seen.has(key)) return;
@@ -3690,31 +3697,31 @@ export default function MenuManager() {
   };
 
   const handleEditDish = async (dish: Dish) => {
-    const dishRecord = dish as unknown as Record<string, unknown>;
+    const dishRecord = dish as unknown as any;
     const parsed = parseOptionsFromDescription(dish.description || "");
-    const dietaryRaw = (dish as unknown as Record<string, unknown>).dietary_tag;
+    const dietaryRaw = (dish as unknown as any).dietary_tag;
     const dietary =
       typeof dietaryRaw === "string"
         ? (() => {
             try {
-              return JSON.parse(dietaryRaw) as Record<string, unknown>;
+              return JSON.parse(dietaryRaw) as any;
             } catch {
               return {};
             }
           })()
-        : (dietaryRaw as Record<string, unknown> | null) || {};
-    const badgeFlags = parseObjectRecord((dietary as Record<string, unknown>).badges);
+        : (dietaryRaw as any | null) || {};
+    const badgeFlags = parseObjectRecord((dietary as any).badges);
     const nameI18n =
-      dietary?.i18n && typeof dietary.i18n === "object" && (dietary.i18n as Record<string, unknown>).name
-        ? ((dietary.i18n as Record<string, unknown>).name as Record<string, unknown>)
+      dietary?.i18n && typeof dietary.i18n === "object" && (dietary.i18n as any).name
+        ? ((dietary.i18n as any).name as any)
         : {};
     const descriptionI18n =
-      dietary?.i18n && typeof dietary.i18n === "object" && (dietary.i18n as Record<string, unknown>).description
-        ? ((dietary.i18n as Record<string, unknown>).description as Record<string, unknown>)
+      dietary?.i18n && typeof dietary.i18n === "object" && (dietary.i18n as any).description
+        ? ((dietary.i18n as any).description as any)
         : {};
     const dietaryI18nNode =
-      dietary?.i18n && typeof dietary.i18n === "object" ? (dietary.i18n as Record<string, unknown>) : {};
-    const salesTipI18nNode = parseJsonObject((dietary as Record<string, unknown>).sales_tip_i18n);
+      dietary?.i18n && typeof dietary.i18n === "object" ? (dietary.i18n as any) : {};
+    const salesTipI18nNode = parseJsonObject((dietary as any).sales_tip_i18n);
     const directNameByLang = Object.fromEntries(
       activeLanguageCodes.map((code) => {
         const value =
@@ -3745,7 +3752,7 @@ export default function MenuManager() {
         return [code, value];
       })
     ) as Record<string, string>;
-    const rawFormulaCategoryIds = (dishRecord as Record<string, unknown>).formula_category_ids;
+    const rawFormulaCategoryIds = (dishRecord as any).formula_category_ids;
     const normalizedFormulaCategoryIds = Array.isArray(rawFormulaCategoryIds)
       ? rawFormulaCategoryIds.map((id) => String(id)).filter(Boolean)
       : typeof rawFormulaCategoryIds === "string"
@@ -3755,16 +3762,16 @@ export default function MenuManager() {
             .map((value) => String(value || "").trim())
             .filter(Boolean)
         : [];
-    const isFormula = toBoolean((dishRecord as Record<string, unknown>).is_formula, false);
-    const onlyInFormula = toBoolean((dishRecord as Record<string, unknown>).only_in_formula, false);
+    const isFormula = toBoolean((dishRecord as any).is_formula, false);
+    const onlyInFormula = toBoolean((dishRecord as any).only_in_formula, false);
     const currentDishId = String(dish.id || "").trim();
     const linkedFormulaIds = currentDishId ? formulaLinksByDishId.get(currentDishId) || [] : [];
     const linkedFormulaDishIds = currentDishId ? formulaLinksByFormulaId.get(currentDishId) || [] : [];
     const manualAllergensByName = parseJsonObject(dietaryI18nNode.allergens_manual);
     const dietaryAllergensListRaw =
-      (dietary as Record<string, unknown>).allergens_selected ??
-      (dietary as Record<string, unknown>).allergens_fr ??
-      (dietary as Record<string, unknown>).allergens;
+      (dietary as any).allergens_selected ??
+      (dietary as any).allergens_fr ??
+      (dietary as any).allergens;
     const initialAllergenList = (
       Array.isArray(dietaryAllergensListRaw)
         ? dietaryAllergensListRaw
@@ -3934,49 +3941,49 @@ export default function MenuManager() {
       calories_max: dish.calories_max?.toString() || "",
       has_sides: !!dish.has_sides,
       has_extras: initialExtras.length > 0 ? true : !!dish.has_extras,
-      allow_multi_select: !!(dish as unknown as Record<string, unknown>).allow_multi_select,
+      allow_multi_select: !!(dish as unknown as any).allow_multi_select,
       ask_cooking: dish.ask_cooking ?? !!parsed.askCooking,
       is_vegetarian_badge: toBoolean(
-        (dish as unknown as Record<string, unknown>).is_vegetarian ??
-          (dietary as Record<string, unknown>).is_vegetarian ??
+        (dish as unknown as any).is_vegetarian ??
+          (dietary as any).is_vegetarian ??
           badgeFlags.vegetarian,
         false
       ),
       is_spicy_badge: toBoolean(
-        (dish as unknown as Record<string, unknown>).is_spicy ??
-          (dietary as Record<string, unknown>).is_spicy ??
+        (dish as unknown as any).is_spicy ??
+          (dietary as any).is_spicy ??
           badgeFlags.spicy ??
-          String((dish as unknown as Record<string, unknown>).spicy_level || "").trim(),
+          String((dish as unknown as any).spicy_level || "").trim(),
         false
       ),
       is_new_badge: toBoolean(
-        (dietary as Record<string, unknown>).is_new ??
-          (dietary as Record<string, unknown>).new_badge ??
+        (dietary as any).is_new ??
+          (dietary as any).new_badge ??
           badgeFlags.new,
         false
       ),
       is_gluten_free_badge: toBoolean(
-        (dietary as Record<string, unknown>).is_gluten_free ??
-          (dietary as Record<string, unknown>).gluten_free ??
+        (dietary as any).is_gluten_free ??
+          (dietary as any).gluten_free ??
           badgeFlags.gluten_free,
         false
       ),
       is_chef_suggestion: toBoolean(
-        (dish as unknown as Record<string, unknown>).is_chef_suggestion ?? dish.is_featured,
+        (dish as unknown as any).is_chef_suggestion ?? dish.is_featured,
         false
       ),
       is_daily_special: toBoolean(
-        (dish as unknown as Record<string, unknown>).is_daily_special ?? dish.is_special,
+        (dish as unknown as any).is_daily_special ?? dish.is_special,
         false
       ),
-      is_promo: toBoolean((dish as unknown as Record<string, unknown>).is_promo, false),
+      is_promo: toBoolean((dish as unknown as any).is_promo, false),
       promo_price:
-        (dish as unknown as Record<string, unknown>).promo_price == null
+        (dish as unknown as any).promo_price == null
           ? ""
-          : String((dish as unknown as Record<string, unknown>).promo_price),
+          : String((dish as unknown as any).promo_price),
       is_suggestion: toBoolean(
-        (dish as unknown as Record<string, unknown>).is_suggestion ??
-          (dish as unknown as Record<string, unknown>).is_chef_suggestion ??
+        (dish as unknown as any).is_suggestion ??
+          (dish as unknown as any).is_chef_suggestion ??
           dish.is_featured,
         false
       ),
@@ -3994,8 +4001,8 @@ export default function MenuManager() {
       sales_tip:
         directSuggestionByLang.fr ||
         String(dish.suggestion_message || "").trim() ||
-        (typeof (dietary as Record<string, unknown>).sales_tip === "string"
-          ? String((dietary as Record<string, unknown>).sales_tip)
+        (typeof (dietary as any).sales_tip === "string"
+          ? String((dietary as any).sales_tip)
           : ""),
       sales_tip_i18n: Object.fromEntries(
         activeLanguageCodes.map((code) => [
@@ -4004,8 +4011,8 @@ export default function MenuManager() {
         ])
       ),
       sales_tip_dish_id:
-        typeof (dietary as Record<string, unknown>).sales_tip_dish_id === "string"
-          ? String((dietary as Record<string, unknown>).sales_tip_dish_id)
+        typeof (dietary as any).sales_tip_dish_id === "string"
+          ? String((dietary as any).sales_tip_dish_id)
           : "",
     });
     setImagePreviewUrl(dish.image_url || "");
@@ -4103,8 +4110,8 @@ export default function MenuManager() {
       kind === "logo"
         ? String(restaurantForm.logo_url || "")
         : kind === "banner"
-          ? String((restaurantForm as Record<string, unknown>).banner_image_url || (restaurantForm as Record<string, unknown>).banner_url || "")
-          : String((restaurantForm as Record<string, unknown>).background_url || (restaurantForm as Record<string, unknown>).background_image_url || "");
+          ? String((restaurantForm as any).banner_image_url || (restaurantForm as any).banner_url || "")
+          : String((restaurantForm as any).background_url || (restaurantForm as any).background_image_url || "");
     setLoading(true);
     try {
       const extension = sanitizeFileName(file.name || "").split(".").pop() || "png";
@@ -4335,17 +4342,17 @@ export default function MenuManager() {
     };
     const hasLinkedSuggestionDish = Boolean(String(formData.sales_tip_dish_id || "").trim());
     const resolvedSalesTipFr = String(formData.sales_tip || "").trim() || (hasLinkedSuggestionDish ? getDefaultSuggestionLead("fr") : "");
-    const dietaryRaw = editingDish ? (editingDish as unknown as Record<string, unknown>).dietary_tag : null;
+    const dietaryRaw = editingDish ? (editingDish as unknown as any).dietary_tag : null;
     const baseDietary =
       typeof dietaryRaw === "string"
         ? (() => {
             try {
-              return JSON.parse(dietaryRaw) as Record<string, unknown>;
+              return JSON.parse(dietaryRaw) as any;
             } catch {
               return {};
             }
           })()
-        : (dietaryRaw as Record<string, unknown> | null) || {};
+        : (dietaryRaw as any | null) || {};
     const dietaryTag = {
       ...baseDietary,
       is_vegetarian: !!formData.is_vegetarian_badge,
@@ -4353,14 +4360,14 @@ export default function MenuManager() {
       is_new: !!formData.is_new_badge,
       is_gluten_free: !!formData.is_gluten_free_badge,
       badges: {
-        ...parseObjectRecord((baseDietary as Record<string, unknown>).badges),
+        ...parseObjectRecord((baseDietary as any).badges),
         vegetarian: !!formData.is_vegetarian_badge,
         spicy: !!formData.is_spicy_badge,
         new: !!formData.is_new_badge,
         gluten_free: !!formData.is_gluten_free_badge,
       },
       i18n: {
-        ...(baseDietary.i18n && typeof baseDietary.i18n === "object" ? (baseDietary.i18n as Record<string, unknown>) : {}),
+        ...(baseDietary.i18n && typeof baseDietary.i18n === "object" ? (baseDietary.i18n as any) : {}),
         name: mergedNameI18n,
         description: mergedDescriptionI18n,
       },
@@ -4464,8 +4471,8 @@ export default function MenuManager() {
         allergens_selected: selectedAllergens,
         allergens_fr: selectedAllergens,
         i18n: {
-          ...((dietaryTag as Record<string, unknown>).i18n && typeof (dietaryTag as Record<string, unknown>).i18n === "object"
-            ? ((dietaryTag as Record<string, unknown>).i18n as Record<string, unknown>)
+          ...((dietaryTag as any).i18n && typeof (dietaryTag as any).i18n === "object"
+            ? ((dietaryTag as any).i18n as any)
             : {}),
           allergens: allergensByLang,
           allergens_manual: manualAllergensByName,
@@ -4505,16 +4512,16 @@ export default function MenuManager() {
           : String(formData.sales_tip_i18n?.[code] || formData.sales_tip_i18n?.[normalizedCode] || "").trim() ||
             (hasLinkedSuggestionDish ? getDefaultSuggestionLead(normalizedCode) : "");
       getLanguageColumnKeys("name", normalizedCode).forEach((columnKey) => {
-        (dishData as Record<string, unknown>)[columnKey] = nameValue || null;
+        (dishData as any)[columnKey] = nameValue || null;
       });
       getLanguageColumnKeys("description", normalizedCode).forEach((columnKey) => {
-        (dishData as Record<string, unknown>)[columnKey] = descriptionValue || null;
+        (dishData as any)[columnKey] = descriptionValue || null;
       });
       getLanguageColumnKeys("suggestion", normalizedCode).forEach((columnKey) => {
-        (dishData as Record<string, unknown>)[columnKey] = suggestionValue || null;
+        (dishData as any)[columnKey] = suggestionValue || null;
       });
       getLanguageColumnKeys("suggestion_message", normalizedCode).forEach((columnKey) => {
-        (dishData as Record<string, unknown>)[columnKey] = suggestionValue || null;
+        (dishData as any)[columnKey] = suggestionValue || null;
       });
     });
 
@@ -4569,7 +4576,7 @@ export default function MenuManager() {
       let responseData: Record<string, unknown> = {};
       if (responseText.trim()) {
         try {
-          responseData = JSON.parse(responseText) as Record<string, unknown>;
+          responseData = JSON.parse(responseText) as any;
         } catch {
           responseData = { raw: responseText };
         }
@@ -4653,12 +4660,12 @@ export default function MenuManager() {
             .order("id", { ascending: false })
             .limit(1);
           if (!fallbackByLegacyColumn.error && Array.isArray(fallbackByLegacyColumn.data) && fallbackByLegacyColumn.data[0]) {
-            savedDishIdRaw = (fallbackByLegacyColumn.data[0] as Record<string, unknown>).id ?? null;
+            savedDishIdRaw = (fallbackByLegacyColumn.data[0] as any).id ?? null;
           } else if (fallbackByLegacyColumn.error) {
             console.warn("Fallback lookup dish id failed:", fallbackByLegacyColumn.error.message);
           }
         } else if (!fallbackDishLookup.error && Array.isArray(fallbackDishLookup.data) && fallbackDishLookup.data[0]) {
-          savedDishIdRaw = (fallbackDishLookup.data[0] as Record<string, unknown>).id ?? null;
+          savedDishIdRaw = (fallbackDishLookup.data[0] as any).id ?? null;
         } else if (fallbackDishLookup.error) {
           console.warn("Fallback lookup dish id failed:", fallbackDishLookup.error.message);
         }
@@ -4867,7 +4874,7 @@ export default function MenuManager() {
     setAllergenLibrary(nextLibrary);
     if (!restaurant?.id) return;
     try {
-      const currentTableConfig = parseObjectRecord((restaurant as Record<string, unknown>)?.table_config);
+      const currentTableConfig = parseObjectRecord((restaurant as any)?.table_config);
       const nextTableConfig = {
         ...currentTableConfig,
         allergen_library: nextLibrary
@@ -4913,111 +4920,111 @@ export default function MenuManager() {
       const safeName = String(restaurantForm.name ?? "").trim();
       const safeLogo =
         String(restaurantForm.logo_url || "").trim() ||
-        String((restaurant as Record<string, unknown>)?.logo_url || "").trim();
+        String((restaurant as any)?.logo_url || "").trim();
       const safeBannerImage = String(
-        (restaurantForm as Record<string, unknown>).banner_image_url || (restaurantForm as Record<string, unknown>).banner_url || ""
+        (restaurantForm as any).banner_image_url || (restaurantForm as any).banner_url || ""
       ).trim();
       const safeBackground =
-        String((restaurantForm as Record<string, unknown>).background_url || (restaurantForm as Record<string, unknown>).background_image_url || "").trim() ||
-        String((restaurant as Record<string, unknown>)?.background_url || "").trim() ||
-        String((restaurant as Record<string, unknown>)?.background_image_url || "").trim() ||
-        String((restaurant as Record<string, unknown>)?.bg_image_url || "").trim();
+        String((restaurantForm as any).background_url || (restaurantForm as any).background_image_url || "").trim() ||
+        String((restaurant as any)?.background_url || "").trim() ||
+        String((restaurant as any)?.background_image_url || "").trim() ||
+        String((restaurant as any)?.bg_image_url || "").trim();
       const safePrimaryColor =
         String(restaurantForm.primary_color || "").trim() ||
-        String((restaurant as Record<string, unknown>)?.primary_color || "").trim() ||
+        String((restaurant as any)?.primary_color || "").trim() ||
         "#FFFFFF";
       const safeTextColor = normalizeHexColor(
-        (restaurantForm as Record<string, unknown>).text_color,
+        (restaurantForm as any).text_color,
         normalizeHexColor(
-          (restaurant as Record<string, unknown>)?.text_color ??
-            parseObjectRecord((restaurant as Record<string, unknown>)?.table_config).text_color ??
-            parseObjectRecord((restaurant as Record<string, unknown>)?.table_config).global_text_color,
+          (restaurant as any)?.text_color ??
+            parseObjectRecord((restaurant as any)?.table_config).text_color ??
+            parseObjectRecord((restaurant as any)?.table_config).global_text_color,
           "#111111"
         )
       );
       const safeCardBgColor = normalizeHexColor(
-        (restaurantForm as Record<string, unknown>).card_bg_color,
-        normalizeHexColor((restaurant as Record<string, unknown>)?.card_bg_color, "#FFFFFF")
+        (restaurantForm as any).card_bg_color,
+        normalizeHexColor((restaurant as any)?.card_bg_color, "#FFFFFF")
       );
       const safeCardTransparent = toBoolean(
-        (restaurantForm as Record<string, unknown>).card_transparent,
+        (restaurantForm as any).card_transparent,
         toBoolean(
-          (restaurant as Record<string, unknown>)?.card_transparent ??
-            parseObjectRecord((restaurant as Record<string, unknown>)?.table_config).card_transparent ??
-            parseObjectRecord((restaurant as Record<string, unknown>)?.table_config).cards_transparent,
+          (restaurant as any)?.card_transparent ??
+            parseObjectRecord((restaurant as any)?.table_config).card_transparent ??
+            parseObjectRecord((restaurant as any)?.table_config).cards_transparent,
           false
         )
       );
       const safeCardBgOpacity = normalizeOpacityPercent(
-        (restaurantForm as Record<string, unknown>).card_bg_opacity,
+        (restaurantForm as any).card_bg_opacity,
         safeCardTransparent ? 0 : 100
       );
       const safeCardTextColor = normalizeHexColor(
-        (restaurantForm as Record<string, unknown>).card_text_color,
+        (restaurantForm as any).card_text_color,
         normalizeHexColor(
-          (restaurant as Record<string, unknown>)?.card_text_color ??
-            parseObjectRecord((restaurant as Record<string, unknown>)?.table_config).card_text_color,
+          (restaurant as any)?.card_text_color ??
+            parseObjectRecord((restaurant as any)?.table_config).card_text_color,
           "#111111"
         )
       );
       const safeQuickAddToCartEnabled = toBoolean(
-        (restaurantForm as Record<string, unknown>).quick_add_to_cart_enabled,
-        toBoolean(parseObjectRecord((restaurant as Record<string, unknown>)?.table_config).quick_add_to_cart_enabled, false)
+        (restaurantForm as any).quick_add_to_cart_enabled,
+        toBoolean(parseObjectRecord((restaurant as any)?.table_config).quick_add_to_cart_enabled, false)
       );
       const safeCategoryDrawerEnabled = toBoolean(
-        (restaurantForm as Record<string, unknown>).category_drawer_enabled,
+        (restaurantForm as any).category_drawer_enabled,
         toBoolean(
-          parseObjectRecord((restaurant as Record<string, unknown>)?.table_config).category_drawer_enabled ??
-            parseObjectRecord((restaurant as Record<string, unknown>)?.table_config).show_category_drawer,
+          parseObjectRecord((restaurant as any)?.table_config).category_drawer_enabled ??
+            parseObjectRecord((restaurant as any)?.table_config).show_category_drawer,
           false
         )
       );
       const safeKeepSuggestionsOnTop = toBoolean(
-        (restaurantForm as Record<string, unknown>).keep_suggestions_on_top,
+        (restaurantForm as any).keep_suggestions_on_top,
         toBoolean(
-          parseObjectRecord((restaurant as Record<string, unknown>)?.table_config).keep_suggestions_on_top ??
-            parseObjectRecord((restaurant as Record<string, unknown>)?.table_config).pin_suggestions,
+          parseObjectRecord((restaurant as any)?.table_config).keep_suggestions_on_top ??
+            parseObjectRecord((restaurant as any)?.table_config).pin_suggestions,
           false
         )
       );
       const safeServiceLunchStart = normalizeTimeInput(
-        (restaurantForm as Record<string, unknown>).service_lunch_start
+        (restaurantForm as any).service_lunch_start
       );
-      const safeServiceLunchEnd = normalizeTimeInput((restaurantForm as Record<string, unknown>).service_lunch_end);
+      const safeServiceLunchEnd = normalizeTimeInput((restaurantForm as any).service_lunch_end);
       const safeServiceDinnerStart = normalizeTimeInput(
-        (restaurantForm as Record<string, unknown>).service_dinner_start
+        (restaurantForm as any).service_dinner_start
       );
       const safeServiceDinnerEnd = normalizeTimeInput(
-        (restaurantForm as Record<string, unknown>).service_dinner_end
+        (restaurantForm as any).service_dinner_end
       );
-      const safeGoogleReviewUrl = String((restaurantForm as Record<string, unknown>).google_review_url || "").trim();
-      const safeInstagramUrl = String((restaurantForm as Record<string, unknown>).instagram_url || "").trim();
-      const safeSnapchatUrl = String((restaurantForm as Record<string, unknown>).snapchat_url || "").trim();
-      const safeFacebookUrl = String((restaurantForm as Record<string, unknown>).facebook_url || "").trim();
-      const safeXUrl = String((restaurantForm as Record<string, unknown>).x_url || "").trim();
-      const safeWebsiteUrl = String((restaurantForm as Record<string, unknown>).website_url || "").trim();
+      const safeGoogleReviewUrl = String((restaurantForm as any).google_review_url || "").trim();
+      const safeInstagramUrl = String((restaurantForm as any).instagram_url || "").trim();
+      const safeSnapchatUrl = String((restaurantForm as any).snapchat_url || "").trim();
+      const safeFacebookUrl = String((restaurantForm as any).facebook_url || "").trim();
+      const safeXUrl = String((restaurantForm as any).x_url || "").trim();
+      const safeWebsiteUrl = String((restaurantForm as any).website_url || "").trim();
       const safeShowSocialOnReceipt = toBoolean(
-        (restaurantForm as Record<string, unknown>).show_social_on_receipt,
-        toBoolean(parseObjectRecord((restaurant as Record<string, unknown>)?.table_config).show_social_on_digital_receipt, false)
+        (restaurantForm as any).show_social_on_receipt,
+        toBoolean(parseObjectRecord((restaurant as any)?.table_config).show_social_on_digital_receipt, false)
       );
       const safeDensityStyle = normalizeDensityStyle(
-        (restaurantForm as Record<string, unknown>).card_density ??
-          (restaurantForm as Record<string, unknown>).density_style ??
-          (restaurant as Record<string, unknown>)?.card_density ??
-          parseObjectRecord((restaurant as Record<string, unknown>)?.table_config).density_style ??
-          parseObjectRecord((restaurant as Record<string, unknown>)?.table_config).card_density ??
+        (restaurantForm as any).card_density ??
+          (restaurantForm as any).density_style ??
+          (restaurant as any)?.card_density ??
+          parseObjectRecord((restaurant as any)?.table_config).density_style ??
+          parseObjectRecord((restaurant as any)?.table_config).card_density ??
           "spacious"
       );
       const safeBgOpacity = normalizeBackgroundOpacity(
-        (restaurantForm as Record<string, unknown>).bg_opacity ??
-          (restaurant as Record<string, unknown>)?.bg_opacity ??
-          parseObjectRecord((restaurant as Record<string, unknown>)?.table_config).bg_opacity,
+        (restaurantForm as any).bg_opacity ??
+          (restaurant as any)?.bg_opacity ??
+          parseObjectRecord((restaurant as any)?.table_config).bg_opacity,
         1
       );
       const safeFontFamily = normalizeManagerFontFamily(restaurantForm.font_family);
-      const safeMenuLayout = normalizeMenuLayout((restaurantForm as Record<string, unknown>).menu_layout);
-      const safeCardLayout = normalizeCardLayout((restaurantForm as Record<string, unknown>).card_layout);
-      const safeCardStyle = normalizeCardStyle((restaurantForm as Record<string, unknown>).card_style);
+      const safeMenuLayout = normalizeMenuLayout((restaurantForm as any).menu_layout);
+      const safeCardLayout = normalizeCardLayout((restaurantForm as any).card_layout);
+      const safeCardStyle = normalizeCardStyle((restaurantForm as any).card_style);
       console.log("[manager.save] style validation", {
         font_family: safeFontFamily,
         font_family_is_string: typeof safeFontFamily === "string",
@@ -5035,7 +5042,7 @@ export default function MenuManager() {
       const safeEmailBodyHeader =
         String(restaurantForm.email_body_header || "").trim() || "Merci de votre visite ! Voici votre ticket :";
       const safeEmailFooter = String(restaurantForm.email_footer || "").trim() || "À bientôt !";
-      const currentTableConfig = parseObjectRecord((restaurant as Record<string, unknown>)?.table_config);
+      const currentTableConfig = parseObjectRecord((restaurant as any)?.table_config);
       const nextCookingTranslations = Object.fromEntries(
         COOKING_TRANSLATION_ORDER.map((key) => {
           const row = cookingTranslations[key] || {};
@@ -5214,7 +5221,7 @@ export default function MenuManager() {
               .maybeSingle();
             updateError = updateResult.error as { code?: string; message?: string } | null;
             if (!updateError && updateResult.data && typeof updateResult.data === "object") {
-              confirmedRestaurantRow = updateResult.data as Record<string, unknown>;
+              confirmedRestaurantRow = updateResult.data as any;
             }
           }
 
@@ -5307,7 +5314,7 @@ export default function MenuManager() {
           return;
         }
         if (emailUpdateResult.data && typeof emailUpdateResult.data === "object") {
-          confirmedRestaurantRow = emailUpdateResult.data as Record<string, unknown>;
+          confirmedRestaurantRow = emailUpdateResult.data as any;
         }
       }
 
@@ -5355,7 +5362,7 @@ export default function MenuManager() {
       if (!confirmedRestaurantRow) {
         const rowResult = await supabase.from("restaurants").select("*").eq("id", restaurant.id).maybeSingle();
         if (!rowResult.error && rowResult.data && typeof rowResult.data === "object") {
-          confirmedRestaurantRow = rowResult.data as Record<string, unknown>;
+          confirmedRestaurantRow = rowResult.data as any;
         }
       }
       if (confirmedRestaurantRow) {
@@ -6304,7 +6311,7 @@ export default function MenuManager() {
       const directLabel =
         String(item.category_name || item.category || item.categorie || item.category_label || "").trim();
       if (directLabel) return directLabel;
-      const itemDish = (item.dish as Record<string, unknown> | undefined) || {};
+      const itemDish = (item.dish as any | undefined) || {};
       const nestedLabel = String(itemDish.category_name || itemDish.category || itemDish.categorie || "").trim();
       if (nestedLabel) return nestedLabel;
       const categoryId =
@@ -6356,7 +6363,7 @@ export default function MenuManager() {
       let hasDessert = false;
       items.forEach((item) => {
         const quantity = Number(item.quantity ?? item.qty ?? 1) || 1;
-        const itemDish = (item.dish as Record<string, unknown> | undefined) || {};
+        const itemDish = (item.dish as any | undefined) || {};
         const itemId = String(item.id ?? itemDish.id ?? "");
         const sourceDish = itemId ? dishesById.get(itemId) : undefined;
         const name =
@@ -6452,9 +6459,9 @@ export default function MenuManager() {
     dishes.forEach((dish) => {
       const name =
         String(
-          (dish as unknown as Record<string, unknown>).name ||
-            (dish as unknown as Record<string, unknown>).nom ||
-            (dish as unknown as Record<string, unknown>).name_fr ||
+          (dish as unknown as any).name ||
+            (dish as unknown as any).nom ||
+            (dish as unknown as any).name_fr ||
             ""
         ).trim();
       if (name) allProductNames.add(name);
@@ -6501,8 +6508,8 @@ export default function MenuManager() {
 
     const totalTablesCount = configuredTableNumbers.length;
     const occupancyIgnoredStatuses = new Set(["cancelled", "canceled", "annule", "annulee"]);
-    const tableConfig = parseObjectRecord((restaurant as Record<string, unknown>)?.table_config);
-    const settingsConfig = parseObjectRecord((restaurant as Record<string, unknown>)?.settings);
+    const tableConfig = parseObjectRecord((restaurant as any)?.table_config);
+    const settingsConfig = parseObjectRecord((restaurant as any)?.settings);
     const serviceConfig = { ...tableConfig, ...settingsConfig };
     const lunchStartMinutes = parseTimeToMinutes(serviceConfig.service_lunch_start ?? serviceConfig.lunch_start);
     const lunchEndMinutes = parseTimeToMinutes(serviceConfig.service_lunch_end ?? serviceConfig.lunch_end);
@@ -6781,7 +6788,7 @@ export default function MenuManager() {
         const items = readItems(order);
         let topItemsSold = 0;
         items.forEach((item) => {
-          const itemDish = (item.dish as Record<string, unknown> | undefined) || {};
+          const itemDish = (item.dish as any | undefined) || {};
           const name =
             String(item.name || itemDish.name || itemDish.nom || itemDish.name_fr || "").trim() || "Produit";
           if (!topProductNames.has(name)) return;
@@ -6884,7 +6891,7 @@ export default function MenuManager() {
         const items = readItems(order);
         let topItemsSold = 0;
         items.forEach((item) => {
-          const itemDish = (item.dish as Record<string, unknown> | undefined) || {};
+          const itemDish = (item.dish as any | undefined) || {};
           const name =
             String(item.name || itemDish.name || itemDish.nom || itemDish.name_fr || "").trim() || "Produit";
           if (!topProductNames.has(name)) return;
@@ -7331,8 +7338,8 @@ export default function MenuManager() {
     }
   };
   const vitrineViewsCount = Number(
-    (restaurantForm as Record<string, unknown>).views_vitrine ??
-      (restaurant as Record<string, unknown> | null)?.views_vitrine ??
+    (restaurantForm as any).views_vitrine ??
+      (restaurant as any | null)?.views_vitrine ??
       0
   );
   const currentRestaurantQrId = String(restaurant?.id || scopedRestaurantId || "").trim();
@@ -7394,7 +7401,7 @@ export default function MenuManager() {
         const key = `${normalizeText(extra.name_fr)}::${Number(extra.price || 0).toFixed(2)}`;
         if (!extrasMergedMap.has(key)) extrasMergedMap.set(key, extra);
       };
-      const rawDish = dish as unknown as Record<string, unknown>;
+      const rawDish = dish as unknown as any;
       [dish.extras_list, rawDish.dish_options, rawDish.extras, rawDish.extras_json].forEach((rawValue) => {
         parseExtrasFromUnknown(rawValue).forEach(addExtra);
       });
@@ -7429,7 +7436,7 @@ export default function MenuManager() {
         const items = dishesInCategory
           .map((dish) => {
             const description = getDishDisplayDescription(dish);
-            const dishImageUrl = normalizePrintableUrl((dish as unknown as Record<string, unknown>).image_url, DISH_IMAGES_BUCKET);
+            const dishImageUrl = normalizePrintableUrl((dish as unknown as any).image_url, DISH_IMAGES_BUCKET);
             const printableMeta = buildDishPrintableMeta(dish);
             const supplementsHtml =
               printableMeta.supplements.length > 0
@@ -7494,17 +7501,17 @@ export default function MenuManager() {
     const logoUrl = normalizePrintableUrl(restaurantForm.logo_url || restaurant?.logo_url, RESTAURANT_LOGOS_BUCKET);
     const restaurantName = String(restaurantForm.name || restaurant?.name || "").trim();
     const backgroundUrl = normalizePrintableUrl(
-      (restaurantForm as Record<string, unknown>).background_url ||
-        (restaurantForm as Record<string, unknown>).background_image_url ||
-        (restaurant as Record<string, unknown> | null)?.background_url ||
-        (restaurant as Record<string, unknown> | null)?.background_image_url,
+      (restaurantForm as any).background_url ||
+        (restaurantForm as any).background_image_url ||
+        (restaurant as any | null)?.background_url ||
+        (restaurant as any | null)?.background_image_url,
       RESTAURANT_BANNERS_BUCKET
     );
     const primaryColor = normalizeHexColor(restaurantForm.primary_color || restaurant?.primary_color, "#FFFFFF");
     const backgroundOpacity = normalizeBackgroundOpacity(
-      (restaurantForm as Record<string, unknown>).bg_opacity ??
-        (restaurant as Record<string, unknown> | null)?.bg_opacity ??
-        parseObjectRecord((restaurant as Record<string, unknown> | null)?.table_config).bg_opacity,
+      (restaurantForm as any).bg_opacity ??
+        (restaurant as any | null)?.bg_opacity ??
+        parseObjectRecord((restaurant as any | null)?.table_config).bg_opacity,
       1
     );
     const backgroundOverlayOpacity = Math.max(0, Math.min(1, 1 - backgroundOpacity)).toFixed(2);
@@ -7917,7 +7924,7 @@ export default function MenuManager() {
           const key = `${normalizeText(extra.name_fr || "")}::${Number(extra.price || 0).toFixed(2)}`;
           if (!merged.has(key)) merged.set(key, extra);
         };
-        const rawDish = dish as unknown as Record<string, unknown>;
+        const rawDish = dish as unknown as any;
         [dish.extras_list, rawDish.dish_options, rawDish.extras, rawDish.extras_json].forEach((rawValue) => {
           parseExtrasFromUnknown(rawValue).forEach(addExtra);
         });
@@ -8190,7 +8197,7 @@ export default function MenuManager() {
                           className="px-2 py-0.5 border border-gray-300 rounded bg-white text-xs"
                           title="Monter"
                         >
-                          ▲
+                          ?
                         </button>
                         <input
                           type="number"
@@ -8216,7 +8223,7 @@ export default function MenuManager() {
                           className="px-2 py-0.5 border border-gray-300 rounded bg-white text-xs"
                           title="Descendre"
                         >
-                          ▼
+                          ?
                         </button>
                       </div>
                       <select
@@ -9119,13 +9126,13 @@ export default function MenuManager() {
                               dish,
                               "is_daily_special",
                               !toBoolean(
-                                (dish as unknown as Record<string, unknown>).is_daily_special ?? dish.is_special,
+                                (dish as unknown as any).is_daily_special ?? dish.is_special,
                                 false
                               )
                             )
                           }
                           className={`inline-flex items-center gap-2 px-3 py-1 rounded-full border font-black text-xs ${
-                            toBoolean((dish as unknown as Record<string, unknown>).is_daily_special ?? dish.is_special, false)
+                            toBoolean((dish as unknown as any).is_daily_special ?? dish.is_special, false)
                               ? "bg-green-100 border-green-600 text-green-900"
                               : "bg-white border-gray-300 text-gray-700"
                           }`}
@@ -9133,7 +9140,7 @@ export default function MenuManager() {
                         >
                           <Star
                             className={`h-4 w-4 ${
-                              toBoolean((dish as unknown as Record<string, unknown>).is_daily_special ?? dish.is_special, false)
+                              toBoolean((dish as unknown as any).is_daily_special ?? dish.is_special, false)
                                 ? "fill-current"
                                 : ""
                             }`}
@@ -9148,8 +9155,8 @@ export default function MenuManager() {
                               dish,
                               "suggestion_chef",
                               !toBoolean(
-                                (dish as unknown as Record<string, unknown>).is_suggestion ??
-                                  (dish as unknown as Record<string, unknown>).is_chef_suggestion ??
+                                (dish as unknown as any).is_suggestion ??
+                                  (dish as unknown as any).is_chef_suggestion ??
                                   dish.is_featured,
                                 false
                               )
@@ -9157,8 +9164,8 @@ export default function MenuManager() {
                           }
                           className={`inline-flex items-center gap-2 px-3 py-1 rounded-full border font-black text-xs ${
                             toBoolean(
-                              (dish as unknown as Record<string, unknown>).is_suggestion ??
-                                (dish as unknown as Record<string, unknown>).is_chef_suggestion ??
+                              (dish as unknown as any).is_suggestion ??
+                                (dish as unknown as any).is_chef_suggestion ??
                                 dish.is_featured,
                               false
                             )
@@ -9170,8 +9177,8 @@ export default function MenuManager() {
                           <Star
                             className={`h-4 w-4 ${
                               toBoolean(
-                                (dish as unknown as Record<string, unknown>).is_suggestion ??
-                                  (dish as unknown as Record<string, unknown>).is_chef_suggestion ??
+                                (dish as unknown as any).is_suggestion ??
+                                  (dish as unknown as any).is_chef_suggestion ??
                                   dish.is_featured,
                                 false
                               )
@@ -9188,11 +9195,11 @@ export default function MenuManager() {
                             handleToggleDishHighlight(
                               dish,
                               "is_promo",
-                              !toBoolean((dish as unknown as Record<string, unknown>).is_promo, false)
+                              !toBoolean((dish as unknown as any).is_promo, false)
                             )
                           }
                           className={`inline-flex items-center gap-2 px-3 py-1 rounded-full border font-black text-xs ${
-                            toBoolean((dish as unknown as Record<string, unknown>).is_promo, false)
+                            toBoolean((dish as unknown as any).is_promo, false)
                               ? "bg-red-100 border-red-600 text-red-900"
                               : "bg-white border-gray-300 text-gray-700"
                           }`}
@@ -9352,10 +9359,10 @@ export default function MenuManager() {
               {isUploadingRestaurantBanner ? <p className="mt-1 text-xs text-gray-600">Upload de la bannière...</p> : null}
             </div>
             <div className={activeManagerTab === "appearance" ? "" : "hidden"}>
-              {String((restaurantForm as Record<string, unknown>).banner_image_url || "").trim() ? (
+              {String((restaurantForm as any).banner_image_url || "").trim() ? (
                 <div className="mt-2">
                   <img
-                    src={String((restaurantForm as Record<string, unknown>).banner_image_url || "")}
+                    src={String((restaurantForm as any).banner_image_url || "")}
                     alt="Aperçu bannière"
                     className="h-20 w-full object-cover border border-gray-200 bg-white rounded"
                     onError={(event) => {
@@ -9363,7 +9370,7 @@ export default function MenuManager() {
                     }}
                   />
                   <span className="mt-1 block text-xs text-gray-600 break-all">
-                    {String((restaurantForm as Record<string, unknown>).banner_image_url || "")}
+                    {String((restaurantForm as any).banner_image_url || "")}
                   </span>
                 </div>
               ) : (
@@ -9416,7 +9423,7 @@ export default function MenuManager() {
               <label className="block mb-1 font-bold">{globalTextColorLabel}</label>
               <input
                 type="color"
-                value={String((restaurantForm as Record<string, unknown>).text_color || "#111111")}
+                value={String((restaurantForm as any).text_color || "#111111")}
                 onChange={(e) => setRestaurantForm({ ...restaurantForm, text_color: e.target.value })}
                 className="w-full h-10 bg-white text-black border border-gray-300"
               />
@@ -9425,7 +9432,7 @@ export default function MenuManager() {
               <label className="block mb-1 font-bold">{dishCardsColorLabel}</label>
               <input
                 type="color"
-                value={String((restaurantForm as Record<string, unknown>).card_bg_color || "#FFFFFF")}
+                value={String((restaurantForm as any).card_bg_color || "#FFFFFF")}
                 onChange={(e) => setRestaurantForm({ ...restaurantForm, card_bg_color: e.target.value })}
                 className="w-full h-10 bg-white text-black border border-gray-300"
               />
@@ -9438,7 +9445,7 @@ export default function MenuManager() {
                   min={0}
                   max={100}
                   step={1}
-                  value={Number((restaurantForm as Record<string, unknown>).card_bg_opacity ?? 100)}
+                  value={Number((restaurantForm as any).card_bg_opacity ?? 100)}
                   onChange={(e) =>
                     setRestaurantForm({
                       ...restaurantForm,
@@ -9452,7 +9459,7 @@ export default function MenuManager() {
                   min={0}
                   max={100}
                   step={1}
-                  value={Number((restaurantForm as Record<string, unknown>).card_bg_opacity ?? 100)}
+                  value={Number((restaurantForm as any).card_bg_opacity ?? 100)}
                   onChange={(e) =>
                     setRestaurantForm({
                       ...restaurantForm,
@@ -9468,7 +9475,7 @@ export default function MenuManager() {
               <label className="block mb-1 font-bold">{dishCardsTextColorLabel}</label>
               <input
                 type="color"
-                value={String((restaurantForm as Record<string, unknown>).card_text_color || "#111111")}
+                value={String((restaurantForm as any).card_text_color || "#111111")}
                 onChange={(e) => setRestaurantForm({ ...restaurantForm, card_text_color: e.target.value })}
                 className="w-full h-10 bg-white text-black border border-gray-300"
               />
@@ -9476,14 +9483,14 @@ export default function MenuManager() {
             <label className={`flex items-center gap-2 text-sm font-bold text-black ${activeManagerTab === "appearance" ? "" : "hidden"}`}>
               <input
                 type="checkbox"
-                checked={Boolean((restaurantForm as Record<string, unknown>).card_transparent)}
+                checked={Boolean((restaurantForm as any).card_transparent)}
                 onChange={(e) =>
                   setRestaurantForm({
                     ...restaurantForm,
                     card_transparent: e.target.checked,
                     card_bg_opacity: e.target.checked
                       ? 0
-                      : Math.max(Number((restaurantForm as Record<string, unknown>).card_bg_opacity ?? 0), 100),
+                      : Math.max(Number((restaurantForm as any).card_bg_opacity ?? 0), 100),
                   })
                 }
               />
@@ -9493,7 +9500,7 @@ export default function MenuManager() {
               <label className="flex items-start gap-2 text-sm font-bold text-black">
                 <input
                   type="checkbox"
-                  checked={Boolean((restaurantForm as Record<string, unknown>).quick_add_to_cart_enabled)}
+                  checked={Boolean((restaurantForm as any).quick_add_to_cart_enabled)}
                   onChange={(e) =>
                     setRestaurantForm({
                       ...restaurantForm,
@@ -9530,7 +9537,7 @@ export default function MenuManager() {
                 <label className="flex items-start gap-2 text-sm font-bold text-black">
                   <input
                     type="checkbox"
-                    checked={Boolean((restaurantForm as Record<string, unknown>).category_drawer_enabled)}
+                    checked={Boolean((restaurantForm as any).category_drawer_enabled)}
                     onChange={(e) =>
                       setRestaurantForm({ ...restaurantForm, category_drawer_enabled: e.target.checked })
                     }
@@ -9560,7 +9567,7 @@ export default function MenuManager() {
                 <label className="flex items-start gap-2 text-sm font-bold text-black">
                   <input
                     type="checkbox"
-                    checked={Boolean((restaurantForm as Record<string, unknown>).keep_suggestions_on_top)}
+                    checked={Boolean((restaurantForm as any).keep_suggestions_on_top)}
                     onChange={(e) =>
                       setRestaurantForm({ ...restaurantForm, keep_suggestions_on_top: e.target.checked })
                     }
@@ -9583,7 +9590,7 @@ export default function MenuManager() {
                   <div className="flex items-center gap-2">
                     <input
                       type="time"
-                      value={String((restaurantForm as Record<string, unknown>).service_lunch_start || "")}
+                      value={String((restaurantForm as any).service_lunch_start || "")}
                       onChange={(e) =>
                         setRestaurantForm({ ...restaurantForm, service_lunch_start: e.target.value })
                       }
@@ -9592,7 +9599,7 @@ export default function MenuManager() {
                     <span className="text-xs font-black text-gray-600">à</span>
                     <input
                       type="time"
-                      value={String((restaurantForm as Record<string, unknown>).service_lunch_end || "")}
+                      value={String((restaurantForm as any).service_lunch_end || "")}
                       onChange={(e) =>
                         setRestaurantForm({ ...restaurantForm, service_lunch_end: e.target.value })
                       }
@@ -9605,7 +9612,7 @@ export default function MenuManager() {
                   <div className="flex items-center gap-2">
                     <input
                       type="time"
-                      value={String((restaurantForm as Record<string, unknown>).service_dinner_start || "")}
+                      value={String((restaurantForm as any).service_dinner_start || "")}
                       onChange={(e) =>
                         setRestaurantForm({ ...restaurantForm, service_dinner_start: e.target.value })
                       }
@@ -9614,7 +9621,7 @@ export default function MenuManager() {
                     <span className="text-xs font-black text-gray-600">à</span>
                     <input
                       type="time"
-                      value={String((restaurantForm as Record<string, unknown>).service_dinner_end || "")}
+                      value={String((restaurantForm as any).service_dinner_end || "")}
                       onChange={(e) =>
                         setRestaurantForm({ ...restaurantForm, service_dinner_end: e.target.value })
                       }
@@ -9676,14 +9683,14 @@ export default function MenuManager() {
                 <button
                   type="button"
                   onClick={() => setRestaurantForm((prev) => ({ ...prev, menu_layout: "classic_grid" }))}
-                  className={`px-3 py-2 border-2 font-black rounded ${String((restaurantForm as Record<string, unknown>).menu_layout || "classic_grid") === "classic_grid" ? "bg-black text-white border-black" : "bg-white text-black border-gray-300"}`}
+                  className={`px-3 py-2 border-2 font-black rounded ${String((restaurantForm as any).menu_layout || "classic_grid") === "classic_grid" ? "bg-black text-white border-black" : "bg-white text-black border-gray-300"}`}
                 >
                   Classique (image en haut)
                 </button>
                 <button
                   type="button"
                   onClick={() => setRestaurantForm((prev) => ({ ...prev, menu_layout: "modern_list" }))}
-                  className={`px-3 py-2 border-2 font-black rounded ${String((restaurantForm as Record<string, unknown>).menu_layout || "classic_grid") === "modern_list" ? "bg-black text-white border-black" : "bg-white text-black border-gray-300"}`}
+                  className={`px-3 py-2 border-2 font-black rounded ${String((restaurantForm as any).menu_layout || "classic_grid") === "modern_list" ? "bg-black text-white border-black" : "bg-white text-black border-gray-300"}`}
                 >
                   Compact (image ? gauche)
                 </button>
@@ -9695,21 +9702,21 @@ export default function MenuManager() {
                 <button
                   type="button"
                   onClick={() => setRestaurantForm((prev) => ({ ...prev, card_layout: "default" }))}
-                  className={`px-3 py-2 border-2 font-black rounded ${String((restaurantForm as Record<string, unknown>).card_layout || "default") === "default" ? "bg-black text-white border-black" : "bg-white text-black border-gray-300"}`}
+                  className={`px-3 py-2 border-2 font-black rounded ${String((restaurantForm as any).card_layout || "default") === "default" ? "bg-black text-white border-black" : "bg-white text-black border-gray-300"}`}
                 >
                   Standard
                 </button>
                 <button
                   type="button"
                   onClick={() => setRestaurantForm((prev) => ({ ...prev, card_layout: "overlay" }))}
-                  className={`px-3 py-2 border-2 font-black rounded ${String((restaurantForm as Record<string, unknown>).card_layout || "default") === "overlay" ? "bg-black text-white border-black" : "bg-white text-black border-gray-300"}`}
+                  className={`px-3 py-2 border-2 font-black rounded ${String((restaurantForm as any).card_layout || "default") === "overlay" ? "bg-black text-white border-black" : "bg-white text-black border-gray-300"}`}
                 >
                   Overlay (pleine image)
                 </button>
                 <button
                   type="button"
                   onClick={() => setRestaurantForm((prev) => ({ ...prev, card_layout: "bicolor" }))}
-                  className={`px-3 py-2 border-2 font-black rounded ${String((restaurantForm as Record<string, unknown>).card_layout || "default") === "bicolor" ? "bg-black text-white border-black" : "bg-white text-black border-gray-300"}`}
+                  className={`px-3 py-2 border-2 font-black rounded ${String((restaurantForm as any).card_layout || "default") === "bicolor" ? "bg-black text-white border-black" : "bg-white text-black border-gray-300"}`}
                 >
                   Moderne Bicolore
                 </button>
@@ -9724,14 +9731,14 @@ export default function MenuManager() {
                 <button
                   type="button"
                   onClick={() => setRestaurantForm((prev) => ({ ...prev, card_style: "rounded" }))}
-                  className={`px-3 py-2 border-2 font-black rounded ${normalizeCardStyle((restaurantForm as Record<string, unknown>).card_style) === "rounded" ? "bg-black text-white border-black" : "bg-white text-black border-gray-300"}`}
+                  className={`px-3 py-2 border-2 font-black rounded ${normalizeCardStyle((restaurantForm as any).card_style) === "rounded" ? "bg-black text-white border-black" : "bg-white text-black border-gray-300"}`}
                 >
                   Moderne / Arrondi
                 </button>
                 <button
                   type="button"
                   onClick={() => setRestaurantForm((prev) => ({ ...prev, card_style: "sharp" }))}
-                  className={`px-3 py-2 border-2 font-black rounded ${normalizeCardStyle((restaurantForm as Record<string, unknown>).card_style) === "sharp" ? "bg-black text-white border-black" : "bg-white text-black border-gray-300"}`}
+                  className={`px-3 py-2 border-2 font-black rounded ${normalizeCardStyle((restaurantForm as any).card_style) === "sharp" ? "bg-black text-white border-black" : "bg-white text-black border-gray-300"}`}
                 >
                   Élégant / Pointu
                 </button>
@@ -9741,7 +9748,7 @@ export default function MenuManager() {
               <label className="block mb-1 font-bold">Lien Google Review</label>
               <input
                 type="url"
-                value={String((restaurantForm as Record<string, unknown>).google_review_url || "")}
+                value={String((restaurantForm as any).google_review_url || "")}
                 onChange={(e) => setRestaurantForm({ ...restaurantForm, google_review_url: e.target.value })}
                 placeholder="https://g.page/r/.../review"
                 className="w-full px-3 py-2 bg-white text-black border border-gray-300"
@@ -9830,7 +9837,7 @@ export default function MenuManager() {
                   <label className="block mb-1 font-bold">Instagram</label>
                   <input
                     type="url"
-                    value={String((restaurantForm as Record<string, unknown>).instagram_url || "")}
+                    value={String((restaurantForm as any).instagram_url || "")}
                     onChange={(e) => setRestaurantForm({ ...restaurantForm, instagram_url: e.target.value })}
                     placeholder="https://instagram.com/..."
                     className="w-full px-3 py-2 bg-white text-black border border-gray-300"
@@ -9840,7 +9847,7 @@ export default function MenuManager() {
                   <label className="block mb-1 font-bold">Snapchat</label>
                   <input
                     type="url"
-                    value={String((restaurantForm as Record<string, unknown>).snapchat_url || "")}
+                    value={String((restaurantForm as any).snapchat_url || "")}
                     onChange={(e) => setRestaurantForm({ ...restaurantForm, snapchat_url: e.target.value })}
                     placeholder="https://snapchat.com/add/..."
                     className="w-full px-3 py-2 bg-white text-black border border-gray-300"
@@ -9850,7 +9857,7 @@ export default function MenuManager() {
                   <label className="block mb-1 font-bold">Facebook</label>
                   <input
                     type="url"
-                    value={String((restaurantForm as Record<string, unknown>).facebook_url || "")}
+                    value={String((restaurantForm as any).facebook_url || "")}
                     onChange={(e) => setRestaurantForm({ ...restaurantForm, facebook_url: e.target.value })}
                     placeholder="https://facebook.com/..."
                     className="w-full px-3 py-2 bg-white text-black border border-gray-300"
@@ -9860,7 +9867,7 @@ export default function MenuManager() {
                   <label className="block mb-1 font-bold">X</label>
                   <input
                     type="url"
-                    value={String((restaurantForm as Record<string, unknown>).x_url || "")}
+                    value={String((restaurantForm as any).x_url || "")}
                     onChange={(e) => setRestaurantForm({ ...restaurantForm, x_url: e.target.value })}
                     placeholder="https://x.com/..."
                     className="w-full px-3 py-2 bg-white text-black border border-gray-300"
@@ -9870,7 +9877,7 @@ export default function MenuManager() {
                   <label className="block mb-1 font-bold">Site Web</label>
                   <input
                     type="url"
-                    value={String((restaurantForm as Record<string, unknown>).website_url || "")}
+                    value={String((restaurantForm as any).website_url || "")}
                     onChange={(e) => setRestaurantForm({ ...restaurantForm, website_url: e.target.value })}
                     placeholder="https://..."
                     className="w-full px-3 py-2 bg-white text-black border border-gray-300"
@@ -9880,7 +9887,7 @@ export default function MenuManager() {
                   <label className="flex items-center gap-2 text-sm font-bold text-black">
                     <input
                       type="checkbox"
-                      checked={Boolean((restaurantForm as Record<string, unknown>).show_social_on_receipt)}
+                      checked={Boolean((restaurantForm as any).show_social_on_receipt)}
                       onChange={(e) =>
                         setRestaurantForm({ ...restaurantForm, show_social_on_receipt: e.target.checked })
                       }
@@ -11364,7 +11371,7 @@ export default function MenuManager() {
                         const options = dishes.filter((dish) => {
                           if (String(dish.category_id) !== String(categoryId)) return false;
                           if (String(dish.id || "").trim() === String(editingDish?.id || "").trim()) return false;
-                          return !toBoolean((dish as Record<string, unknown>).is_formula ?? dish.is_formula, false);
+                          return !toBoolean((dish as any).is_formula ?? dish.is_formula, false);
                         });
                         return (
                           <div key={`formula-dishes-${categoryId}`} className="border border-gray-200 rounded p-2 mb-3">
@@ -11775,6 +11782,7 @@ export default function MenuManager() {
     </div>
   );
 }
+
 
 
 

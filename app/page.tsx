@@ -1,4 +1,4 @@
-﻿
+
 "use client";
 
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -679,7 +679,7 @@ function deepFixDisplayText<T>(value: T): T {
   }
   if (value && typeof value === "object") {
     return Object.fromEntries(
-      Object.entries(value as unknown as Record<string, unknown>).map(([key, entry]) => [key, deepFixDisplayText(entry)])
+      Object.entries(value as unknown as any).map(([key, entry]) => [key, deepFixDisplayText(entry)])
     ) as T;
   }
   return value;
@@ -779,7 +779,7 @@ function parseUiTranslations(raw: unknown): UiTranslationsByLang {
     const code = normalizeLanguageKey(rawCode);
     if (!code || !value || typeof value !== "object") return;
     const dict = Object.fromEntries(
-      Object.entries(value as unknown as Record<string, unknown>)
+      Object.entries(value as unknown as any)
         .map(([k, v]) => [String(k || "").trim(), String(v || "").trim()])
         .filter(([k, v]) => k.length > 0 && v.length > 0)
     ) as UiDictionary;
@@ -1090,12 +1090,12 @@ function parseJsonObject(raw: unknown): Record<string, unknown> {
   if (typeof raw === "string") {
     try {
       const parsed = JSON.parse(raw) as unknown;
-      return parsed && typeof parsed === "object" ? (parsed as unknown as Record<string, unknown>) : {};
+      return parsed && typeof parsed === "object" ? (parsed as unknown as any) : {};
     } catch {
       return {};
     }
   }
-  return raw && typeof raw === "object" ? (raw as unknown as Record<string, unknown>) : {};
+  return raw && typeof raw === "object" ? (raw as unknown as any) : {};
 }
 
 function getNameTranslation(source: Record<string, unknown>, langCode: string) {
@@ -1104,7 +1104,7 @@ function getNameTranslation(source: Record<string, unknown>, langCode: string) {
   const encodedToken = String(source.name_en || "").trim();
   if (encodedToken.startsWith("__I18N__:")) {
     try {
-      const parsed = JSON.parse(decodeURIComponent(encodedToken.replace("__I18N__:", ""))) as unknown as Record<string, unknown>;
+      const parsed = JSON.parse(decodeURIComponent(encodedToken.replace("__I18N__:", ""))) as unknown as any;
       const dynamic = String(parsed[lang] || "").trim();
       if (dynamic) return dynamic;
       const dynamicFr = String(parsed.fr || "").trim();
@@ -1117,7 +1117,7 @@ function getNameTranslation(source: Record<string, unknown>, langCode: string) {
   if (directColumn) {
     if (directColumn.startsWith("__I18N__:")) {
       try {
-        const parsed = JSON.parse(decodeURIComponent(directColumn.replace("__I18N__:", ""))) as unknown as Record<string, unknown>;
+        const parsed = JSON.parse(decodeURIComponent(directColumn.replace("__I18N__:", ""))) as unknown as any;
         const dynamic = String(parsed[lang] || "").trim();
         if (dynamic) return dynamic;
         const fallback = String(parsed.fr || "").trim();
@@ -1132,7 +1132,7 @@ function getNameTranslation(source: Record<string, unknown>, langCode: string) {
   const translations = parseJsonObject(source.translations);
   const nameNode =
     translations.name && typeof translations.name === "object"
-      ? (translations.name as unknown as Record<string, unknown>)
+      ? (translations.name as unknown as any)
       : null;
   if (nameNode) {
     const nested = String(nameNode[lang] || "").trim();
@@ -1175,7 +1175,7 @@ function parseI18nToken(raw: unknown) {
     const parsed = JSON.parse(decodeURIComponent(value.replace("__I18N__:", "")));
     if (!parsed || typeof parsed !== "object") return {} as Record<string, string>;
     return Object.fromEntries(
-      Object.entries(parsed as unknown as Record<string, unknown>).map(([k, v]) => [
+      Object.entries(parsed as unknown as any).map(([k, v]) => [
         String(k || "").toLowerCase(),
         String(v || "").trim(),
       ])
@@ -1220,7 +1220,7 @@ function toLoggableSupabaseError(error: unknown) {
     };
   }
   if (typeof error !== "object") return { message: String(error) };
-  const raw = error as unknown as Record<string, unknown>;
+  const raw = error as unknown as any;
   const parsed = {
     code: typeof raw.code === "string" ? raw.code : undefined,
     message: typeof raw.message === "string" ? raw.message : undefined,
@@ -1240,7 +1240,7 @@ function toLoggableSupabaseError(error: unknown) {
 }
 
 function isMissingColumnError(error: unknown, columnNames: string[]) {
-  const info = toLoggableSupabaseError(error) as unknown as Record<string, unknown>;
+  const info = toLoggableSupabaseError(error) as unknown as any;
   const code = String(info.code || "").trim();
   const joined = [info.message, info.details, info.hint].map((value) => String(value || "")).join(" ").toLowerCase();
   if (code === "42703") return true;
@@ -1287,12 +1287,12 @@ function parseDisplaySettingsFromSettingsJson(raw: unknown) {
     typeof raw === "string"
       ? (() => {
           try {
-            return JSON.parse(raw) as unknown as Record<string, unknown>;
+            return JSON.parse(raw) as unknown as any;
           } catch {
             return null;
           }
         })()
-      : (raw as unknown as Record<string, unknown> | null);
+      : (raw as unknown as any | null);
   if (!source || typeof source !== "object") return null;
   const langs = parseEnabledLanguageEntries(source.enabled_languages);
   const marketing = parseMarketingOptions(source.table_config || source.marketing_options || source.marketing || source);
@@ -1324,26 +1324,26 @@ function parseMarketingOptions(raw: unknown) {
     typeof raw === "string"
       ? (() => {
           try {
-            return JSON.parse(raw) as unknown as Record<string, unknown>;
+            return JSON.parse(raw) as unknown as any;
           } catch {
             return null;
           }
         })()
-      : (raw as unknown as Record<string, unknown> | null);
+      : (raw as unknown as any | null);
   const marketingContainer =
     source && typeof source === "object" && source.marketing_options && typeof source.marketing_options === "object"
-      ? (source.marketing_options as unknown as Record<string, unknown>)
+      ? (source.marketing_options as unknown as any)
       : source && typeof source === "object" && source.marketing && typeof source.marketing === "object"
-        ? (source.marketing as unknown as Record<string, unknown>)
+        ? (source.marketing as unknown as any)
         : source;
   const rawRules =
     marketingContainer?.suggestion_rules && Array.isArray(marketingContainer.suggestion_rules)
       ? marketingContainer.suggestion_rules
       : [];
   const suggestionRules = rawRules
-    .map((item) => {
+    .map((item: unknown) => {
       if (!item || typeof item !== "object") return null;
-      const row = item as unknown as Record<string, unknown>;
+      const row = item as unknown as any;
       const from = String(row.from_category_id || "").trim();
       const to = String(row.to_category_id || "").trim();
       if (!from || !to) return null;
@@ -1353,7 +1353,7 @@ function parseMarketingOptions(raw: unknown) {
   const suggestionMessage = String(marketingContainer?.suggestion_message || "").trim();
   const rawSuggestionMessages =
     marketingContainer?.suggestion_message_i18n && typeof marketingContainer.suggestion_message_i18n === "object"
-      ? (marketingContainer.suggestion_message_i18n as unknown as Record<string, unknown>)
+      ? (marketingContainer.suggestion_message_i18n as unknown as any)
       : {};
   const suggestionMessagesI18n = Object.fromEntries(
     Object.entries(rawSuggestionMessages)
@@ -1532,10 +1532,10 @@ function parseOptionsFromDescription(description?: string | null): ParsedOptions
           result.extrasList = parsed
             .map((row) => {
               if (!row || typeof row !== "object") return null;
-              const item = row as unknown as Record<string, unknown>;
+              const item = row as unknown as any;
               const namesObj = (item.names_i18n && typeof item.names_i18n === "object"
-                ? (item.names_i18n as unknown as Record<string, unknown>)
-                : {}) as unknown as Record<string, unknown>;
+                ? (item.names_i18n as unknown as any)
+                : {}) as unknown as any;
               const names: Record<string, string> = {};
               Object.entries(namesObj).forEach(([k, v]) => {
                 const key = String(k || "").trim().toLowerCase();
@@ -1616,9 +1616,9 @@ function parseExtrasFromUnknown(raw: unknown, dishId: unknown): ExtrasItem[] {
     Array.isArray(source)
       ? source
       : typeof source === "object" && source !== null
-        ? ((source as Record<string, unknown>).extras ??
-          (source as Record<string, unknown>).items ??
-          (source as Record<string, unknown>).list)
+        ? ((source as any).extras ??
+          (source as any).items ??
+          (source as any).list)
         : [];
 
   if (!Array.isArray(candidate)) return [];
@@ -1626,7 +1626,7 @@ function parseExtrasFromUnknown(raw: unknown, dishId: unknown): ExtrasItem[] {
   return candidate
     .map((item, index) => {
       if (!item || typeof item !== "object") return null;
-      const row = item as Record<string, unknown>;
+      const row = item as any;
       const parsedNamesI18n = Object.fromEntries(
         Object.entries(parseJsonObject(row.names_i18n)).map(([k, v]) => [
           normalizeLanguageKey(k),
@@ -1716,7 +1716,7 @@ function mergeExtrasUnique(primary: ExtrasItem[], secondary: ExtrasItem[]) {
 }
 
 function getDishExtras(dish: Dish) {
-  const dishRecord = dish as unknown as Record<string, unknown>;
+  const dishRecord = dish as unknown as any;
   const fromRelation = Array.isArray(dishRecord.dish_options)
     ? parseDishOptionsRowsToExtras(dishRecord.dish_options as Array<Record<string, unknown>>, dish.id)
     : [];
@@ -1730,7 +1730,7 @@ function getDishExtras(dish: Dish) {
 
 function getDishName(dish: Dish, lang: string) {
   const uiLang = toUiLang(lang);
-  const dishRecord = dish as unknown as Record<string, unknown>;
+  const dishRecord = dish as unknown as any;
   const normalizedLang = normalizeLanguageKey(lang);
   const langColumnCandidates = [
     `name_${normalizedLang}`,
@@ -1763,20 +1763,20 @@ function getDishName(dish: Dish, lang: string) {
   );
   if (fromTranslations) return fromTranslations;
 
-  const meta = (dish as unknown as Record<string, unknown>).dietary_tag;
+  const meta = (dish as unknown as any).dietary_tag;
   const parsedMeta =
     typeof meta === "string"
       ? (() => {
           try {
-            return JSON.parse(meta) as unknown as Record<string, unknown>;
+            return JSON.parse(meta) as unknown as any;
           } catch {
             return {};
           }
         })()
-      : (meta as unknown as Record<string, unknown> | null) || {};
+      : (meta as unknown as any | null) || {};
   const i18nName =
     parsedMeta.i18n && typeof parsedMeta.i18n === "object"
-      ? ((parsedMeta.i18n as unknown as Record<string, unknown>).name as unknown as Record<string, unknown> | undefined)
+      ? ((parsedMeta.i18n as unknown as any).name as unknown as any | undefined)
       : undefined;
   if (i18nName && typeof i18nName === "object") {
     const normalizedDynamicValue = i18nName[normalizedLang as keyof typeof i18nName];
@@ -1806,7 +1806,7 @@ function getDishName(dish: Dish, lang: string) {
 function getDescription(dish: Dish, lang: string) {
   const langCode = normalizeLanguageKey(lang);
   const uiLang = toUiLang(lang);
-  const dishRecord = dish as unknown as Record<string, unknown>;
+  const dishRecord = dish as unknown as any;
   const directDescriptionColumnCandidates = [
     `description_${langCode}`,
     `description_${uiLang}`,
@@ -1823,30 +1823,30 @@ function getDescription(dish: Dish, lang: string) {
     const directValue = String(dishRecord[key] || "").trim();
     if (directValue) return parseOptionsFromDescription(directValue).baseDescription;
   }
-  const translations = parseJsonObject((dish as unknown as Record<string, unknown>).translations);
+  const translations = parseJsonObject((dish as unknown as any).translations);
   const descriptionNode =
     translations.description && typeof translations.description === "object"
-      ? (translations.description as unknown as Record<string, unknown>)
+      ? (translations.description as unknown as any)
       : {};
   const translatedDescription = String(descriptionNode[langCode] || "").trim();
   if (translatedDescription) {
     return parseOptionsFromDescription(translatedDescription).baseDescription;
   }
 
-  const meta = (dish as unknown as Record<string, unknown>).dietary_tag;
+  const meta = (dish as unknown as any).dietary_tag;
   const parsedMeta =
     typeof meta === "string"
       ? (() => {
           try {
-            return JSON.parse(meta) as unknown as Record<string, unknown>;
+            return JSON.parse(meta) as unknown as any;
           } catch {
             return {};
           }
         })()
-      : (meta as unknown as Record<string, unknown> | null) || {};
+      : (meta as unknown as any | null) || {};
   const i18nDescription =
     parsedMeta.i18n && typeof parsedMeta.i18n === "object"
-      ? ((parsedMeta.i18n as unknown as Record<string, unknown>).description as unknown as Record<string, unknown> | undefined)
+      ? ((parsedMeta.i18n as unknown as any).description as unknown as any | undefined)
       : undefined;
   if (i18nDescription && typeof i18nDescription === "object") {
     const normalizedDynamicValue = i18nDescription[langCode as keyof typeof i18nDescription];
@@ -1862,11 +1862,11 @@ function getDescription(dish: Dish, lang: string) {
 }
 
 function getExtraLabel(extra: ExtrasItem, lang: string) {
-  const names = (extra as unknown as Record<string, unknown>).names_i18n;
+  const names = (extra as unknown as any).names_i18n;
   const normalizedLang = normalizeLanguageKey(lang);
   const uiLang = toUiLang(lang);
   if (names && typeof names === "object") {
-    const namesRecord = names as unknown as Record<string, unknown>;
+    const namesRecord = names as unknown as any;
     const dynamicValue = namesRecord[normalizedLang] ?? namesRecord[uiLang] ?? namesRecord[lang];
     if (typeof dynamicValue === "string" && dynamicValue.trim()) return dynamicValue.trim();
   }
@@ -1887,7 +1887,7 @@ function getAllergens(dish: Dish) {
     return [] as string[];
   };
 
-  const dietaryMeta = parseJsonObject((dish as unknown as Record<string, unknown>).dietary_tag);
+  const dietaryMeta = parseJsonObject((dish as unknown as any).dietary_tag);
   const dietaryI18n = parseJsonObject(dietaryMeta.i18n);
   const topLevelDietaryList = parseList(
     dietaryMeta.allergens_selected ?? dietaryMeta.allergens_fr ?? dietaryMeta.allergens
@@ -1924,9 +1924,9 @@ function getLocalizedAllergens(dish: Dish, lang: string) {
   };
 
   const fromField = getAllergens(dish);
-  const dietaryMeta = parseJsonObject((dish as unknown as Record<string, unknown>).dietary_tag);
+  const dietaryMeta = parseJsonObject((dish as unknown as any).dietary_tag);
   const dietaryI18n = parseJsonObject(dietaryMeta.i18n);
-  const translations = parseJsonObject((dish as unknown as Record<string, unknown>).translations);
+  const translations = parseJsonObject((dish as unknown as any).translations);
   const requestedLang = normalizeLanguageKey(lang);
   const uiLang = toUiLang(lang);
 
@@ -1951,7 +1951,7 @@ function getLocalizedAllergens(dish: Dish, lang: string) {
       const local = parseList(dietaryAllergensNode);
       if (local.length > 0) return local;
     } else if (typeof dietaryAllergensNode === "object") {
-      const source = dietaryAllergensNode as Record<string, unknown>;
+      const source = dietaryAllergensNode as any;
       const localizedRaw = source[requestedLang] ?? source[uiLang] ?? source.fr ?? source.default;
       const localized = parseList(localizedRaw);
       if (localized.length > 0) return localized;
@@ -1968,7 +1968,7 @@ function getLocalizedAllergens(dish: Dish, lang: string) {
   }
   if (typeof allergensNode !== "object") return fromField;
 
-  const source = allergensNode as Record<string, unknown>;
+  const source = allergensNode as any;
   const localizedRaw = source[requestedLang] ?? source[uiLang] ?? source.fr ?? source.default;
   const localized = parseList(localizedRaw);
   return localized.length > 0 ? localized : fromField;
@@ -2010,7 +2010,7 @@ function buildAllergenLibraryLookup(raw: unknown) {
 function getSpicyBadgeLabel(dish: Dish, lang: string) {
   const uiLang = toUiLang(lang);
   const requestedLang = normalizeLanguageKey(lang);
-  const translations = parseJsonObject((dish as unknown as Record<string, unknown>).translations);
+  const translations = parseJsonObject((dish as unknown as any).translations);
   const langNode = parseJsonObject(translations[requestedLang] ?? translations[uiLang]);
   const spicyNode = langNode.spicy_level ?? translations.spicy_level;
   let localized = "";
@@ -2018,7 +2018,7 @@ function getSpicyBadgeLabel(dish: Dish, lang: string) {
   if (typeof spicyNode === "string") {
     localized = spicyNode.trim();
   } else if (spicyNode && typeof spicyNode === "object") {
-    const source = spicyNode as Record<string, unknown>;
+    const source = spicyNode as any;
     localized = String(source[requestedLang] ?? source[uiLang] ?? source.fr ?? "").trim();
   }
 
@@ -2029,9 +2029,9 @@ function getSpicyBadgeLabel(dish: Dish, lang: string) {
 }
 
 function getDishStyleBadgeFlags(dish: Dish) {
-  const dietaryMeta = parseJsonObject((dish as unknown as Record<string, unknown>).dietary_tag);
+  const dietaryMeta = parseJsonObject((dish as unknown as any).dietary_tag);
   const badges = parseJsonObject(dietaryMeta.badges);
-  const spicyFallback = Boolean(String((dish as unknown as Record<string, unknown>).spicy_level || "").trim());
+  const spicyFallback = Boolean(String((dish as unknown as any).spicy_level || "").trim());
   return {
     vegetarian: Boolean(dish.is_vegetarian ?? dietaryMeta.is_vegetarian ?? badges.vegetarian),
     spicy: Boolean(dish.is_spicy ?? dietaryMeta.is_spicy ?? badges.spicy ?? spicyFallback),
@@ -2056,7 +2056,7 @@ function getHungerLevel(dish: Dish, lang: string) {
             : UI_TRANSLATIONS[uiLang]?.bigHunger) ||
         fallback
     );
-  const directHungerRaw = String((dish as unknown as Record<string, unknown>).hunger_level || "").trim();
+  const directHungerRaw = String((dish as unknown as any).hunger_level || "").trim();
   if (directHungerRaw) {
     const normalizedHungerRaw = normalizeLookupText(directHungerRaw);
     if (normalizedHungerRaw === "petite faim") return translatedHungerLabel("small", directHungerRaw);
@@ -2073,7 +2073,7 @@ function getHungerLevel(dish: Dish, lang: string) {
     if (normalized === "grosse faim") return translatedHungerLabel("big", value);
     return value;
   };
-  const translations = parseJsonObject((dish as unknown as Record<string, unknown>).translations);
+  const translations = parseJsonObject((dish as unknown as any).translations);
   const langNode = parseJsonObject(translations[normalizedLang] ?? translations[uiLang]);
   const cal = Number(dish.calories_max || dish.calories_min || 0);
   if (!cal || Number.isNaN(cal)) return "";
@@ -2437,9 +2437,9 @@ export default function MenuDigital() {
     return badges;
   };
   const uiText = useMemo(() => buildRuntimeUiText(UI_TEXT_CLEAN[uiLang], mergedUiDictionary), [uiLang, mergedUiDictionary]);
-  const kcalLabel = String((uiText as unknown as Record<string, unknown>).kcal || "kcal").trim() || "kcal";
+  const kcalLabel = String((uiText as unknown as any).kcal || "kcal").trim() || "kcal";
   const isOrderingDisabledClient =
-    consultationModeClient || parseShowCalories((restaurant as unknown as Record<string, unknown> | null)?.is_order_disabled, false);
+    consultationModeClient || parseShowCalories((restaurant as unknown as any | null)?.is_order_disabled, false);
   const isInteractionDisabled = isOrderingDisabledClient || isVitrineMode;
   const allergenLibraryLookup = useMemo(() => {
     const tableConfig = parseJsonObject(restaurant?.table_config);
@@ -2449,7 +2449,7 @@ export default function MenuDigital() {
     if (key === "featured_chef" || key === "sales_advice_title") {
       return (
         String(
-          (uiText as unknown as Record<string, unknown>).chefSuggestion ||
+          (uiText as unknown as any).chefSuggestion ||
             mergedUiDictionary.chefSuggestion ||
             UI_TRANSLATIONS[normalizedLang]?.chefSuggestion ||
             UI_TRANSLATIONS[uiLang]?.chefSuggestion
@@ -2459,16 +2459,16 @@ export default function MenuDigital() {
     return uiText.labels[key] || t(lang, key);
   };
   const optionVariantsLabel =
-    String((uiText as unknown as Record<string, unknown>).optionsAndVariants || "").trim() || "Options / Variantes";
+    String((uiText as unknown as any).optionsAndVariants || "").trim() || "Options / Variantes";
   const itemTotalLabel =
-    String((uiText as unknown as Record<string, unknown>).itemTotal || "").trim() || "Total article";
+    String((uiText as unknown as any).itemTotal || "").trim() || "Total article";
   const toFinitePrice = (raw: unknown) => {
     if (raw == null) return null;
     if (typeof raw === "string" && raw.trim() === "") return null;
     return parsePriceNumber(raw);
   };
   const getPromoPriceForDish = (dish: Dish) => {
-    const source = dish as unknown as Record<string, unknown>;
+    const source = dish as unknown as any;
     if (!Boolean(source.is_promo)) return null;
     const promo = toFinitePrice(source.promo_price);
     if (promo == null || promo <= 0) return null;
@@ -2497,7 +2497,7 @@ export default function MenuDigital() {
     return discountedBase + optionSupplement;
   };
   const getDishSuggestionBadge = (dish: Dish) => {
-    const source = dish as unknown as Record<string, unknown>;
+    const source = dish as unknown as any;
     return Boolean(source.is_suggestion || source.is_chef_suggestion || source.is_featured);
   };
   const modalSelectedProductOptions = useMemo(() => {
@@ -2526,11 +2526,11 @@ export default function MenuDigital() {
     ).trim() || "Voir dÃ©tails";
   const consultationModeBannerText =
     String(
-      (uiText as unknown as Record<string, unknown>).consultation_mode_banner ||
+      (uiText as unknown as any).consultation_mode_banner ||
         "La commande se fait auprès de votre serveur. Utilisez ce menu pour découvrir nos plats !"
     ).trim() || "La commande se fait auprès de votre serveur. Utilisez ce menu pour découvrir nos plats !";
   const restaurantTableConfig = parseJsonObject(restaurant?.table_config);
-  const restaurantRecord = restaurant as Record<string, unknown> | null;
+  const restaurantRecord = restaurant as any | null;
   const quickAddToCartEnabled =
     !isInteractionDisabled &&
     parseShowCalories(
@@ -2584,7 +2584,7 @@ export default function MenuDigital() {
   const globalTextColorValue = darkMode
     ? "#F5F5F5"
     : normalizeHexColor(
-        (restaurant as Record<string, unknown> | null)?.text_color ??
+        (restaurant as any | null)?.text_color ??
           restaurantTableConfig.text_color ??
           restaurantTableConfig.global_text_color,
         getHexContrastTextColor(bannerBgColor)
@@ -2600,7 +2600,7 @@ export default function MenuDigital() {
   const backgroundOpacity = darkMode
     ? 1
     : normalizeBackgroundOpacity(
-        (restaurant as Record<string, unknown> | null)?.bg_opacity ??
+        (restaurant as any | null)?.bg_opacity ??
           restaurantTableConfig.bg_opacity,
         1
       );
@@ -2653,7 +2653,7 @@ export default function MenuDigital() {
     categoryDrawerEnabled && isStickyActionsCompact && !isCategoryDrawerOpen && !hideCompactFloatingActions;
   const applyRealtimeDisplaySettingsRow = (rawRow: unknown) => {
     if (!rawRow || typeof rawRow !== "object") return;
-    const row = rawRow as Record<string, unknown>;
+    const row = rawRow as any;
     if (scopedRestaurantId) {
       const rowId = String(row.id || "").trim();
       if (!rowId || rowId !== scopedRestaurantId) return;
@@ -2672,13 +2672,13 @@ export default function MenuDigital() {
     const rawDrawerEnabled =
       config.category_drawer_enabled ??
       config.show_category_drawer ??
-      (row as Record<string, unknown>).category_drawer_enabled ??
-      (row as Record<string, unknown>).show_category_drawer;
+      (row as any).category_drawer_enabled ??
+      (row as any).show_category_drawer;
     const rawKeepSuggestions =
       config.keep_suggestions_on_top ??
       config.pin_suggestions ??
-      (row as Record<string, unknown>).keep_suggestions_on_top ??
-      (row as Record<string, unknown>).pin_suggestions;
+      (row as any).keep_suggestions_on_top ??
+      (row as any).pin_suggestions;
     setCategoryDrawerEnabled(Boolean(rawDrawerEnabled));
     setKeepSuggestionsOnTop(Boolean(rawKeepSuggestions));
     setServiceHours({
@@ -2710,7 +2710,7 @@ export default function MenuDigital() {
       setRestaurant((prev) => ({
         ...(prev || ({} as Restaurant)),
         ...(row as Partial<Restaurant>),
-        font_family: String((row as Record<string, unknown>).font_family || (prev as any)?.font_family || "").trim() || null,
+        font_family: String((row as any).font_family || (prev as any)?.font_family || "").trim() || null,
       }) as Restaurant);
     }
   };
@@ -2736,7 +2736,7 @@ export default function MenuDigital() {
   useEffect(() => {
     let isActive = true;
     const fetchFormulaLinks = async () => {
-      const formulaId = String((formulaDish as unknown as Record<string, unknown> | null)?.id || "").trim();
+      const formulaId = String((formulaDish as unknown as any | null)?.id || "").trim();
       if (!formulaId) {
         setFormulaLinkedDishIds([]);
         return;
@@ -2769,7 +2769,7 @@ export default function MenuDigital() {
       }
       const ids = Array.isArray(result.data)
         ? result.data
-            .map((row) => String((row as Record<string, unknown>).dish_id || "").trim())
+            .map((row) => String((row as any).dish_id || "").trim())
             .filter(Boolean)
         : [];
       if (isActive) setFormulaLinkedDishIds(ids);
@@ -2782,7 +2782,7 @@ export default function MenuDigital() {
   const fetchConsultationModeState = async () => {
     const applyRow = (row: unknown) => {
       if (!row || typeof row !== "object") return false;
-      const parsed = parseDisplaySettingsFromRow(row as Record<string, unknown>);
+      const parsed = parseDisplaySettingsFromRow(row as any);
       setConsultationModeClient(parsed.consultationMode);
       return true;
     };
@@ -2938,7 +2938,7 @@ export default function MenuDigital() {
 
   useEffect(() => {
     if (!isVitrineMode) return;
-    const targetRestaurantId = String((restaurant as Record<string, unknown> | null)?.id || scopedRestaurantId || "").trim();
+    const targetRestaurantId = String((restaurant as any | null)?.id || scopedRestaurantId || "").trim();
     if (!targetRestaurantId) return;
     if (vitrineViewTrackedRef.current[targetRestaurantId]) return;
     vitrineViewTrackedRef.current[targetRestaurantId] = true;
@@ -3032,7 +3032,7 @@ export default function MenuDigital() {
       setOfflineRestaurantName("");
       setRestaurant(restaurantRow);
       console.log("POLICE RECUPEREE:", restaurantRow.font_family || null);
-      console.log("Etat du mode consultation recu du serveur :", (restaurantRow as Record<string, unknown>).is_order_disabled ?? null);
+      console.log("Etat du mode consultation recu du serveur :", (restaurantRow as any).is_order_disabled ?? null);
       restaurantFound = true;
       if (
         Object.prototype.hasOwnProperty.call(restaurantRow, "show_calories") ||
@@ -3067,13 +3067,13 @@ export default function MenuDigital() {
         const rawDrawerEnabled =
           tableConfig.category_drawer_enabled ??
           tableConfig.show_category_drawer ??
-          (restaurantRow as Record<string, unknown>).category_drawer_enabled ??
-          (restaurantRow as Record<string, unknown>).show_category_drawer;
+          (restaurantRow as any).category_drawer_enabled ??
+          (restaurantRow as any).show_category_drawer;
         const rawKeepSuggestions =
           tableConfig.keep_suggestions_on_top ??
           tableConfig.pin_suggestions ??
-          (restaurantRow as Record<string, unknown>).keep_suggestions_on_top ??
-          (restaurantRow as Record<string, unknown>).pin_suggestions;
+          (restaurantRow as any).keep_suggestions_on_top ??
+          (restaurantRow as any).pin_suggestions;
         setCategoryDrawerEnabled(Boolean(rawDrawerEnabled));
         setKeepSuggestionsOnTop(Boolean(rawKeepSuggestions));
         setServiceHours({
@@ -3122,14 +3122,14 @@ export default function MenuDigital() {
         .select("*")
         .limit(1);
       if (!profileError && Array.isArray(profileData) && profileData[0]) {
-        const row = profileData[0] as unknown as Record<string, unknown>;
+        const row = profileData[0] as unknown as any;
         if (!restaurantFound) {
           const normalizedProfileRow = {
             ...row,
             font_family: String(row.font_family || "").trim() || null,
           } as Restaurant;
           setRestaurant(normalizedProfileRow);
-          console.log("POLICE RECUPEREE:", (normalizedProfileRow as Record<string, unknown>).font_family || null);
+          console.log("POLICE RECUPEREE:", (normalizedProfileRow as any).font_family || null);
         }
         if (
           Object.prototype.hasOwnProperty.call(row, "show_calories") ||
@@ -3392,7 +3392,7 @@ export default function MenuDigital() {
       const normalized = (dishesData as Array<Record<string, any>>)
         .filter((dish) => {
           if (!Object.prototype.hasOwnProperty.call(dish, "active")) return true;
-          return Boolean((dish as Record<string, unknown>).active);
+          return Boolean((dish as any).active);
         })
         .map((dish) => {
         const row = dish as Dish & Record<string, any>;
@@ -3596,7 +3596,7 @@ export default function MenuDigital() {
   };
 
   const getCategoryLabel = (category: CategoryItem) => {
-    return getNameTranslation(category as unknown as unknown as Record<string, unknown>, lang) || category.name_fr;
+    return getNameTranslation(category as unknown as unknown as any, lang) || category.name_fr;
   };
 
   const sortedCategories = useMemo(() => {
@@ -3662,7 +3662,7 @@ export default function MenuDigital() {
   };
 
   const isDishVisibleInMenu = (dish: Dish) => {
-    const dishRecord = dish as unknown as Record<string, unknown>;
+    const dishRecord = dish as unknown as any;
     const onlyInFormula = toBooleanFlag(dishRecord.only_in_formula ?? dish.only_in_formula);
     const isFormulaDish = toBooleanFlag(dishRecord.is_formula ?? dish.is_formula);
     if (onlyInFormula && !isFormulaDish) return false;
@@ -3670,12 +3670,12 @@ export default function MenuDigital() {
   };
 
   const getSideLabel = (side: SideLibraryItem) => {
-    const fromTranslations = getNameTranslation(side as unknown as unknown as Record<string, unknown>, lang);
+    const fromTranslations = getNameTranslation(side as unknown as unknown as any, lang);
     if (fromTranslations) return fromTranslations;
     const raw = String(side.name_en || "");
     if (raw.startsWith("__I18N__:")) {
       try {
-        const parsed = JSON.parse(decodeURIComponent(raw.replace("__I18N__:", ""))) as unknown as Record<string, unknown>;
+        const parsed = JSON.parse(decodeURIComponent(raw.replace("__I18N__:", ""))) as unknown as any;
         const dynamic = parsed?.[lang];
         if (typeof dynamic === "string" && dynamic.trim()) return dynamic.trim();
         const dynamicUi = parsed?.[uiLang];
@@ -3691,7 +3691,7 @@ export default function MenuDigital() {
   };
 
   const getSubCategoryLabel = (subCategory: SubCategoryItem) => {
-    return getNameTranslation(subCategory as unknown as unknown as Record<string, unknown>, lang) || subCategory.name_fr;
+    return getNameTranslation(subCategory as unknown as unknown as any, lang) || subCategory.name_fr;
   };
 
   const sideNameFrById = useMemo(() => {
@@ -3765,7 +3765,7 @@ export default function MenuDigital() {
   }, [formulaDish, formulaLinkedDishIds, dishById]);
 
   const normalizedFormulaCategoryIds = useMemo(() => {
-    const raw = (formulaDish as unknown as Record<string, unknown> | null)?.formula_category_ids;
+    const raw = (formulaDish as unknown as any | null)?.formula_category_ids;
     if (!raw) return [] as string[];
     if (Array.isArray(raw)) {
       return raw.map((entry) => String(entry || "").trim()).filter(Boolean);
@@ -4040,18 +4040,18 @@ export default function MenuDigital() {
   };
 
   const getSalesAdvice = (dish: Dish) => {
-    const dishRecord = dish as unknown as Record<string, unknown>;
+    const dishRecord = dish as unknown as any;
     const raw = dishRecord.dietary_tag;
     const parsed =
       typeof raw === "string"
         ? (() => {
             try {
-              return JSON.parse(raw) as unknown as Record<string, unknown>;
+              return JSON.parse(raw) as unknown as any;
             } catch {
             return {};
           }
         })()
-        : (raw as unknown as Record<string, unknown> | null) || {};
+        : (raw as unknown as any | null) || {};
     const explicitMessage = String(dish.suggestion_message || "").trim();
     const normalizedLang = normalizeLanguageKey(lang);
     const suggestionColumnCandidates = [
@@ -4089,7 +4089,7 @@ export default function MenuDigital() {
       explicitMessage;
     const tipI18nRaw =
       parsed.sales_tip_i18n && typeof parsed.sales_tip_i18n === "object"
-        ? (parsed.sales_tip_i18n as unknown as Record<string, unknown>)
+        ? (parsed.sales_tip_i18n as unknown as any)
         : {};
     const tipI18n = Object.fromEntries(
       Object.entries(tipI18nRaw).map(([code, value]) => [normalizeLanguageKey(code), String(value || "").trim()])
@@ -4479,7 +4479,7 @@ export default function MenuDigital() {
         .map((option) => {
           const namesI18n =
             option.names_i18n && typeof option.names_i18n === "object"
-              ? (option.names_i18n as Record<string, unknown>)
+              ? (option.names_i18n as any)
               : null;
           return String(option.name_fr || namesI18n?.fr || option.name || "").trim();
         })
@@ -4501,7 +4501,7 @@ export default function MenuDigital() {
         const optionId = String(option.id || "").trim() || null;
         const namesI18n =
           option.names_i18n && typeof option.names_i18n === "object"
-            ? (option.names_i18n as Record<string, unknown>)
+            ? (option.names_i18n as any)
             : null;
         const optionNameFr = String(option.name_fr || namesI18n?.fr || option.name || "").trim() || null;
         const optionName = getProductOptionLabel(option, lang) || optionNameFr || null;
@@ -4592,8 +4592,8 @@ export default function MenuDigital() {
       );
     }, 0);
 
-      const barItems = orderItems.filter((item) => String((item as Record<string, unknown>).destination || "").trim().toLowerCase() === "bar");
-      const kitchenItems = orderItems.filter((item) => String((item as Record<string, unknown>).destination || "cuisine").trim().toLowerCase() === "cuisine");
+      const barItems = orderItems.filter((item) => String((item as any).destination || "").trim().toLowerCase() === "bar");
+      const kitchenItems = orderItems.filter((item) => String((item as any).destination || "cuisine").trim().toLowerCase() === "cuisine");
 
       if (kitchenItems.length > 0) {
         const resolvedRestaurantId = restaurant?.id ?? SETTINGS_ROW_ID;
@@ -4677,13 +4677,13 @@ export default function MenuDigital() {
   };
 
   const handleSelectDish = (dish: Dish) => {
-    if (toBooleanFlag((dish as Record<string, unknown>).is_formula ?? dish.is_formula)) {
+    if (toBooleanFlag((dish as any).is_formula ?? dish.is_formula)) {
       openFormulaModal(dish);
       return;
     }
     const sourceDish = dishes.find((row) => String(row.id) === String(dish.id)) || dish;
     const parsed = parseOptionsFromDescription(sourceDish.description || "");
-    const sourceDishRecord = sourceDish as unknown as Record<string, unknown>;
+    const sourceDishRecord = sourceDish as unknown as any;
     const productOptions = Array.isArray(sourceDishRecord.product_options)
       ? ((sourceDishRecord.product_options as ProductOptionItem[]) || [])
       : [];
@@ -4711,7 +4711,7 @@ export default function MenuDigital() {
   const dishNeedsQuickAddModal = (dish: Dish) => {
     const sourceDish = dishes.find((row) => String(row.id) === String(dish.id)) || dish;
     const parsed = parseOptionsFromDescription(sourceDish.description || "");
-    const sourceDishRecord = sourceDish as unknown as Record<string, unknown>;
+    const sourceDishRecord = sourceDish as unknown as any;
     const productOptions = Array.isArray(sourceDishRecord.product_options)
       ? ((sourceDishRecord.product_options as ProductOptionItem[]) || [])
       : [];
@@ -4726,7 +4726,7 @@ export default function MenuDigital() {
   };
 
   const handleQuickAddFromList = (dish: Dish) => {
-    if (toBooleanFlag((dish as Record<string, unknown>).is_formula ?? dish.is_formula)) {
+    if (toBooleanFlag((dish as any).is_formula ?? dish.is_formula)) {
       openFormulaModal(dish);
       return;
     }
@@ -4777,7 +4777,7 @@ export default function MenuDigital() {
 
   const menuFontFamily = useMemo(() => {
     const tableConfig = parseJsonObject(restaurant?.table_config);
-    const restaurantRecord = restaurant as Record<string, unknown> | null;
+    const restaurantRecord = restaurant as any | null;
     const raw = String(restaurantRecord?.font_family || tableConfig.font_family || "Montserrat").trim();
     const allowed = new Set(MENU_FONT_OPTIONS as readonly string[]);
     return allowed.has(raw) ? raw : "Montserrat";
@@ -4785,7 +4785,7 @@ export default function MenuDigital() {
 
   const menuLayout = useMemo<"classic_grid" | "modern_list">(() => {
     const tableConfig = parseJsonObject(restaurant?.table_config);
-    const raw = String((restaurant as Record<string, unknown> | null)?.menu_layout || tableConfig.menu_layout || "classic_grid")
+    const raw = String((restaurant as any | null)?.menu_layout || tableConfig.menu_layout || "classic_grid")
       .trim()
       .toLowerCase();
     return raw === "modern_list" || raw === "horizontal" ? "modern_list" : "classic_grid";
@@ -4802,9 +4802,9 @@ export default function MenuDigital() {
     };
     const tableConfig = parseJsonObject(restaurant?.table_config);
     return (
-      parseLayoutToken((restaurant as Record<string, unknown> | null)?.card_layout) ||
+      parseLayoutToken((restaurant as any | null)?.card_layout) ||
       parseLayoutToken(tableConfig.card_layout) ||
-      parseLayoutToken((restaurant as Record<string, unknown> | null)?.card_style) ||
+      parseLayoutToken((restaurant as any | null)?.card_style) ||
       parseLayoutToken(tableConfig.card_style) ||
       "default"
     );
@@ -4820,15 +4820,15 @@ export default function MenuDigital() {
     const tableConfig = parseJsonObject(restaurant?.table_config);
     return (
       parseVisualStyle(tableConfig.card_style) ||
-      parseVisualStyle((restaurant as Record<string, unknown> | null)?.card_style) ||
+      parseVisualStyle((restaurant as any | null)?.card_style) ||
       "rounded"
     );
   }, [restaurant]);
   const densityStyle = useMemo<"compact" | "spacious">(() => {
     const tableConfig = parseJsonObject(restaurant?.table_config);
     const raw = String(
-      (restaurant as Record<string, unknown> | null)?.card_density ??
-        (restaurant as Record<string, unknown> | null)?.density_style ??
+      (restaurant as any | null)?.card_density ??
+        (restaurant as any | null)?.density_style ??
         tableConfig.card_density ??
         tableConfig.density_style ??
         "spacious"
@@ -4842,7 +4842,7 @@ export default function MenuDigital() {
 
   useEffect(() => {
     if (!restaurant) return;
-    const row = restaurant as Record<string, unknown>;
+    const row = restaurant as any;
     console.log("Style actuel:", {
       card_style: row.card_style ?? null,
       card_layout: row.card_layout ?? null,
@@ -6675,5 +6675,6 @@ export default function MenuDigital() {
     </>
   );
 }
+
 
 
