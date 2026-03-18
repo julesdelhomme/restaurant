@@ -1522,10 +1522,21 @@ export default function MenuManager() {
   const [criticalStock, setCriticalStock] = useState<Dish[]>([]);
   const [subCategoryRows, setSubCategoryRows] = useState<SubCategoryItem[]>([]);
   const [sidesLibrary, setSidesLibrary] = useState<SideLibraryItem[]>([]);
+  const formulaConfiguredIds = useMemo(() => {
+    const ids = new Set<string>();
+    formulaLinksByFormulaId.forEach((_, formulaId) => {
+      const normalized = String(formulaId || "").trim();
+      if (normalized) ids.add(normalized);
+    });
+    return ids;
+  }, [formulaLinksByFormulaId]);
   const formulaDishes = useMemo(
     () =>
-      dishes.filter((dish) => toBoolean((dish as any).is_formula ?? dish.is_formula, false)),
-    [dishes]
+      dishes.filter((dish) => {
+        const dishId = String(dish.id || "").trim();
+        return Boolean(dishId) && formulaConfiguredIds.has(dishId);
+      }),
+    [dishes, formulaConfiguredIds]
   );
   const dishesById = useMemo(() => {
     const map = new Map<string, Dish>();
@@ -3005,11 +3016,12 @@ export default function MenuManager() {
   };
 
   const fetchFormulaDishLinks = async (sourceDishes: Dish[]) => {
-    const formulaIds = sourceDishes
-      .filter((dish) => toBoolean((dish as any).is_formula ?? dish.is_formula, false))
-      .map((dish) => String(dish.id || "").trim())
-      .filter(Boolean);
-    if (formulaIds.length === 0) {
+    const availableDishIds = new Set(
+      sourceDishes
+        .map((dish) => String(dish.id || "").trim())
+        .filter(Boolean)
+    );
+    if (availableDishIds.size === 0) {
       setFormulaLinksByFormulaId(new Map());
       setFormulaLinksByDishId(new Map());
       setFormulaLinkSequenceByFormulaId(new Map());
@@ -3020,24 +3032,20 @@ export default function MenuManager() {
       ? await supabase
           .from("formula_dish_links")
           .select("formula_dish_id,dish_id,restaurant_id,sequence,default_product_option_ids,formula_name,formula_image_url")
-          .in("formula_dish_id", formulaIds as never)
           .eq("restaurant_id", scopedRestaurantId)
       : await supabase
           .from("formula_dish_links")
-          .select("formula_dish_id,dish_id,restaurant_id,sequence,default_product_option_ids,formula_name,formula_image_url")
-          .in("formula_dish_id", formulaIds as never);
+          .select("formula_dish_id,dish_id,restaurant_id,sequence,default_product_option_ids,formula_name,formula_image_url");
 
     if (result.error && hasMissingColumnError(result.error, "default_product_option_ids")) {
       result = scopedRestaurantId
         ? await supabase
             .from("formula_dish_links")
             .select("formula_dish_id,dish_id,restaurant_id,sequence,formula_name,formula_image_url")
-            .in("formula_dish_id", formulaIds as never)
             .eq("restaurant_id", scopedRestaurantId)
         : await supabase
             .from("formula_dish_links")
-            .select("formula_dish_id,dish_id,restaurant_id,sequence,formula_name,formula_image_url")
-            .in("formula_dish_id", formulaIds as never);
+            .select("formula_dish_id,dish_id,restaurant_id,sequence,formula_name,formula_image_url");
     }
 
     if (
@@ -3048,27 +3056,23 @@ export default function MenuManager() {
         ? await supabase
             .from("formula_dish_links")
             .select("formula_dish_id,dish_id,restaurant_id,sequence")
-            .in("formula_dish_id", formulaIds as never)
             .eq("restaurant_id", scopedRestaurantId)
         : await supabase
             .from("formula_dish_links")
-            .select("formula_dish_id,dish_id,restaurant_id,sequence")
-            .in("formula_dish_id", formulaIds as never);
+            .select("formula_dish_id,dish_id,restaurant_id,sequence");
     }
 
     if (result.error && hasMissingColumnError(result.error, "restaurant_id")) {
       result = await supabase
         .from("formula_dish_links")
-        .select("formula_dish_id,dish_id,sequence,default_product_option_ids,formula_name,formula_image_url")
-        .in("formula_dish_id", formulaIds as never);
+        .select("formula_dish_id,dish_id,sequence,default_product_option_ids,formula_name,formula_image_url");
       if (
         result.error &&
         (hasMissingColumnError(result.error, "formula_name") || hasMissingColumnError(result.error, "formula_image_url"))
       ) {
         result = await supabase
           .from("formula_dish_links")
-          .select("formula_dish_id,dish_id,sequence,default_product_option_ids")
-          .in("formula_dish_id", formulaIds as never);
+          .select("formula_dish_id,dish_id,sequence,default_product_option_ids");
       }
     }
 
@@ -3093,6 +3097,7 @@ export default function MenuManager() {
       const formulaId = String(record.formula_dish_id || "").trim();
       const dishId = String(record.dish_id || "").trim();
       if (!formulaId || !dishId) return;
+      if (!availableDishIds.has(formulaId) || !availableDishIds.has(dishId)) return;
       const rawSequence = Number(record.sequence);
       const sequence = Number.isFinite(rawSequence) ? Math.max(0, Math.trunc(rawSequence)) : undefined;
       const formulaName = String(record.formula_name || "").trim();

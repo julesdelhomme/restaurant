@@ -314,10 +314,10 @@ export default function KitchenPage() {
     return items.filter((item) => resolveItemCourse(item as Item) === step);
   };
   const hasPendingKitchenItems = (order: Order) => getKitchenItems(order).some((item) => !isItemReady(item));
-  const areKitchenItemsReady = (order: Order) => {
-    const kitchenItems = getKitchenItems(order);
-    return kitchenItems.length > 0 && kitchenItems.every((item) => isItemReady(item));
-  };
+  const getServedOrReadyKitchenItems = (order: Order) =>
+    getOrderItems(order)
+      .filter((item) => isKitchenCourse(item))
+      .filter((item) => getItemStatus(item as Item) === "ready");
 
   const normalizeEntityId = (value: unknown) => String(value ?? "").trim();
   const repairUtf8Text = (value: unknown) => {
@@ -1437,14 +1437,20 @@ export default function KitchenPage() {
 
       const data = (rawOrders || []) as Array<Record<string, unknown>>;
 
-      const allowedStatuses = new Set([
-        "pending",
-        "preparing",
-        "to_prepare",
-        "to_prepare_kitchen",
-        "en_preparation",
-        "en_attente",
-        "ready",
+      const closedStatuses = new Set([
+        "paid",
+        "paye",
+        "payee",
+        "archived",
+        "archive",
+        "archivee",
+        "closed",
+        "cloture",
+        "cloturee",
+        "cancelled",
+        "canceled",
+        "annule",
+        "annulee",
       ]);
 
       const kitchenOrders = (data || []).filter((order: any) => {
@@ -1453,7 +1459,7 @@ export default function KitchenPage() {
           .replace(/[\u0300-\u036f]/g, "")
           .toLowerCase()
           .trim();
-        if (!allowedStatuses.has(normalizedStatus)) return false;
+        if (closedStatuses.has(normalizedStatus)) return false;
         const items = getOrderItems(order as Order);
         return items.some((item: any) => isKitchenCourse(item));
       });
@@ -1703,7 +1709,7 @@ export default function KitchenPage() {
   };
 
   const priorityOrders = orders.filter((order) => hasPendingKitchenItems(order as Order));
-  const readyHistoryOrders = orders.filter((order) => areKitchenItemsReady(order as Order));
+  const readyHistoryOrders = orders.filter((order) => getServedOrReadyKitchenItems(order as Order).length > 0);
   const groupedPriorityOrders = (() => {
     const getHourKey = (createdAt: string) => {
       const date = new Date(createdAt);
@@ -1909,10 +1915,10 @@ export default function KitchenPage() {
       </div>
       {readyHistoryOrders.length > 0 ? (
         <section className="mt-6">
-          <h2 className="mb-3 text-sm font-black uppercase text-gray-700">Historique plats prêts</h2>
+          <h2 className="mb-3 text-sm font-black uppercase text-gray-700">Plats servis/prêts</h2>
           <div className="grid grid-cols-1 gap-2 md:grid-cols-2 lg:grid-cols-3">
             {readyHistoryOrders.map((order) => {
-              const kitchenItems = getKitchenItems(order as Order);
+              const kitchenItems = getServedOrReadyKitchenItems(order as Order);
               if (kitchenItems.length === 0) return null;
               return (
                 <div key={`ready-${order.id}`} className="rounded border border-gray-300 bg-gray-50 p-2">
@@ -1923,7 +1929,7 @@ export default function KitchenPage() {
                         ? ` | 👥 ${Number(order.covers || order.guest_count || order.customer_count)}`
                         : ""}
                     </div>
-                    <span className="rounded bg-green-600 px-2 py-0.5 text-[10px] font-bold text-white">PRÊT</span>
+                    <span className="rounded bg-green-600 px-2 py-0.5 text-[10px] font-bold text-white">SERVI/PRÊT</span>
                   </div>
                   <div className="space-y-1">
                     {kitchenItems.map((item: any, idx: number) => {
