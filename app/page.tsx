@@ -2349,6 +2349,12 @@ export default function MenuDigital() {
   const [formulaLinksByDishId, setFormulaLinksByDishId] = useState<Map<string, FormulaDishLink[]>>(new Map());
   const [formulaSelections, setFormulaSelections] = useState<Record<string, string>>({});
   const [formulaSelectionDetails, setFormulaSelectionDetails] = useState<Record<string, FormulaSelectionDetails>>({});
+  const [formulaMainDetails, setFormulaMainDetails] = useState<FormulaSelectionDetails>({
+    selectedSideIds: [],
+    selectedSides: [],
+    selectedCooking: "",
+    selectedProductOptionIds: [],
+  });
   const [formulaSelectionError, setFormulaSelectionError] = useState("");
   const [formulaItemDetailsOpen, setFormulaItemDetailsOpen] = useState<Record<string, boolean>>({});
   const [dishModalQuantity, setDishModalQuantity] = useState(1);
@@ -2577,7 +2583,6 @@ export default function MenuDigital() {
     String((uiText as unknown as any).itemTotal || "").trim() || "Total article";
   const itemDetailsLabel = tt("item_details");
   const formulaOptionLockedLabel = tt("formula_option_locked");
-  const viewFormulaOfferLabel = tt("view_formula_offer");
   const toFinitePrice = (raw: unknown) => {
     if (raw == null) return null;
     if (typeof raw === "string" && raw.trim() === "") return null;
@@ -4038,6 +4043,7 @@ export default function MenuDigital() {
     });
     return map;
   }, [formulaLinksByDishId, dishById]);
+  const formulaMainConfig = formulaDish ? getFormulaDishConfig(formulaDish) : null;
 
   const formulaDefaultOptionsByDishId = useMemo(() => {
     const map = new Map<string, string[]>();
@@ -4175,6 +4181,11 @@ export default function MenuDigital() {
 
   const formulaAddDisabled = (() => {
     if (!formulaDish) return false;
+    const formulaMainConfig = getFormulaDishConfig(formulaDish);
+    if (formulaMainConfig) {
+      if (formulaMainConfig.hasRequiredSides && formulaMainDetails.selectedSides.length === 0) return true;
+      if (formulaMainConfig.askCooking && !String(formulaMainDetails.selectedCooking || "").trim()) return true;
+    }
     const hasMissingCategory = normalizedFormulaCategoryIds.some((categoryId) => {
       const normalizedCategoryId = String(categoryId || "").trim();
       if (!normalizedCategoryId) return false;
@@ -5154,6 +5165,7 @@ export default function MenuDigital() {
     setFormulaSourceDish(resolvedSourceDish);
     setFormulaSelections({});
     setFormulaSelectionDetails({});
+    setFormulaMainDetails(emptyFormulaSelectionDetails);
     setFormulaSelectionError("");
     setFormulaItemDetailsOpen({});
     setSelectedDish(null);
@@ -6546,6 +6558,7 @@ export default function MenuDigital() {
                   setFormulaSourceDish(null);
                   setFormulaSelections({});
                   setFormulaSelectionDetails({});
+                  setFormulaMainDetails(emptyFormulaSelectionDetails);
                   setFormulaSelectionError("");
                   setFormulaItemDetailsOpen({});
                 }}
@@ -6565,6 +6578,93 @@ export default function MenuDigital() {
                 {Number(getFormulaPackPrice(formulaDish) || 0).toFixed(2)}
                 <Euro size={16} />
               </div>
+              {formulaMainConfig && (formulaMainConfig.hasRequiredSides || formulaMainConfig.askCooking) ? (
+                <div className="mb-4 border-2 border-black rounded-xl p-3">
+                  <div className="font-black text-base mb-2">Plat principal</div>
+                  <div className="space-y-3">
+                    {formulaMainConfig.hasRequiredSides ? (
+                      <div>
+                        <div className="text-xs font-black uppercase tracking-wide mb-2">
+                          {uiText.sidesLabel} ({Math.min(formulaMainConfig.maxSides, formulaMainDetails.selectedSides.length)}/
+                          {formulaMainConfig.maxSides})
+                        </div>
+                        {formulaMainConfig.sideOptions.length === 0 ? (
+                          <div className="text-xs font-bold text-red-600">{tt("no_side_configured")}</div>
+                        ) : (
+                          <div className="grid grid-cols-1 gap-2">
+                            {formulaMainConfig.sideOptions.map((sideLabel) => {
+                              const sideId = sideIdByAlias.get(normalizeLookupText(sideLabel)) || sideLabel;
+                              const checked = formulaMainDetails.selectedSideIds.includes(sideId);
+                              return (
+                                <label key={`formula-main-side-${sideId}`} className="flex items-center gap-2 text-sm font-bold">
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    onChange={(event) => {
+                                      setFormulaSelectionError("");
+                                      setFormulaMainDetails((current) => {
+                                        const maxSides = formulaMainConfig.maxSides;
+                                        const nextPairs = current.selectedSideIds.map((id, index) => ({
+                                          id,
+                                          label: current.selectedSides[index] || id,
+                                        }));
+                                        const exists = nextPairs.some((entry) => entry.id === sideId);
+                                        const canAdd = nextPairs.length < maxSides;
+                                        const updatedPairs = event.target.checked
+                                          ? exists
+                                            ? nextPairs
+                                            : canAdd
+                                              ? [...nextPairs, { id: sideId, label: sideLabel }]
+                                              : nextPairs
+                                          : nextPairs.filter((entry) => entry.id !== sideId);
+                                        return {
+                                          ...current,
+                                          selectedSideIds: updatedPairs.map((entry) => entry.id),
+                                          selectedSides: updatedPairs.map((entry) => entry.label),
+                                        };
+                                      });
+                                    }}
+                                  />
+                                  <span>{sideLabel}</span>
+                                </label>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    ) : null}
+                    {formulaMainConfig.askCooking ? (
+                      <div>
+                        <div className="text-xs font-black uppercase tracking-wide mb-2">{uiText.cookingLabel}</div>
+                        <div className="grid grid-cols-1 gap-2">
+                          {[uiText.cooking.blue, uiText.cooking.rare, uiText.cooking.medium, uiText.cooking.wellDone].map(
+                            (cookingLabel) => (
+                              <label
+                                key={`formula-main-cooking-${cookingLabel}`}
+                                className="flex items-center gap-2 text-sm font-bold"
+                              >
+                                <input
+                                  type="radio"
+                                  name="formula-main-cooking"
+                                  checked={formulaMainDetails.selectedCooking === cookingLabel}
+                                  onChange={() => {
+                                    setFormulaSelectionError("");
+                                    setFormulaMainDetails((current) => ({
+                                      ...current,
+                                      selectedCooking: cookingLabel,
+                                    }));
+                                  }}
+                                />
+                                <span>{cookingLabel}</span>
+                              </label>
+                            )
+                          )}
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
               {formulaCategories.length === 0 ? (
                 <div className="text-sm text-black/70">{uiText.noDishes}</div>
               ) : (
@@ -6846,6 +6946,17 @@ export default function MenuDigital() {
                     setFormulaSelectionError(formulaUi.missing);
                     return;
                   }
+                  const formulaMainConfig = formulaDish ? getFormulaDishConfig(formulaDish) : null;
+                  if (formulaMainConfig) {
+                    if (formulaMainConfig.hasRequiredSides && formulaMainDetails.selectedSides.length === 0) {
+                      setFormulaSelectionError(formulaUi.missingOptions);
+                      return;
+                    }
+                    if (formulaMainConfig.askCooking && !String(formulaMainDetails.selectedCooking || "").trim()) {
+                      setFormulaSelectionError(formulaUi.missingOptions);
+                      return;
+                    }
+                  }
                   const missingRequiredOptionsCategory = normalizedFormulaCategoryIds.find((categoryId) => {
                     const normalizedCategoryId = String(categoryId || "").trim();
                     if (!normalizedCategoryId) return false;
@@ -6914,12 +7025,12 @@ export default function MenuDigital() {
                   addToCart({
                     dish: formulaSourceDish || formulaDish,
                     quantity: 1,
-                    selectedSides: [],
-                    selectedSideIds: [],
+                    selectedSides: formulaMainDetails.selectedSides,
+                    selectedSideIds: formulaMainDetails.selectedSideIds,
                     selectedExtras: [],
                     selectedProductOptions: [],
                     selectedProductOption: null,
-                    selectedCooking: "",
+                    selectedCooking: formulaMainDetails.selectedCooking,
                     specialRequest: "",
                     formulaSelections: selections,
                     formulaDishId: String(formulaDish.id || "").trim() || undefined,
@@ -6930,6 +7041,7 @@ export default function MenuDigital() {
                   setFormulaSourceDish(null);
                   setFormulaSelections({});
                   setFormulaSelectionDetails({});
+                  setFormulaMainDetails(emptyFormulaSelectionDetails);
                   setFormulaSelectionError("");
                   setFormulaItemDetailsOpen({});
                 }}
@@ -6982,7 +7094,7 @@ export default function MenuDigital() {
                       onClick={() => openFormulaModal(selectedDishLinkedFormulas[0], selectedDish)}
                       className="w-full mb-2 px-3 py-3 rounded-lg border-2 border-black bg-black text-white font-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]"
                     >
-                      {viewFormulaOfferLabel} ({getFormulaPackPrice(selectedDishLinkedFormulas[0]).toFixed(2)} €)
+                      {viewFormulaLabel} ({getFormulaPackPrice(selectedDishLinkedFormulas[0]).toFixed(2)} €)
                     </button>
                   ) : null}
                   <div className="flex flex-col gap-2">

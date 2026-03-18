@@ -1445,7 +1445,11 @@ function AdminContent() {
     return [];
   };
 
-  const dishNeedsCooking = (dish: DishItem) => parseDescriptionOptions(getDishOptionsSource(dish)).askCooking;
+  const dishNeedsCooking = (dish: DishItem) => {
+    const parsed = parseDescriptionOptions(getDishOptionsSource(dish));
+    const record = dish as unknown as { ask_cooking?: unknown };
+    return Boolean(record.ask_cooking || parsed.askCooking);
+  };
 
   const parseDishProductOptions = (dish: DishItem): ProductOptionChoice[] => {
     const record = dish as unknown as Record<string, unknown>;
@@ -3863,15 +3867,36 @@ function AdminContent() {
                 </div>
               </div>
             </div>
-            <div className="text-sm font-bold">Articles: {fastItemCount}</div>
-            <div className="text-sm font-bold">Total: {fastTotal.toFixed(2)}&euro;</div>
-          </div>
+          <div className="text-sm font-bold">Articles: {fastItemCount}</div>
+          <div className="text-sm font-bold">Total: {fastTotal.toFixed(2)}&euro;</div>
+        </div>
 
-          <div className="mb-4 flex flex-wrap gap-2">
-            {categoriesForFastEntry.map((category) => (
-              <button
-                key={category.key}
-                type="button"
+        {formulaDishes.length > 0 ? (
+          <div className="mb-4 rounded border-2 border-black bg-amber-50 p-3">
+            <div className="font-black mb-2 text-black">Formules</div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {formulaDishes.map((formula) => (
+                <button
+                  key={`fast-formula-${formula.id}`}
+                  type="button"
+                  onClick={() => openFormulaModal(formula)}
+                  className="w-full text-left px-3 py-3 rounded-lg border-2 border-black bg-white font-black text-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]"
+                >
+                  <div className="text-[11px] uppercase tracking-wide text-black/70">Composer</div>
+                  <div className="text-base">
+                    {getFormulaDisplayName(formula)} - {getFormulaPackPrice(formula).toFixed(2)} &euro;
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
+        <div className="mb-4 flex flex-wrap gap-2">
+          {categoriesForFastEntry.map((category) => (
+            <button
+              key={category.key}
+              type="button"
                 onClick={() => setSelectedCategory(category.key)}
                 className={`px-4 py-2 border-2 border-black font-bold ${
                   effectiveSelectedFastCategoryKey === category.key ? "bg-black text-white" : "bg-white text-black"

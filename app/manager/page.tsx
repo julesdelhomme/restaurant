@@ -1,4 +1,4 @@
-// -*- coding: utf-8 -*-
+﻿// -*- coding: utf-8 -*-
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -1638,6 +1638,8 @@ export default function MenuManager() {
   const [editingDish, setEditingDish] = useState<Dish | null>(null);
   const [imagePreviewUrl, setImagePreviewUrl] = useState("");
   const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const [formulaImagePreviewUrl, setFormulaImagePreviewUrl] = useState("");
+  const [isUploadingFormulaImage, setIsUploadingFormulaImage] = useState(false);
 
   const [formData, setFormData] = useState<DishForm>({
     name_fr: "",
@@ -2092,7 +2094,7 @@ export default function MenuManager() {
         .replace(/&/g, "&amp;")
         .replace(/</g, "&lt;")
         .replace(/>/g, "&gt;")
-        .replace(/\"/g, "&quot;")
+        .replace(/"/g, "&quot;")
         .replace(/'/g, "&#39;");
 
     const topCommentsHtml =
@@ -3773,6 +3775,7 @@ export default function MenuManager() {
       sales_tip_dish_id: "",
     });
     setImagePreviewUrl("");
+    setFormulaImagePreviewUrl("");
     setEditingDish(null);
     setDishExtraDraft({ name_fr: "", name_en: "", name_es: "", name_de: "", names_i18n: {}, price: "" });
     setEditingExtraId(null);
@@ -4122,6 +4125,11 @@ export default function MenuManager() {
           : "",
     });
     setImagePreviewUrl(dish.image_url || "");
+    setFormulaImagePreviewUrl(
+      toBoolean((dish as any).is_formula ?? dish.is_formula, false)
+        ? String((linkedFormulaDisplay || {}).imageUrl || "").trim()
+        : ""
+    );
     setEditingDish(dish);
     setAllergenFormI18n(initialAllergenTranslations);
     setDishExtraDraft({ name_fr: "", name_en: "", name_es: "", name_de: "", names_i18n: {}, price: "" });
@@ -5622,6 +5630,39 @@ export default function MenuManager() {
     }
   };
 
+  const handleFormulaImageUpload = async (file: File) => {
+    const localPreview = URL.createObjectURL(file);
+    setFormulaImagePreviewUrl(localPreview);
+    setIsUploadingFormulaImage(true);
+
+    try {
+      const now = Date.now();
+      const rawName = sanitizeFileName(file.name || `formula-${now}.jpg`);
+      const filePath = `formulas/${now}-${rawName}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from(DISH_IMAGES_BUCKET)
+        .upload(filePath, file, { upsert: false });
+
+      if (uploadError) {
+        alert("Erreur upload image: " + uploadError.message);
+        return;
+      }
+
+      const { data: publicData } = supabase.storage.from(DISH_IMAGES_BUCKET).getPublicUrl(filePath);
+      const publicUrl = publicData?.publicUrl || "";
+      if (!publicUrl) {
+        alert("Impossible de récupérer l'URL publique de l'image.");
+        return;
+      }
+
+      setFormData((prev) => ({ ...prev, formula_image_url: publicUrl }));
+      setFormulaImagePreviewUrl(publicUrl);
+    } finally {
+      setIsUploadingFormulaImage(false);
+    }
+  };
+
   const handleUpdateManagerPassword = async () => {
     setPasswordUpdateError("");
     setPasswordUpdateMessage("");
@@ -6399,7 +6440,7 @@ export default function MenuManager() {
               return trimmed
                 .slice(1, -1)
                 .split(",")
-                .map((entry) => entry.replace(/\"/g, "").trim())
+                .map((entry) => entry.replace(/"/g, "").trim())
                 .filter(Boolean);
             }
             return trimmed.split(",").map((entry) => entry.trim()).filter(Boolean);
@@ -9890,7 +9931,7 @@ export default function MenuManager() {
                     }
                     ${MENU_FONT_OPTIONS.map(
                       (fontName) =>
-                        `.manager-font-select option[data-font-option="${fontName.replace(/"/g, '\"') }"] { font-family: ${JSON.stringify(fontName)}, sans-serif !important; }`
+                        `.manager-font-select option[data-font-option="${fontName.replace(/"/g, '"') }"] { font-family: ${JSON.stringify(fontName)}, sans-serif !important; }`
                     ).join("\n")}
                   `}</style>
                   <select
@@ -11277,16 +11318,22 @@ export default function MenuManager() {
                     <div>
                       <label className="block mb-1 font-bold">Image de la formule</label>
                       <input
-                        type="text"
-                        value={formData.formula_image_url}
-                        onChange={(e) => setFormData({ ...formData, formula_image_url: e.target.value })}
-                        className="w-full h-11 border border-gray-300 px-3"
-                        placeholder="https://..."
+                        type="file"
+                        accept="image/*"
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+                          await handleFormulaImageUpload(file);
+                        }}
+                        className="w-full px-3 py-2 bg-white text-black border border-gray-300"
                       />
-                      {formData.formula_image_url ? (
+                      {isUploadingFormulaImage && (
+                        <div className="text-sm font-bold text-black mt-2">Upload en cours...</div>
+                      )}
+                      {(formulaImagePreviewUrl || formData.formula_image_url) ? (
                         <img
-                          src={formData.formula_image_url}
-                          alt="Aperçu formule"
+                          src={formulaImagePreviewUrl || formData.formula_image_url}
+                          alt="Apercu formule"
                           className="mt-2 h-20 w-full max-w-xs object-cover border border-gray-200"
                           onError={(event) => {
                             (event.currentTarget as HTMLImageElement).style.display = "none";
@@ -12124,6 +12171,10 @@ export default function MenuManager() {
     </div>
   );
 }
+
+
+
+
 
 
 
