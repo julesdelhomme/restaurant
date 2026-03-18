@@ -4566,7 +4566,7 @@ export default function MenuManager() {
     const normalizedFormulaCategoryIds = Array.from(
       new Set((formData.formula_category_ids || []).map((value) => String(value || "").trim()).filter(Boolean))
     );
-    const normalizedFormulaDishIds = Array.from(
+    const normalizedFormulaDishIds: string[] = Array.from(
       new Set((formData.formula_dish_ids || []).map((value) => String(value || "").trim()).filter(Boolean))
     ).filter((dishId) => {
       if (!formData.is_formula) return false;
@@ -4583,7 +4583,7 @@ export default function MenuManager() {
     const normalizedFormulaSequenceByDish = Object.fromEntries(
       Object.entries(formData.formula_sequence_by_dish || {})
         .map(([dishId, seq]) => [String(dishId).trim(), Math.max(0, Math.trunc(Number(seq) || 0))])
-        .filter(([dishId]) => normalizedFormulaDishIds.includes(dishId))
+        .filter(([dishId]) => normalizedFormulaDishIds.includes(String(dishId)))
     );
     const parseFormulaCategoryIds = (value: unknown): string[] => {
       if (Array.isArray(value)) {
