@@ -183,6 +183,9 @@ const UI_TEXT = {
       formulas: "Formules",
       available_in_formula: "Disponible en formule",
       view_formula: "Voir la formule",
+      formula_name: "Nom de la formule",
+      formula_image: "Image de la formule",
+      view_formula_offer: "Voir l'offre en formule",
       order_in_formula: "Commander en formule",
       item_details: "Details de l'article",
       formula_option_locked: "Supplement indisponible en formule",
@@ -283,6 +286,9 @@ const UI_TEXT = {
       formulas: "Menus",
       available_in_formula: "Available in formula",
       view_formula: "View menu",
+      formula_name: "Formula name",
+      formula_image: "Formula image",
+      view_formula_offer: "View formula offer",
       order_in_formula: "Order as set menu",
       item_details: "Item details",
       formula_option_locked: "Extra not available in set menu",
@@ -383,6 +389,9 @@ const UI_TEXT = {
       formulas: "MenÃºs",
       available_in_formula: "Disponible en formula",
       view_formula: "Ver el menÃº",
+      formula_name: "Nombre de la fÃ³rmula",
+      formula_image: "Imagen de la fÃ³rmula",
+      view_formula_offer: "Ver la oferta en fÃ³rmula",
       order_in_formula: "Pedir en menÃº",
       item_details: "Detalles del artÃ­culo",
       formula_option_locked: "Suplemento no disponible en el menÃº",
@@ -483,6 +492,9 @@ const UI_TEXT = {
       formulas: "MenÃ¼s",
       available_in_formula: "In Formel verfugbar",
       view_formula: "MenÃ¼ ansehen",
+      formula_name: "Formelname",
+      formula_image: "Formelbild",
+      view_formula_offer: "Formelangebot ansehen",
       order_in_formula: "Als MenÃ¼ bestellen",
       item_details: "Artikeldetails",
       formula_option_locked: "Aufpreis im MenÃ¼ nicht verfÃ¼gbar",
@@ -1523,6 +1535,8 @@ interface FormulaDishLink {
   dishId: string;
   sequence: number | null;
   defaultProductOptionIds?: string[];
+  formulaName?: string;
+  formulaImageUrl?: string;
 }
 
 function parseOptionsFromDescription(description?: string | null): ParsedOptions {
@@ -2561,9 +2575,9 @@ export default function MenuDigital() {
     String((uiText as unknown as any).optionsAndVariants || "").trim() || "Options / Variantes";
   const itemTotalLabel =
     String((uiText as unknown as any).itemTotal || "").trim() || "Total article";
-  const orderInFormulaLabel = tt("order_in_formula");
   const itemDetailsLabel = tt("item_details");
   const formulaOptionLockedLabel = tt("formula_option_locked");
+  const viewFormulaOfferLabel = tt("view_formula_offer");
   const toFinitePrice = (raw: unknown) => {
     if (raw == null) return null;
     if (typeof raw === "string" && raw.trim() === "") return null;
@@ -3073,7 +3087,7 @@ export default function MenuDigital() {
     if (scopedRestaurantId) {
       result = await supabase
         .from("formula_dish_links")
-        .select("formula_dish_id,dish_id,restaurant_id,sequence,default_product_option_ids")
+        .select("formula_dish_id,dish_id,restaurant_id,sequence,default_product_option_ids,formula_name,formula_image_url")
         .eq("restaurant_id", scopedRestaurantId);
       if (result.error && String((result.error as { code?: string })?.code || "") === "42703") {
         result = await supabase
@@ -3084,12 +3098,12 @@ export default function MenuDigital() {
       if (result.error && String((result.error as { code?: string })?.code || "") === "42703") {
         result = await supabase
           .from("formula_dish_links")
-          .select("formula_dish_id,dish_id,sequence,default_product_option_ids");
+          .select("formula_dish_id,dish_id,sequence,default_product_option_ids,formula_name,formula_image_url");
       }
     } else {
       result = await supabase
         .from("formula_dish_links")
-        .select("formula_dish_id,dish_id,sequence,default_product_option_ids");
+        .select("formula_dish_id,dish_id,sequence,default_product_option_ids,formula_name,formula_image_url");
       if (result.error && String((result.error as { code?: string })?.code || "") === "42703") {
         result = await supabase
           .from("formula_dish_links")
@@ -3122,6 +3136,8 @@ export default function MenuDigital() {
       if (!formulaDishId || !dishId || !formulaIdSet.has(formulaDishId)) return;
       const rawSequence = Number(row.sequence);
       const sequence = Number.isFinite(rawSequence) ? Math.max(1, Math.trunc(rawSequence)) : null;
+      const formulaName = String(row.formula_name || "").trim();
+      const formulaImageUrl = sanitizeMediaUrl(row.formula_image_url ?? row.formula_image, "dishes-images-");
       const rawDefaultOptionIds = row.default_product_option_ids;
       let defaultProductOptionIds: string[] = [];
       if (Array.isArray(rawDefaultOptionIds)) {
@@ -3144,6 +3160,8 @@ export default function MenuDigital() {
         dishId,
         sequence,
         defaultProductOptionIds: defaultProductOptionIds.length > 0 ? defaultProductOptionIds : undefined,
+        formulaName: formulaName || undefined,
+        formulaImageUrl: formulaImageUrl || undefined,
       };
       const formulaLinks = byFormula.get(formulaDishId) || [];
       if (!formulaLinks.some((entry) => entry.dishId === dishId)) formulaLinks.push(link);
@@ -4035,6 +4053,27 @@ export default function MenuDigital() {
     return map;
   }, [formulaDish, formulaLinksByFormulaId]);
 
+  const formulaDisplayById = useMemo(() => {
+    const map = new Map<string, { name?: string; imageUrl?: string }>();
+    formulaLinksByFormulaId.forEach((links, formulaId) => {
+      links.forEach((link) => {
+        if (!map.has(formulaId)) {
+          map.set(formulaId, {
+            name: link.formulaName,
+            imageUrl: link.formulaImageUrl,
+          });
+          return;
+        }
+        const current = map.get(formulaId) || {};
+        map.set(formulaId, {
+          name: current.name || link.formulaName,
+          imageUrl: current.imageUrl || link.formulaImageUrl,
+        });
+      });
+    });
+    return map;
+  }, [formulaLinksByFormulaId]);
+
   const formulaLinkedOptionsByCategory = useMemo(() => {
     const map = new Map<string, Set<string>>();
     const formulaDishId = String(formulaDish?.id || "").trim();
@@ -4099,10 +4138,19 @@ export default function MenuDigital() {
       const filteredOptions = restrictToLinked
         ? options.filter((dish) => linkedIds?.has(String(dish.id || "").trim()))
         : options;
+      const sourceDishId = String(formulaSourceDish?.id || "").trim();
+      const sourceCategoryId = String(formulaSourceDish?.category_id || "").trim();
+      if (sourceDishId && sourceCategoryId === categoryId) {
+        const sourceDish = dishById.get(sourceDishId) || formulaSourceDish;
+        if (sourceDish) {
+          const exists = filteredOptions.some((dish) => String(dish.id || "").trim() === sourceDishId);
+          if (!exists) filteredOptions.unshift(sourceDish);
+        }
+      }
       map.set(categoryId, filteredOptions);
     });
     return map;
-  }, [dishes, formulaCategories, formulaDish, availabilitySnapshot, formulaLinkedOptionsByCategory]);
+  }, [dishes, formulaCategories, formulaDish, availabilitySnapshot, formulaLinkedOptionsByCategory, formulaSourceDish, dishById]);
 
   const formulaSequenceByDishId = useMemo(() => {
     const map = new Map<string, number>();
@@ -6198,13 +6246,18 @@ export default function MenuDigital() {
                 </h3>
               )}
               {group.items.map((dish) => {
-                const isOverlayCard = cardLayout === "overlay" && Boolean(dish.image_url);
                 const isBicolorCard = cardLayout === "bicolor";
                 const isPromoDish = getPromoPriceForDish(dish) != null;
                 const isFormulaDishCard = toBooleanFlag((dish as any).is_formula ?? dish.is_formula);
                 const linkedFormulas = linkedFormulasByDishId.get(String(dish.id || "").trim()) || [];
                 const primaryLinkedFormula = linkedFormulas[0] || null;
                 const isFormulasCategorySelected = String(selectedCategoryId || "") === FORMULAS_CATEGORY_ID;
+                const formulaDisplay = isFormulasCategorySelected && isFormulaDishCard
+                  ? formulaDisplayById.get(String(dish.id || "").trim())
+                  : null;
+                const cardDishName = formulaDisplay?.name || getDishName(dish, lang);
+                const cardDishImage = formulaDisplay?.imageUrl || dish.image_url;
+                const isOverlayCard = cardLayout === "overlay" && Boolean(cardDishImage);
                 const displayBasePrice =
                   isFormulasCategorySelected && isFormulaDishCard ? getFormulaPackPrice(dish) : getDishBasePrice(dish);
                 const cardTextColor = isOverlayCard ? "text-white" : cardTextIsLight ? "text-white" : "text-black";
@@ -6229,8 +6282,8 @@ export default function MenuDigital() {
                     {isOverlayCard ? (
                       <>
                         <img
-                          src={dish.image_url}
-                          alt={getDishName(dish, lang)}
+                          src={cardDishImage}
+                          alt={cardDishName}
                           className="dish-card-media absolute inset-0 h-full w-full object-cover"
                           style={{ aspectRatio: "4 / 3" }}
                           onError={hideBrokenImage}
@@ -6238,10 +6291,10 @@ export default function MenuDigital() {
                         <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/35 to-transparent" />
                       </>
                     ) : null}
-                    {!isOverlayCard && !isBicolorCard && dish.image_url ? (
+                    {!isOverlayCard && !isBicolorCard && cardDishImage ? (
                       <img
-                        src={dish.image_url}
-                        alt={getDishName(dish, lang)}
+                        src={cardDishImage}
+                        alt={cardDishName}
                         className={`dish-card-media object-cover ${dishMediaRadiusClass} ${
                           menuLayout === "modern_list"
                             ? "w-24 sm:w-28 shrink-0 aspect-[4/3]"
@@ -6251,10 +6304,10 @@ export default function MenuDigital() {
                       />
                     ) : null}
                     {!isOverlayCard && isBicolorCard ? (
-                      dish.image_url ? (
+                      cardDishImage ? (
                         <img
-                          src={dish.image_url}
-                          alt={getDishName(dish, lang)}
+                          src={cardDishImage}
+                          alt={cardDishName}
                           className="dish-card-media w-full sm:w-[42%] aspect-[4/3] object-cover"
                           onError={hideBrokenImage}
                         />
@@ -6283,10 +6336,10 @@ export default function MenuDigital() {
                           className={`text-lg font-bold ${
                             menuLayout === "modern_list" && !isOverlayCard && !isBicolorCard ? "truncate" : ""
                           } ${isBicolorCard ? "text-xl tracking-wide" : ""}`}
-                          title={getDishName(dish, lang)}
+                          title={cardDishName}
                           style={!isOverlayCard ? { color: cardTextColorValue } : undefined}
                         >
-                          {getDishName(dish, lang)}
+                          {cardDishName}
                         </h4>
                         {getPromoPriceForDish(dish) != null || getDishSuggestionBadge(dish) || getDishStyleBadges(dish).length > 0 ? (
                           <div className="mt-1 flex flex-wrap gap-1.5">
@@ -6579,7 +6632,17 @@ export default function MenuDigital() {
                                         isSelected ? "bg-black text-white border-black" : "bg-white text-black border-black"
                                       }`}
                                     >
-                                      {getDishName(optionDish, lang)}
+                                      <div className="flex items-center gap-3">
+                                        {optionDish.image_url ? (
+                                          <img
+                                            src={optionDish.image_url}
+                                            alt={getDishName(optionDish, lang)}
+                                            className="h-10 w-10 rounded-md object-cover border border-black/20"
+                                            onError={hideBrokenImage}
+                                          />
+                                        ) : null}
+                                        <span>{getDishName(optionDish, lang)}</span>
+                                      </div>
                                     </button>
                                     <button
                                       type="button"
@@ -6919,7 +6982,7 @@ export default function MenuDigital() {
                       onClick={() => openFormulaModal(selectedDishLinkedFormulas[0], selectedDish)}
                       className="w-full mb-2 px-3 py-3 rounded-lg border-2 border-black bg-black text-white font-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]"
                     >
-                      {orderInFormulaLabel} ({getFormulaPackPrice(selectedDishLinkedFormulas[0]).toFixed(2)} €)
+                      {viewFormulaOfferLabel} ({getFormulaPackPrice(selectedDishLinkedFormulas[0]).toFixed(2)} €)
                     </button>
                   ) : null}
                   <div className="flex flex-col gap-2">

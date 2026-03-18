@@ -25,6 +25,12 @@ alter table public.formula_dish_links
 alter table public.formula_dish_links
   add column if not exists default_product_option_ids text[];
 
+alter table public.formula_dish_links
+  add column if not exists formula_name text;
+
+alter table public.formula_dish_links
+  add column if not exists formula_image_url text;
+
 create index if not exists idx_formula_dish_links_formula_id
   on public.formula_dish_links (formula_dish_id);
 
