@@ -951,6 +951,7 @@ interface DishForm {
   formula_category_ids: string[];
   formula_dish_ids: string[];
   formula_default_option_ids: Record<string, string[]>;
+  formula_sequence_by_dish: Record<string, number>;
   formula_name: string;
   formula_image_url: string;
   only_in_formula: boolean;
@@ -1476,6 +1477,9 @@ export default function MenuManager() {
   const [formulaLinkDefaultOptionsByFormulaId, setFormulaLinkDefaultOptionsByFormulaId] = useState<
     Map<string, Map<string, string[]>>
   >(new Map());
+  const [formulaLinkSequenceByFormulaId, setFormulaLinkSequenceByFormulaId] = useState<
+    Map<string, Map<string, number>>
+  >(new Map());
   const [formulaLinkDisplayByFormulaId, setFormulaLinkDisplayByFormulaId] = useState<
     Map<string, { name: string; imageUrl: string }>
   >(new Map());
@@ -1681,6 +1685,7 @@ export default function MenuManager() {
     formula_category_ids: [],
     formula_dish_ids: [],
     formula_default_option_ids: {},
+    formula_sequence_by_dish: {},
     formula_name: "",
     formula_image_url: "",
     only_in_formula: false,
@@ -3007,30 +3012,31 @@ export default function MenuManager() {
     if (formulaIds.length === 0) {
       setFormulaLinksByFormulaId(new Map());
       setFormulaLinksByDishId(new Map());
+      setFormulaLinkSequenceByFormulaId(new Map());
       return;
     }
 
     let result: any = scopedRestaurantId
       ? await supabase
           .from("formula_dish_links")
-          .select("formula_dish_id,dish_id,restaurant_id,default_product_option_ids,formula_name,formula_image_url")
+          .select("formula_dish_id,dish_id,restaurant_id,sequence,default_product_option_ids,formula_name,formula_image_url")
           .in("formula_dish_id", formulaIds as never)
           .eq("restaurant_id", scopedRestaurantId)
       : await supabase
           .from("formula_dish_links")
-          .select("formula_dish_id,dish_id,restaurant_id,default_product_option_ids,formula_name,formula_image_url")
+          .select("formula_dish_id,dish_id,restaurant_id,sequence,default_product_option_ids,formula_name,formula_image_url")
           .in("formula_dish_id", formulaIds as never);
 
     if (result.error && hasMissingColumnError(result.error, "default_product_option_ids")) {
       result = scopedRestaurantId
         ? await supabase
             .from("formula_dish_links")
-            .select("formula_dish_id,dish_id,restaurant_id,formula_name,formula_image_url")
+            .select("formula_dish_id,dish_id,restaurant_id,sequence,formula_name,formula_image_url")
             .in("formula_dish_id", formulaIds as never)
             .eq("restaurant_id", scopedRestaurantId)
         : await supabase
             .from("formula_dish_links")
-            .select("formula_dish_id,dish_id,restaurant_id,formula_name,formula_image_url")
+            .select("formula_dish_id,dish_id,restaurant_id,sequence,formula_name,formula_image_url")
             .in("formula_dish_id", formulaIds as never);
     }
 
@@ -3041,19 +3047,19 @@ export default function MenuManager() {
       result = scopedRestaurantId
         ? await supabase
             .from("formula_dish_links")
-            .select("formula_dish_id,dish_id,restaurant_id")
+            .select("formula_dish_id,dish_id,restaurant_id,sequence")
             .in("formula_dish_id", formulaIds as never)
             .eq("restaurant_id", scopedRestaurantId)
         : await supabase
             .from("formula_dish_links")
-            .select("formula_dish_id,dish_id,restaurant_id")
+            .select("formula_dish_id,dish_id,restaurant_id,sequence")
             .in("formula_dish_id", formulaIds as never);
     }
 
     if (result.error && hasMissingColumnError(result.error, "restaurant_id")) {
       result = await supabase
         .from("formula_dish_links")
-        .select("formula_dish_id,dish_id,default_product_option_ids,formula_name,formula_image_url")
+        .select("formula_dish_id,dish_id,sequence,default_product_option_ids,formula_name,formula_image_url")
         .in("formula_dish_id", formulaIds as never);
       if (
         result.error &&
@@ -3061,7 +3067,7 @@ export default function MenuManager() {
       ) {
         result = await supabase
           .from("formula_dish_links")
-          .select("formula_dish_id,dish_id,default_product_option_ids")
+          .select("formula_dish_id,dish_id,sequence,default_product_option_ids")
           .in("formula_dish_id", formulaIds as never);
       }
     }
@@ -3072,6 +3078,7 @@ export default function MenuManager() {
       setFormulaLinksByDishId(new Map());
       setFormulaLinkDefaultOptionsByFormulaId(new Map());
       setFormulaLinkDisplayByFormulaId(new Map());
+      setFormulaLinkSequenceByFormulaId(new Map());
       return;
     }
 
@@ -3079,12 +3086,15 @@ export default function MenuManager() {
     const byDish = new Map<string, string[]>();
     const defaultByFormula = new Map<string, Map<string, string[]>>();
     const displayByFormula = new Map<string, { name: string; imageUrl: string }>();
+    const sequenceByFormula = new Map<string, Map<string, number>>();
     (result.data || []).forEach((row: unknown) => {
       if (!row || typeof row !== "object") return;
       const record = row as any;
       const formulaId = String(record.formula_dish_id || "").trim();
       const dishId = String(record.dish_id || "").trim();
       if (!formulaId || !dishId) return;
+      const rawSequence = Number(record.sequence);
+      const sequence = Number.isFinite(rawSequence) ? Math.max(0, Math.trunc(rawSequence)) : undefined;
       const formulaName = String(record.formula_name || "").trim();
       const formulaImageUrl = String(record.formula_image_url || "").trim();
       const rawDefaults = record.default_product_option_ids;
@@ -3122,11 +3132,17 @@ export default function MenuManager() {
           imageUrl: currentDisplay.imageUrl || formulaImageUrl,
         });
       }
+      if (sequence != null) {
+        const existing = sequenceByFormula.get(formulaId) || new Map<string, number>();
+        existing.set(dishId, sequence);
+        sequenceByFormula.set(formulaId, existing);
+      }
     });
     setFormulaLinksByFormulaId(byFormula);
     setFormulaLinksByDishId(byDish);
     setFormulaLinkDefaultOptionsByFormulaId(defaultByFormula);
     setFormulaLinkDisplayByFormulaId(displayByFormula);
+    setFormulaLinkSequenceByFormulaId(sequenceByFormula);
   };
 
   const fetchDishes = async () => {
@@ -3762,6 +3778,7 @@ export default function MenuManager() {
       formula_category_ids: [],
       formula_dish_ids: [],
       formula_default_option_ids: {},
+      formula_sequence_by_dish: {},
       formula_name: "",
       formula_image_url: "",
       only_in_formula: false,
@@ -3864,6 +3881,9 @@ export default function MenuManager() {
     const currentDishId = String(dish.id || "").trim();
     const linkedFormulaIds = currentDishId ? formulaLinksByDishId.get(currentDishId) || [] : [];
     const linkedFormulaDishIds = currentDishId ? formulaLinksByFormulaId.get(currentDishId) || [] : [];
+    const linkedFormulaSequenceMap = currentDishId
+      ? Object.fromEntries(Array.from(formulaLinkSequenceByFormulaId.get(currentDishId) || new Map()).map(([k, v]) => [k, v]))
+      : {};
     const linkedFormulaDefaultOptions =
       currentDishId && formulaLinkDefaultOptionsByFormulaId.get(currentDishId)
         ? Object.fromEntries(formulaLinkDefaultOptionsByFormulaId.get(currentDishId) || [])
@@ -4097,6 +4117,7 @@ export default function MenuManager() {
       formula_category_ids: isFormula ? normalizedFormulaCategoryIds : [],
       formula_dish_ids: isFormula ? linkedFormulaDishIds : [],
       formula_default_option_ids: isFormula ? linkedFormulaDefaultOptions : {},
+      formula_sequence_by_dish: isFormula ? linkedFormulaSequenceMap : {},
       formula_name: isFormula ? String(linkedFormulaDisplay?.name || "").trim() : "",
       formula_image_url: isFormula ? String(linkedFormulaDisplay?.imageUrl || "").trim() : "",
       only_in_formula: onlyInFormula,
@@ -4559,6 +4580,11 @@ export default function MenuManager() {
     const normalizedLinkedFormulaIds = Array.from(
       new Set((formData.linked_formula_ids || []).map((value) => String(value || "").trim()).filter(Boolean))
     ).filter((formulaId) => formulaId);
+    const normalizedFormulaSequenceByDish = Object.fromEntries(
+      Object.entries(formData.formula_sequence_by_dish || {})
+        .map(([dishId, seq]) => [String(dishId).trim(), Math.max(0, Math.trunc(Number(seq) || 0))])
+        .filter(([dishId]) => normalizedFormulaDishIds.includes(dishId))
+    );
     const parseFormulaCategoryIds = (value: unknown): string[] => {
       if (Array.isArray(value)) {
         return value.map((entry) => String(entry || "").trim()).filter(Boolean);
@@ -5039,10 +5065,14 @@ export default function MenuManager() {
             const linkRows = sanitizedFormulaDishIds.map((dishId) => {
               const linkedDish = dishesById.get(String(dishId || "").trim());
               const linkedCategoryId = String(linkedDish?.category_id || "").trim();
-              const sequence = linkedCategoryId
-                ? normalizedFormulaCategorySequenceById.get(linkedCategoryId) ??
-                  inferSequenceFromCategoryId(linkedCategoryId, normalizedFormulaCategorySequenceById.size + 1)
-                : 2;
+              const overrideSequence = normalizedFormulaSequenceByDish[dishId];
+              const sequence =
+                Number.isFinite(overrideSequence) && overrideSequence != null
+                  ? Math.max(0, Math.trunc(Number(overrideSequence)))
+                  : linkedCategoryId
+                    ? normalizedFormulaCategorySequenceById.get(linkedCategoryId) ??
+                      inferSequenceFromCategoryId(linkedCategoryId, normalizedFormulaCategorySequenceById.size + 1)
+                    : 2;
               const rawDefaultOptionIds = formData.formula_default_option_ids[dishId] || [];
               const defaultOptionIds = Array.from(
                 new Set(rawDefaultOptionIds.map((value) => String(value || "").trim()).filter(Boolean))
@@ -11625,6 +11655,7 @@ export default function MenuManager() {
                         formula_category_ids: e.target.checked ? formData.formula_category_ids : [],
                         formula_dish_ids: e.target.checked ? formData.formula_dish_ids : [],
                         formula_default_option_ids: e.target.checked ? formData.formula_default_option_ids : {},
+                        formula_sequence_by_dish: e.target.checked ? formData.formula_sequence_by_dish : {},
                         formula_name: e.target.checked ? formData.formula_name : "",
                         formula_image_url: e.target.checked ? formData.formula_image_url : "",
                       })
@@ -11720,6 +11751,9 @@ export default function MenuManager() {
                                     : [];
                                   const allowMulti = Boolean((dish as any).allow_multi_select);
                                   const selectedDefaultOptionIds = formData.formula_default_option_ids[dishId] || [];
+                                  const resolvedSequence =
+                                    formData.formula_sequence_by_dish[dishId] ??
+                                    resolveDishSequenceForFormula(formData.formula_category_ids, dishId);
                                   return (
                                     <div key={`formula-dish-${categoryId}-${dishId}`} className="flex flex-col gap-1 rounded hover:bg-gray-50 px-2 py-1">
                                       <label className="flex items-center gap-2 text-black font-bold">
@@ -11738,16 +11772,55 @@ export default function MenuManager() {
                                             setFormData({
                                               ...formData,
                                               formula_dish_ids: next,
+                                              formula_sequence_by_dish: {
+                                                ...formData.formula_sequence_by_dish,
+                                                ...(e.target.checked
+                                                  ? { [dishId]: resolvedSequence }
+                                                  : (() => {
+                                                      const copy = { ...formData.formula_sequence_by_dish };
+                                                      delete copy[dishId];
+                                                      return copy;
+                                                    })()),
+                                              },
                                               formula_default_option_ids: nextDefaults,
                                             });
                                           }}
                                         />
                                         {dish.name_fr || dish.name || `Plat #${dish.id}`}
                                       </label>
+                                      {checked ? (
+                                        <div className="ml-6 flex flex-wrap items-center gap-2 text-xs font-bold text-gray-700">
+                                          <label className="flex items-center gap-1">
+                                            <span>Rang</span>
+                                            <select
+                                              value={resolvedSequence}
+                                              onChange={(event) => {
+                                                const nextValue = Math.max(
+                                                  0,
+                                                  Math.trunc(Number(event.target.value) || 0)
+                                                );
+                                                setFormData((prev) => ({
+                                                  ...prev,
+                                                  formula_sequence_by_dish: {
+                                                    ...prev.formula_sequence_by_dish,
+                                                    [dishId]: nextValue,
+                                                  },
+                                                }));
+                                              }}
+                                              className="h-8 rounded border border-gray-300 px-2 text-xs font-bold"
+                                            >
+                                              <option value={1}>ÉTAPE 1</option>
+                                              <option value={2}>ÉTAPE 2</option>
+                                              <option value={3}>ÉTAPE 3</option>
+                                              <option value={0}>Service immédiat (Bar)</option>
+                                            </select>
+                                          </label>
+                                        </div>
+                                      ) : null}
                                       {checked && dishOptions.length > 0 ? (
                                         <div className="ml-6 border-l border-gray-200 pl-3">
                                           <div className="text-xs font-bold text-gray-700 mb-1">
-                                            Option incluse par dÃ©faut
+                                            Option incluse par défaut
                                           </div>
                                           <div className="flex flex-col gap-2">
                                             {dishOptions.map((option, optionIndex) => {

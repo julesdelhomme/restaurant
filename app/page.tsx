@@ -46,7 +46,7 @@ function parseAddonPrice(raw: unknown): number {
 
 function formatPriceTwoDecimals(value: number): string {
   const safe = parsePriceNumber(value);
-  return `${safe.toFixed(2)} â‚¬`;
+  return `${safe.toFixed(2)} €`;
 }
 
 const supabaseUrl = "https://ezzetspsjqgylsqkukdp.supabase.co";
@@ -6090,7 +6090,7 @@ export default function MenuDigital() {
                               className="text-sm md:text-base font-black px-4 py-2.5 rounded-lg border-2 border-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] whitespace-nowrap shrink-0"
                               style={{ backgroundColor: "#FFF8E1", color: "#111111" }}
                             >
-                              {viewFormulaLabel} ({getFormulaPackPrice(featuredPrimaryFormula).toFixed(2)} â‚¬)
+                              {viewFormulaLabel} ({getFormulaPackPrice(featuredPrimaryFormula).toFixed(2)} €)
                             </button>
                           ) : null}
                           {quickAddToCartEnabled ? (
@@ -6498,7 +6498,7 @@ export default function MenuDigital() {
                                 color: "#111111",
                               }}
                             >
-                              {viewFormulaLabel} ({getFormulaPackPrice(primaryLinkedFormula).toFixed(2)} â‚¬)
+                              {viewFormulaLabel} ({getFormulaPackPrice(primaryLinkedFormula).toFixed(2)} €)
                             </button>
                           ) : null}
                           {quickAddToCartEnabled ? (
@@ -7094,7 +7094,7 @@ export default function MenuDigital() {
                       onClick={() => openFormulaModal(selectedDishLinkedFormulas[0], selectedDish)}
                       className="w-full mb-2 px-3 py-3 rounded-lg border-2 border-black bg-black text-white font-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]"
                     >
-                      {viewFormulaLabel} ({getFormulaPackPrice(selectedDishLinkedFormulas[0]).toFixed(2)} â‚¬)
+                      {viewFormulaLabel} ({getFormulaPackPrice(selectedDishLinkedFormulas[0]).toFixed(2)} €)
                     </button>
                   ) : null}
                   <div className="flex flex-col gap-2">
@@ -7110,7 +7110,7 @@ export default function MenuDigital() {
                         >
                           <div className="text-[11px] uppercase tracking-wide text-black/70">{viewFormulaLabel}</div>
                           <div className="text-base">
-                            {getDishName(formula, lang)} - {getFormulaPackPrice(formula).toFixed(2)} â‚¬
+                            {getDishName(formula, lang)} - {getFormulaPackPrice(formula).toFixed(2)} €
                           </div>
                         </button>
                       );

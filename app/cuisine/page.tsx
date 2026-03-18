@@ -308,9 +308,9 @@ export default function KitchenPage() {
       .trim();
   const SERVICE_STEP_SEQUENCE = ["entree", "plat", "dessert"] as const;
   const SERVICE_STEP_LABELS: Record<string, string> = {
-    entree: "ENTRÉE",
-    plat: "PLAT",
-    dessert: "DESSERT",
+    entree: "ÉTAPE 1",
+    plat: "ÉTAPE 2",
+    dessert: "ÉTAPE 3",
   };
   const normalizeServiceStep = (value: unknown) => {
     const normalized = normalizeLookupText(value);
@@ -1476,10 +1476,15 @@ export default function KitchenPage() {
     const currentItems = getOrderItems(targetOrder as Order);
     if (currentItems.length === 0) return;
     const currentStep = resolveOrderServiceStep(targetOrder, currentItems);
+    const readyItemIds: Array<string | number> = [];
     const nextItems = currentItems.map((item) => {
       if (!isKitchenCourse(item)) return item;
-      if (!currentStep) return setItemStatus(item, "ready");
-      return resolveItemCourse(item) === currentStep ? setItemStatus(item, "ready") : item;
+      const matchesCurrentStep = currentStep ? resolveItemCourse(item) === currentStep : true;
+      if (matchesCurrentStep) {
+        if (item.id != null) readyItemIds.push(item.id);
+        return setItemStatus(item, "ready");
+      }
+      return item;
     });
     const nextStatus = deriveOrderStatusFromItems(nextItems);
     const nextServiceStep = resolveOrderServiceStep(targetOrder, nextItems);
@@ -1507,6 +1512,17 @@ export default function KitchenPage() {
     if (updateResult.error) {
       console.error("Erreur update:", updateResult.error);
       await fetchOrders();
+    }
+
+    if (readyItemIds.length > 0) {
+      const readyUpdate = await supabase
+        .from("order_items")
+        .update({ status: "ready" } as never)
+        .eq("order_id", orderId)
+        .in("id", readyItemIds as never);
+      if (readyUpdate.error) {
+        console.warn("order_items status sync failed:", readyUpdate.error.message);
+      }
     }
   };
 

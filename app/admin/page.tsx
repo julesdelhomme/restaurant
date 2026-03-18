@@ -644,6 +644,7 @@ function AdminContent() {
   const [fastOptionLines, setFastOptionLines] = useState<FastOrderLine[]>([]);
   const [fastLoading, setFastLoading] = useState(false);
   const [fastMessage, setFastMessage] = useState("");
+  const [fastSearchInput, setFastSearchInput] = useState("");
 
   const [modalOpen, setModalOpen] = useState(false);
   const [modalDish, setModalDish] = useState<DishItem | null>(null);
@@ -2474,7 +2475,13 @@ function AdminContent() {
         : dishes.filter(
             (dish) => normalizeCategoryKey(getDishCategoryLabel(dish)) === effectiveSelectedFastCategoryKey
           );
-  const visibleFastEntryDishes = fastEntryDishes.length > 0 ? fastEntryDishes : dishes;
+  const normalizedFastSearch = normalizeLookupText(fastSearchInput);
+  const matchesFastSearch = (dish: DishItem) => {
+    if (!normalizedFastSearch) return true;
+    const label = getFormulaDisplayName(dish) || getDishName(dish);
+    return normalizeLookupText(label).includes(normalizedFastSearch);
+  };
+  const visibleFastEntryDishes = (fastEntryDishes.length > 0 ? fastEntryDishes : dishes).filter(matchesFastSearch);
 
   const fastBaseLines = (() => {
     const lines: FastOrderLine[] = [];
@@ -3891,6 +3898,17 @@ function AdminContent() {
             </div>
           </div>
         ) : null}
+
+        <div className="mb-3">
+          <label className="block text-sm font-bold mb-1">Recherche article rapide</label>
+          <input
+            type="search"
+            value={fastSearchInput}
+            onChange={(e) => setFastSearchInput(e.target.value)}
+            placeholder="Rechercher un plat ou une formule"
+            className="w-full h-11 border-2 border-black px-3 font-semibold"
+          />
+        </div>
 
         <div className="mb-4 flex flex-wrap gap-2">
           {categoriesForFastEntry.map((category) => (
