@@ -277,9 +277,9 @@ const UI_TEXT = {
       select_sides_up_to: "Choose up to {max} options",
       select_sides_up_to_icecream: "Choose up to {max} flavors",
       no_side_configured: "No side configured for this dish.",
-      formulas: "Formulas",
+      formulas: "Menus",
       available_in_formula: "Available in formula",
-      view_formula: "View formula",
+      view_formula: "View menu",
     },
     categoryMap: {
       all: "All",
@@ -374,9 +374,9 @@ const UI_TEXT = {
       select_sides_up_to: "Elige hasta {max} opciones",
       select_sides_up_to_icecream: "Elige hasta {max} sabores",
       no_side_configured: "No hay acompaï¿½amiento configurado para este plato.",
-      formulas: "Formulas",
+      formulas: "MenÃºs",
       available_in_formula: "Disponible en formula",
-      view_formula: "Ver la formula",
+      view_formula: "Ver el menÃº",
     },
     categoryMap: {
       all: "Todos",
@@ -471,9 +471,9 @@ const UI_TEXT = {
       select_sides_up_to: "W?hlen Sie bis zu {max} Optionen",
       select_sides_up_to_icecream: "W?hlen Sie bis zu {max} Sorten",
       no_side_configured: "Keine Beilage fï¿½r dieses Gericht konfiguriert.",
-      formulas: "Formeln",
+      formulas: "MenÃ¼s",
       available_in_formula: "In Formel verfugbar",
-      view_formula: "Formel ansehen",
+      view_formula: "MenÃ¼ ansehen",
     },
     categoryMap: {
       all: "Alle",
@@ -4052,6 +4052,39 @@ export default function MenuDigital() {
     return linkedFormulasByDishId.get(dishId) || [];
   }, [selectedDish, linkedFormulasByDishId]);
 
+  const formulaAddDisabled = (() => {
+    if (!formulaDish) return false;
+    const hasMissingCategory = normalizedFormulaCategoryIds.some((categoryId) => {
+      const normalizedCategoryId = String(categoryId || "").trim();
+      if (!normalizedCategoryId) return false;
+      const options = formulaOptionsByCategory.get(normalizedCategoryId) || [];
+      if (options.length === 0) return false;
+      return !formulaSelections[normalizedCategoryId];
+    });
+    if (hasMissingCategory) return true;
+    const hasMissingRequiredOptions = normalizedFormulaCategoryIds.some((categoryId) => {
+      const normalizedCategoryId = String(categoryId || "").trim();
+      if (!normalizedCategoryId) return false;
+      const selectedId = String(formulaSelections[normalizedCategoryId] || "").trim();
+      if (!selectedId) return false;
+      const selectedDish = dishById.get(selectedId);
+      if (!selectedDish) return false;
+      const config = getFormulaDishConfig(selectedDish);
+      const details = formulaSelectionDetails[normalizedCategoryId] || emptyFormulaSelectionDetails;
+      if (config.productOptions.length > 0 && details.selectedProductOptionIds.length === 0) {
+        return true;
+      }
+      if (config.hasRequiredSides && details.selectedSides.length === 0) {
+        return true;
+      }
+      if (config.askCooking && !String(details.selectedCooking || "").trim()) {
+        return true;
+      }
+      return false;
+    });
+    return hasMissingRequiredOptions;
+  })();
+
   useEffect(() => {
     if (!formulaDish || !formulaSourceDish) return;
     const sourceDishId = String(formulaSourceDish.id || "").trim();
@@ -6584,7 +6617,8 @@ export default function MenuDigital() {
             </div>
             <div className="absolute bottom-0 left-0 right-0 p-4 border-t-4 border-black bg-white">
               <button
-                className="w-full py-3 bg-black text-white font-black rounded-xl border-4 border-black"
+                disabled={formulaAddDisabled}
+                className="w-full py-3 bg-black text-white font-black rounded-xl border-4 border-black disabled:opacity-50 disabled:cursor-not-allowed"
                 onClick={() => {
                   const missingCategory = normalizedFormulaCategoryIds.find((categoryId) => {
                     const normalizedCategoryId = String(categoryId || "").trim();
@@ -6735,9 +6769,12 @@ export default function MenuDigital() {
                           key={`dish-upsell-formula-${formulaId}`}
                           type="button"
                           onClick={() => openFormulaModal(formula, selectedDish)}
-                          className="w-full text-left px-3 py-2 rounded-lg border-2 border-black bg-white font-black text-black"
+                          className="w-full text-left px-3 py-3 rounded-lg border-2 border-black bg-white font-black text-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]"
                         >
-                          {getDishName(formula, lang)} - {getFormulaPackPrice(formula).toFixed(2)} €
+                          <div className="text-[11px] uppercase tracking-wide text-black/70">{viewFormulaLabel}</div>
+                          <div className="text-base">
+                            {getDishName(formula, lang)} - {getFormulaPackPrice(formula).toFixed(2)} €
+                          </div>
                         </button>
                       );
                     })}
