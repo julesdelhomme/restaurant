@@ -1484,13 +1484,18 @@ export default function KitchenPage() {
 
       const currentItems = getOrderItems(targetOrder as Order);
       if (currentItems.length === 0) return;
+      const hasOrderItemsRelation = Array.isArray((targetOrder as Order & { order_items?: unknown[] }).order_items)
+        && ((targetOrder as Order & { order_items?: unknown[] }).order_items || []).length > 0;
       const currentStep = resolveOrderServiceStep(targetOrder, currentItems);
       const readyItemIds: Array<string | number> = [];
       const nextItems = currentItems.map((item) => {
         if (!isKitchenCourse(item)) return item;
         const matchesCurrentStep = currentStep ? resolveItemCourse(item) === currentStep : true;
         if (matchesCurrentStep) {
-          if (item.id != null) readyItemIds.push(item.id);
+          if (item.id != null) {
+            console.log("ID envoyé:", item.id);
+            readyItemIds.push(item.id);
+          }
           return setItemStatus(item, "ready");
         }
         return item;
@@ -1519,7 +1524,7 @@ export default function KitchenPage() {
         return;
       }
 
-      if (readyItemIds.length > 0) {
+      if (readyItemIds.length > 0 && hasOrderItemsRelation) {
         const readyUpdate = await supabase
           .from("order_items")
           .update({ status: "ready" } as never)
@@ -1530,6 +1535,8 @@ export default function KitchenPage() {
           console.warn("order_items status sync failed:", readyUpdate.error.message);
           needsOrderRefreshRef.current = true;
         }
+      } else if (readyItemIds.length > 0 && !hasOrderItemsRelation) {
+        console.log("update_order_item_status skipped: no order_items relation for order", orderId);
       }
 
       setOrders((prev) =>
