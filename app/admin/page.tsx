@@ -1999,11 +1999,7 @@ function AdminContent() {
         };
       });
       setDishes(nextDishes);
-      const formulaIdsFromDishes = nextDishes
-        .filter((dish) => Boolean((dish as unknown as { is_formula?: unknown }).is_formula))
-        .map((dish) => String(dish.id || "").trim())
-        .filter(Boolean);
-      const formulaIdSetForInit = new Set<string>(formulaIdsFromDishes);
+      const formulaIdSetForInit = new Set<string>();
 
       let linksResult: any = null;
       const formulaSelect =
@@ -2441,10 +2437,7 @@ function AdminContent() {
 
   const formulaDishes = dishes.filter((dish) => {
     const id = String(dish.id || "").trim();
-    return (
-      Boolean((dish as unknown as { is_formula?: unknown }).is_formula) ||
-      (id && formulaDishIdsFromLinks.has(id))
-    );
+    return id && formulaDishIdsFromLinks.has(id);
   });
   const categoriesForFastEntryBase =
     categories.length > 0
@@ -2476,7 +2469,12 @@ function AdminContent() {
         : dishes.filter(
             (dish) => normalizeCategoryKey(getDishCategoryLabel(dish)) === effectiveSelectedFastCategoryKey
           );
-  const visibleFastEntryDishes = fastEntryDishes.length > 0 ? fastEntryDishes : dishes;
+  const visibleFastEntryDishes =
+    effectiveSelectedFastCategoryKey === FORMULAS_CATEGORY_KEY
+      ? fastEntryDishes
+      : fastEntryDishes.length > 0
+        ? fastEntryDishes
+        : dishes;
 
   const fastBaseLines = (() => {
     const lines: FastOrderLine[] = [];
@@ -3918,7 +3916,7 @@ function AdminContent() {
             {visibleFastEntryDishes.length === 0 ? <div className="px-3 py-3 text-sm">Aucun article.</div> : null}
             {visibleFastEntryDishes.map((dish) => {
               const dishId = String(dish.id);
-              const isFormulaDish = Boolean((dish as unknown as { is_formula?: unknown }).is_formula);
+              const isFormulaDish = formulaDishIdsFromLinks.has(String(dish.id || "").trim());
               const displayName = isFormulaDish ? getFormulaDisplayName(dish) : getDishName(dish);
               const displayPrice = isFormulaDish ? getFormulaPackPrice(dish) : getDishPrice(dish);
               const linkedDishOptions =

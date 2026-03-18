@@ -1475,69 +1475,74 @@ export default function KitchenPage() {
   }, [printOrder, autoPrintEnabled, lastPrintedId]);
 
   const handleReady = async (orderId: string | number) => {
-    const targetOrder = orders.find((order) => String(order.id) === String(orderId));
-    if (!targetOrder) {
-      needsOrderRefreshRef.current = true;
-      return;
-    }
-
-    const currentItems = getOrderItems(targetOrder as Order);
-    if (currentItems.length === 0) return;
-    const currentStep = resolveOrderServiceStep(targetOrder, currentItems);
-    const readyItemIds: Array<string | number> = [];
-    const nextItems = currentItems.map((item) => {
-      if (!isKitchenCourse(item)) return item;
-      const matchesCurrentStep = currentStep ? resolveItemCourse(item) === currentStep : true;
-      if (matchesCurrentStep) {
-        if (item.id != null) readyItemIds.push(item.id);
-        return setItemStatus(item, "ready");
+    try {
+      const targetOrder = orders.find((order) => String(order.id) === String(orderId));
+      if (!targetOrder) {
+        needsOrderRefreshRef.current = true;
+        return;
       }
-      return item;
-    });
-    const nextStatus = deriveOrderStatusFromItems(nextItems);
-    const nextServiceStep = resolveOrderServiceStep(targetOrder, nextItems);
 
-    let updateResult = await supabase
-      .from("orders")
-      .update({ items: nextItems, status: nextStatus, service_step: nextServiceStep || null })
-      .eq("id", orderId)
-      .select("id,status,service_step,items");
-    if (updateResult.error && nextStatus === "ready") {
-      const fallback = await supabase
+      const currentItems = getOrderItems(targetOrder as Order);
+      if (currentItems.length === 0) return;
+      const currentStep = resolveOrderServiceStep(targetOrder, currentItems);
+      const readyItemIds: Array<string | number> = [];
+      const nextItems = currentItems.map((item) => {
+        if (!isKitchenCourse(item)) return item;
+        const matchesCurrentStep = currentStep ? resolveItemCourse(item) === currentStep : true;
+        if (matchesCurrentStep) {
+          if (item.id != null) readyItemIds.push(item.id);
+          return setItemStatus(item, "ready");
+        }
+        return item;
+      });
+      const nextStatus = deriveOrderStatusFromItems(nextItems);
+      const nextServiceStep = resolveOrderServiceStep(targetOrder, nextItems);
+
+      let updateResult = await supabase
         .from("orders")
-        .update({ items: nextItems, status: "pret", service_step: nextServiceStep || null })
+        .update({ items: nextItems, status: nextStatus, service_step: nextServiceStep || null })
         .eq("id", orderId)
         .select("id,status,service_step,items");
-      updateResult = fallback;
-    }
-
-    if (updateResult.error) {
-      console.log("update_order_item_status failed:", updateResult.error);
-      console.error("Erreur update:", updateResult.error);
-      needsOrderRefreshRef.current = true;
-      return;
-    }
-
-    if (readyItemIds.length > 0) {
-      const readyUpdate = await supabase
-        .from("order_items")
-        .update({ status: "ready" } as never)
-        .eq("order_id", orderId)
-        .in("id", readyItemIds as never);
-      if (readyUpdate.error) {
-        console.log("update_order_item_status (order_items) failed:", readyUpdate.error);
-        console.warn("order_items status sync failed:", readyUpdate.error.message);
-        needsOrderRefreshRef.current = true;
+      if (updateResult.error && nextStatus === "ready") {
+        const fallback = await supabase
+          .from("orders")
+          .update({ items: nextItems, status: "pret", service_step: nextServiceStep || null })
+          .eq("id", orderId)
+          .select("id,status,service_step,items");
+        updateResult = fallback;
       }
-    }
 
-    setOrders((prev) =>
-      prev.map((order) =>
-        String(order.id) === String(orderId)
-          ? { ...order, items: nextItems, order_items: null, status: nextStatus, service_step: nextServiceStep || null }
-          : order
-      )
-    );
+      if (updateResult.error) {
+        console.log("update_order_item_status failed:", updateResult.error);
+        console.error("Erreur update:", updateResult.error);
+        needsOrderRefreshRef.current = true;
+        return;
+      }
+
+      if (readyItemIds.length > 0) {
+        const readyUpdate = await supabase
+          .from("order_items")
+          .update({ status: "ready" } as never)
+          .eq("order_id", orderId)
+          .in("id", readyItemIds as never);
+        if (readyUpdate.error) {
+          console.log("update_order_item_status (order_items) failed:", readyUpdate.error);
+          console.warn("order_items status sync failed:", readyUpdate.error.message);
+          needsOrderRefreshRef.current = true;
+        }
+      }
+
+      setOrders((prev) =>
+        prev.map((order) =>
+          String(order.id) === String(orderId)
+            ? { ...order, items: nextItems, order_items: null, status: nextStatus, service_step: nextServiceStep || null }
+            : order
+        )
+      );
+    } catch (error) {
+      console.error("update_order_item_status unexpected error:", error);
+      needsOrderRefreshRef.current = true;
+    }
   };
 
   const [readyGroupLoadingKey, setReadyGroupLoadingKey] = useState<string>("");
