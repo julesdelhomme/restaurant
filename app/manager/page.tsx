@@ -6,7 +6,7 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "../lib/supabase";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
-import { ChevronDown, ChevronRight, CircleHelp, Pencil, Printer, Star, Trash2, X } from "lucide-react";
+import { ChevronDown, ChevronRight, ChevronUp, CircleHelp, Pencil, Printer, Star, Trash2, X } from "lucide-react";
 import { DEFAULT_ALLERGEN_TRANSLATIONS_EXTENDED, PREDEFINED_LANGUAGE_OPTIONS_EXTENDED } from "../lib/languagesConfig";
 import RestaurantQrCard from "../components/RestaurantQrCard";
 import DashboardOtpGate from "../components/DashboardOtpGate";
@@ -488,6 +488,7 @@ interface Dish {
     is_daily_special?: boolean | null;
     is_promo?: boolean | null;
     promo_price?: number | null;
+    formula_price?: number | null;
     is_suggestion?: boolean | null;
     is_formula?: boolean | null;
     formula_category_ids?: Array<string | number> | null;
@@ -922,6 +923,7 @@ interface DishForm {
     description_de: string;
     description_i18n: Record<string, string>;
     price: string;
+    formula_price: string;
     available_days: string[];
     start_time: string;
     end_time: string;
@@ -1640,6 +1642,7 @@ export default function MenuManager() {
     description_de: "",
     description_i18n: {},
     price: "",
+    formula_price: "",
     available_days: [],
     start_time: "",
     end_time: "",
@@ -3642,6 +3645,7 @@ export default function MenuManager() {
         description_de: "",
         description_i18n: {},
         price: "",
+        formula_price: "",
         available_days: [],
         start_time: "",
         end_time: "",
@@ -3929,6 +3933,10 @@ export default function MenuManager() {
         de: directDescriptionByLang.de || dish.description_de || "",
       },
       price: dish.price?.toString() || "",
+      formula_price:
+        (dish as unknown as any).formula_price == null
+          ? ""
+          : String((dish as unknown as any).formula_price),
       available_days: parseDishAvailableDays(dish.available_days),
       start_time: normalizeTimeInput(dish.start_time),
       end_time: normalizeTimeInput(dish.end_time),
@@ -4297,6 +4305,9 @@ export default function MenuManager() {
     const parsedPromoPrice = String(formData.promo_price || "").trim()
       ? Number.parseFloat(String(formData.promo_price || "").trim().replace(",", "."))
       : null;
+    const parsedFormulaPrice = String(formData.formula_price || "").trim()
+      ? Number.parseFloat(String(formData.formula_price || "").trim().replace(",", "."))
+      : null;
     const unifiedSuggestionFlag = Boolean(formData.is_suggestion || formData.is_chef_suggestion);
     if (formData.is_promo && parsedPromoPrice == null) {
       alert("Le prix promo est obligatoire quand le badge PROMO est activé.");
@@ -4304,6 +4315,10 @@ export default function MenuManager() {
     }
     if (formData.is_promo && (!Number.isFinite(parsedPromoPrice as number) || Number(parsedPromoPrice) <= 0)) {
       alert("Prix promo invalide.");
+      return;
+    }
+    if (parsedFormulaPrice != null && (!Number.isFinite(parsedFormulaPrice as number) || Number(parsedFormulaPrice) <= 0)) {
+      alert("Prix formule invalide.");
       return;
     }
 
@@ -4565,6 +4580,7 @@ export default function MenuManager() {
       is_suggestion: unifiedSuggestionFlag,
       is_formula: !!formData.is_formula,
       formula_category_ids: formData.is_formula ? normalizedFormulaCategoryIds : null,
+      formula_price: formData.is_formula ? (parsedFormulaPrice == null ? null : Number(parsedFormulaPrice)) : null,
       only_in_formula: !!formData.only_in_formula,
       is_promo: !!formData.is_promo,
       promo_price: formData.is_promo ? (parsedPromoPrice == null ? null : Number(parsedPromoPrice)) : null,
@@ -4708,6 +4724,17 @@ export default function MenuManager() {
               "ALTER TABLE dishes ADD COLUMN IF NOT EXISTS is_promo BOOLEAN DEFAULT FALSE;\n" +
               "ALTER TABLE dishes ADD COLUMN IF NOT EXISTS is_suggestion BOOLEAN DEFAULT FALSE;\n" +
               "ALTER TABLE dishes ADD COLUMN IF NOT EXISTS promo_price NUMERIC(10,2);"
+          );
+          return;
+        }
+        if (
+          String(responseData.code || "") === "42703" &&
+          /formula_price/i.test(errorMessage)
+        ) {
+          alert(
+            "Erreur SQL: colonne formula_price absente.\n" +
+              "ExÃ©cutez:\n" +
+              "ALTER TABLE dishes ADD COLUMN IF NOT EXISTS formula_price NUMERIC(10,2);"
           );
           return;
         }
@@ -8277,7 +8304,7 @@ export default function MenuManager() {
                           className="px-2 py-0.5 border border-gray-300 rounded bg-white text-xs"
                           title="Monter"
                         >
-                          ?
+                          <ChevronUp className="h-3.5 w-3.5" aria-hidden="true" />
                         </button>
                         <input
                           type="number"
@@ -8303,7 +8330,7 @@ export default function MenuManager() {
                           className="px-2 py-0.5 border border-gray-300 rounded bg-white text-xs"
                           title="Descendre"
                         >
-                          ?
+                          <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
                         </button>
                       </div>
                       <select
@@ -11028,6 +11055,18 @@ export default function MenuManager() {
                   value={formData.price}
                   onChange={(e) => setFormData({ ...formData, price: e.target.value })}
                   className="w-full px-3 py-2 bg-white text-black border border-gray-300"
+                />
+              </div>
+              <div>
+                <label className="block mb-1 font-bold">Prix formule / pack (&euro;)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={formData.formula_price}
+                  onChange={(e) => setFormData({ ...formData, formula_price: e.target.value })}
+                  className="w-full px-3 py-2 bg-white text-black border border-gray-300"
+                  placeholder="Prix applique quand le client prend la formule"
                 />
               </div>
               <div>

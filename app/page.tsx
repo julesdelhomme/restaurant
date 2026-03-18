@@ -180,6 +180,9 @@ const UI_TEXT = {
       select_sides_up_to: "Choisissez jusqu'ï¿½ {max} choix",
       select_sides_up_to_icecream: "Choisissez jusqu'ï¿½ {max} parfums",
       no_side_configured: "Aucun accompagnement configurï¿½ pour ce plat.",
+      formulas: "Formules",
+      available_in_formula: "Disponible en formule",
+      view_formula: "Voir la formule",
     },
     categoryMap: {
       all: "Tous",
@@ -274,6 +277,9 @@ const UI_TEXT = {
       select_sides_up_to: "Choose up to {max} options",
       select_sides_up_to_icecream: "Choose up to {max} flavors",
       no_side_configured: "No side configured for this dish.",
+      formulas: "Formulas",
+      available_in_formula: "Available in formula",
+      view_formula: "View formula",
     },
     categoryMap: {
       all: "All",
@@ -368,6 +374,9 @@ const UI_TEXT = {
       select_sides_up_to: "Elige hasta {max} opciones",
       select_sides_up_to_icecream: "Elige hasta {max} sabores",
       no_side_configured: "No hay acompaï¿½amiento configurado para este plato.",
+      formulas: "Formulas",
+      available_in_formula: "Disponible en formula",
+      view_formula: "Ver la formula",
     },
     categoryMap: {
       all: "Todos",
@@ -462,6 +471,9 @@ const UI_TEXT = {
       select_sides_up_to: "W?hlen Sie bis zu {max} Optionen",
       select_sides_up_to_icecream: "W?hlen Sie bis zu {max} Sorten",
       no_side_configured: "Keine Beilage fï¿½r dieses Gericht konfiguriert.",
+      formulas: "Formeln",
+      available_in_formula: "In Formel verfugbar",
+      view_formula: "Formel ansehen",
     },
     categoryMap: {
       all: "Alle",
@@ -522,6 +534,7 @@ const UI_TEXT = {
 } as const;
 
 const CATEGORY_KEYS = ["all", "entree", "plat", "dessert", "boisson"] as const;
+const FORMULAS_CATEGORY_ID = "__formulas__";
 
 function normalizeCategory(value: string) {
   return value
@@ -973,6 +986,7 @@ interface Dish {
   is_chef_suggestion?: boolean | null;
   is_daily_special?: boolean | null;
   is_promo?: boolean | null;
+  formula_price?: number | null;
   is_formula?: boolean | null;
   formula_category_ids?: Array<string | number> | null;
   only_in_formula?: boolean | null;
@@ -2401,6 +2415,48 @@ export default function MenuDigital() {
       choose: get("formula_choose", "Choisir"),
     };
   }, [mergedUiDictionary, normalizedLang, uiLang]);
+  const formulaCategoryLabel = useMemo(
+    () =>
+      String(
+        mergedUiDictionary["categories.formulas"] ||
+          mergedUiDictionary["labels.formulas"] ||
+          mergedUiDictionary.formulas ||
+          UI_TRANSLATIONS[normalizedLang]?.["categories.formulas"] ||
+          UI_TRANSLATIONS[normalizedLang]?.["labels.formulas"] ||
+          UI_TRANSLATIONS[normalizedLang]?.formulas ||
+          UI_TRANSLATIONS[uiLang]?.["categories.formulas"] ||
+          UI_TRANSLATIONS[uiLang]?.["labels.formulas"] ||
+          UI_TRANSLATIONS[uiLang]?.formulas ||
+          UI_TEXT_CLEAN[uiLang].labels.formulas
+      ).trim() || UI_TEXT_CLEAN[uiLang].labels.formulas,
+    [mergedUiDictionary, normalizedLang, uiLang]
+  );
+  const availableInFormulaLabel = useMemo(
+    () =>
+      String(
+        mergedUiDictionary["labels.available_in_formula"] ||
+          mergedUiDictionary.available_in_formula ||
+          UI_TRANSLATIONS[normalizedLang]?.["labels.available_in_formula"] ||
+          UI_TRANSLATIONS[normalizedLang]?.available_in_formula ||
+          UI_TRANSLATIONS[uiLang]?.["labels.available_in_formula"] ||
+          UI_TRANSLATIONS[uiLang]?.available_in_formula ||
+          UI_TEXT_CLEAN[uiLang].labels.available_in_formula
+      ).trim() || UI_TEXT_CLEAN[uiLang].labels.available_in_formula,
+    [mergedUiDictionary, normalizedLang, uiLang]
+  );
+  const viewFormulaLabel = useMemo(
+    () =>
+      String(
+        mergedUiDictionary["labels.view_formula"] ||
+          mergedUiDictionary.view_formula ||
+          UI_TRANSLATIONS[normalizedLang]?.["labels.view_formula"] ||
+          UI_TRANSLATIONS[normalizedLang]?.view_formula ||
+          UI_TRANSLATIONS[uiLang]?.["labels.view_formula"] ||
+          UI_TRANSLATIONS[uiLang]?.view_formula ||
+          UI_TEXT_CLEAN[uiLang].labels.view_formula
+      ).trim() || UI_TEXT_CLEAN[uiLang].labels.view_formula,
+    [mergedUiDictionary, normalizedLang, uiLang]
+  );
   const dishBadgeLabels = useMemo(() => {
     const pick = (key: string, fallback: string) =>
       String(mergedUiDictionary[key] || UI_TRANSLATIONS[normalizedLang]?.[key] || UI_TRANSLATIONS[uiLang]?.[key] || fallback);
@@ -2489,6 +2545,13 @@ export default function MenuDigital() {
     return promo;
   };
   const getDishBasePrice = (dish: Dish) => parsePriceNumber(dish.price);
+  const getFormulaPackPrice = (dish: Dish) => {
+    const formulaPrice = Number((dish as any).formula_price);
+    if (Number.isFinite(formulaPrice) && formulaPrice > 0) {
+      return formulaPrice;
+    }
+    return getDishBasePrice(dish);
+  };
   const getDishOptionSupplement = (option?: ProductOptionItem | null) =>
     option ? parseAddonPrice(option.price_override) : 0;
   const getDishOptionSupplementTotal = (
@@ -3666,11 +3729,30 @@ export default function MenuDigital() {
       return String(a.name_fr || "").localeCompare(String(b.name_fr || ""));
     });
   }, [categories]);
+  const hasFormulaDishes = useMemo(
+    () => dishes.some((dish) => toBooleanFlag((dish as any).is_formula ?? dish.is_formula)),
+    [dishes]
+  );
+  const menuCategories = useMemo(() => {
+    if (!hasFormulaDishes) return sortedCategories;
+    const virtualFormulaCategory: CategoryItem = {
+      id: FORMULAS_CATEGORY_ID,
+      name_fr: formulaCategoryLabel,
+      sort_order: Number.MAX_SAFE_INTEGER,
+      destination: "cuisine",
+    };
+    return [...sortedCategories, virtualFormulaCategory];
+  }, [sortedCategories, hasFormulaDishes, formulaCategoryLabel]);
 
   const categoryList = useMemo(() => {
     const allLabel = uiText.categories[0];
-    return [allLabel, ...sortedCategories.map((category) => getCategoryLabel(category))];
-  }, [lang, sortedCategories]);
+    return [
+      allLabel,
+      ...menuCategories.map((category) =>
+        String(category.id || "") === FORMULAS_CATEGORY_ID ? formulaCategoryLabel : getCategoryLabel(category)
+      ),
+    ];
+  }, [menuCategories, uiText.categories, formulaCategoryLabel]);
 
   const categorySortMap = useMemo(() => {
     const map = new Map<string | number, number>();
@@ -3724,7 +3806,6 @@ export default function MenuDigital() {
     const dishRecord = dish as unknown as any;
     const onlyInFormula = toBooleanFlag(dishRecord.only_in_formula ?? dish.only_in_formula);
     const isFormulaDish = toBooleanFlag(dishRecord.is_formula ?? dish.is_formula);
-    if (isFormulaDish) return false;
     if (onlyInFormula && !isFormulaDish) return false;
     return true;
   };
@@ -3793,9 +3874,16 @@ export default function MenuDigital() {
 
   const selectedCategoryId = useMemo(() => {
     if (selectedCategory === 0) return null;
-    const category = sortedCategories[selectedCategory - 1];
+    const category = menuCategories[selectedCategory - 1];
     return category?.id ?? null;
-  }, [selectedCategory, sortedCategories]);
+  }, [selectedCategory, menuCategories]);
+
+  useEffect(() => {
+    const maxIndex = categoryList.length - 1;
+    if (selectedCategory > maxIndex) {
+      setSelectedCategory(Math.max(0, maxIndex));
+    }
+  }, [categoryList.length, selectedCategory]);
 
   const categoryById = useMemo(() => {
     const map = new Map<string | number, CategoryItem>();
@@ -3991,6 +4079,7 @@ export default function MenuDigital() {
 
   const availableSubCategories = useMemo(() => {
     if (!selectedCategoryId) return [];
+    if (String(selectedCategoryId) === FORMULAS_CATEGORY_ID) return [];
     return subCategoryRows.filter((sub) => String(sub.category_id) === String(selectedCategoryId));
   }, [selectedCategoryId, subCategoryRows]);
 
@@ -4027,17 +4116,19 @@ export default function MenuDigital() {
       if (dish.is_available === false) return false;
       if (!isDishVisibleInMenu(dish)) return false;
       if (!isDishAvailableNow(dish)) return false;
+      const isFormulaDish = toBooleanFlag((dish as any).is_formula ?? dish.is_formula);
+      if (String(selectedCategoryId) === FORMULAS_CATEGORY_ID) return isFormulaDish;
       if (!selectedCategoryId) return true;
       return String(dish.category_id) === String(selectedCategoryId);
     });
     const filteredBySub =
-      !selectedSubCategory || !selectedCategoryId
+      !selectedSubCategory || !selectedCategoryId || String(selectedCategoryId) === FORMULAS_CATEGORY_ID
         ? list
         : list.filter((dish) => String(dish.subcategory_id) === String(selectedSubCategory));
     const isSuggestionDish = (dish: Dish) =>
       Boolean(dish.is_suggestion || dish.is_chef_suggestion || dish.is_featured);
     const filteredVisible =
-      selectedCategoryId && !keepSuggestionsOnTop
+      selectedCategoryId && !keepSuggestionsOnTop && String(selectedCategoryId) !== FORMULAS_CATEGORY_ID
         ? filteredBySub.filter((dish) => !isSuggestionDish(dish))
         : filteredBySub;
     const sortByName = (a: Dish, b: Dish) =>
@@ -4073,6 +4164,9 @@ export default function MenuDigital() {
         return [{ title: chefSuggestionBadgeLabel, items: suggestionPinnedDishes }, ...baseGroups];
       }
       return baseGroups;
+    }
+    if (String(selectedCategoryId) === FORMULAS_CATEGORY_ID) {
+      return [{ title: "", items: filteredDishes }];
     }
     const groups: Record<string, Dish[]> = {};
     filteredDishes.forEach((dish) => {
@@ -5742,7 +5836,7 @@ export default function MenuDigital() {
                               className="text-sm md:text-base font-black px-4 py-2.5 rounded-lg border-2 border-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] whitespace-nowrap shrink-0"
                               style={{ backgroundColor: "#FFF8E1", color: "#111111" }}
                             >
-                              Prendre en formule ({getDishBasePrice(featuredPrimaryFormula).toFixed(2)} €)
+                              {viewFormulaLabel} ({getFormulaPackPrice(featuredPrimaryFormula).toFixed(2)} €)
                             </button>
                           ) : null}
                           {quickAddToCartEnabled ? (
@@ -5913,8 +6007,12 @@ export default function MenuDigital() {
                 const isOverlayCard = cardLayout === "overlay" && Boolean(dish.image_url);
                 const isBicolorCard = cardLayout === "bicolor";
                 const isPromoDish = getPromoPriceForDish(dish) != null;
+                const isFormulaDishCard = toBooleanFlag((dish as any).is_formula ?? dish.is_formula);
                 const linkedFormulas = linkedFormulasByDishId.get(String(dish.id || "").trim()) || [];
                 const primaryLinkedFormula = linkedFormulas[0] || null;
+                const isFormulasCategorySelected = String(selectedCategoryId || "") === FORMULAS_CATEGORY_ID;
+                const displayBasePrice =
+                  isFormulasCategorySelected && isFormulaDishCard ? getFormulaPackPrice(dish) : getDishBasePrice(dish);
                 const cardTextColor = isOverlayCard ? "text-white" : cardTextIsLight ? "text-white" : "text-black";
                 const badgeBaseClass = isOverlayCard
                   ? "bg-black/50 border-white/70 text-white backdrop-blur-[1px]"
@@ -6096,9 +6194,9 @@ export default function MenuDigital() {
                           </span>
                         ))}
                       </div>
-                      {linkedFormulas.length > 0 ? (
+                      {linkedFormulas.length > 0 || isFormulaDishCard ? (
                         <div className="mb-2 inline-flex items-center gap-1 rounded-full border-2 border-black bg-white px-2 py-1 text-xs font-black text-black">
-                          Disponible en formule
+                          {availableInFormulaLabel}
                         </div>
                       ) : null}
                       <div className="mt-1 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
@@ -6108,7 +6206,7 @@ export default function MenuDigital() {
                             style={!isOverlayCard ? { color: cardTextColorValue } : undefined}
                           >
                             <span className="text-sm font-bold line-through opacity-70 inline-flex items-center gap-1">
-                              {Number(getDishBasePrice(dish) || 0).toFixed(2)}
+                              {Number(displayBasePrice || 0).toFixed(2)}
                               <Euro size={14} />
                             </span>
                             <span className="text-3xl md:text-4xl font-black inline-flex items-center gap-1 text-[#ff2d00]">
@@ -6121,7 +6219,7 @@ export default function MenuDigital() {
                             className={`text-2xl md:text-3xl font-black inline-flex items-center gap-1 ${isOverlayCard ? "text-white" : ""}`}
                             style={!isOverlayCard ? { color: cardTextColorValue } : undefined}
                           >
-                            {Number(getDishBasePrice(dish) || 0).toFixed(2)}
+                            {Number(displayBasePrice || 0).toFixed(2)}
                             <Euro size={18} />
                           </span>
                         )}
@@ -6141,7 +6239,7 @@ export default function MenuDigital() {
                                 color: "#111111",
                               }}
                             >
-                              Prendre en formule ({getDishBasePrice(primaryLinkedFormula).toFixed(2)} €)
+                              {viewFormulaLabel} ({getFormulaPackPrice(primaryLinkedFormula).toFixed(2)} €)
                             </button>
                           ) : null}
                           {quickAddToCartEnabled ? (
@@ -6215,7 +6313,7 @@ export default function MenuDigital() {
             <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-28 pt-4 sm:pb-6">
               <h2 className="text-2xl font-black text-black mb-1">{getDishName(formulaDish, lang)}</h2>
               <div className="text-base font-black inline-flex items-center gap-1 mb-4">
-                {Number(getDishBasePrice(formulaDish) || 0).toFixed(2)}
+                {Number(getFormulaPackPrice(formulaDish) || 0).toFixed(2)}
                 <Euro size={16} />
               </div>
               {formulaSourceDish ? (
@@ -6319,7 +6417,7 @@ export default function MenuDigital() {
                     formulaSelections: selections,
                     formulaDishId: String(formulaDish.id || "").trim() || undefined,
                     formulaDishName: getDishName(formulaDish, lang),
-                    formulaUnitPrice: getDishBasePrice(formulaDish),
+                    formulaUnitPrice: getFormulaPackPrice(formulaDish),
                   });
                   setFormulaDish(null);
                   setFormulaSourceDish(null);
@@ -6368,7 +6466,7 @@ export default function MenuDigital() {
               <p className="text-black mb-2">{getDescription(selectedDish, lang)}</p>
               {selectedDishLinkedFormulas.length > 0 ? (
                 <div className="mb-3 rounded-lg border-2 border-black bg-amber-50 p-3">
-                  <div className="text-sm font-black text-black mb-1">Amelioration: disponible en formule</div>
+                  <div className="text-sm font-black text-black mb-1">{availableInFormulaLabel}</div>
                   <div className="flex flex-col gap-2">
                     {selectedDishLinkedFormulas.map((formula) => {
                       const formulaId = String(formula.id || "").trim();
@@ -6380,7 +6478,7 @@ export default function MenuDigital() {
                           onClick={() => openFormulaModal(formula, selectedDish)}
                           className="w-full text-left px-3 py-2 rounded-lg border-2 border-black bg-white font-black text-black"
                         >
-                          {getDishName(formula, lang)} - {getDishBasePrice(formula).toFixed(2)} €
+                          {getDishName(formula, lang)} - {getFormulaPackPrice(formula).toFixed(2)} €
                         </button>
                       );
                     })}
@@ -6900,6 +6998,8 @@ export default function MenuDigital() {
     </>
   );
 }
+
+
 
 
 
