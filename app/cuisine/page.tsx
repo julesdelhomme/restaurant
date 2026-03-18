@@ -1500,16 +1500,19 @@ export default function KitchenPage() {
     let updateResult = await supabase
       .from("orders")
       .update({ items: nextItems, status: nextStatus, service_step: nextServiceStep || null })
-      .eq("id", orderId);
+      .eq("id", orderId)
+      .select("id,status,service_step,items");
     if (updateResult.error && nextStatus === "ready") {
       const fallback = await supabase
         .from("orders")
         .update({ items: nextItems, status: "pret", service_step: nextServiceStep || null })
-        .eq("id", orderId);
+        .eq("id", orderId)
+        .select("id,status,service_step,items");
       updateResult = fallback;
     }
 
     if (updateResult.error) {
+      console.log("update_order_item_status failed:", updateResult.error);
       console.error("Erreur update:", updateResult.error);
       needsOrderRefreshRef.current = true;
       return;
@@ -1522,6 +1525,7 @@ export default function KitchenPage() {
         .eq("order_id", orderId)
         .in("id", readyItemIds as never);
       if (readyUpdate.error) {
+        console.log("update_order_item_status (order_items) failed:", readyUpdate.error);
         console.warn("order_items status sync failed:", readyUpdate.error.message);
         needsOrderRefreshRef.current = true;
       }
