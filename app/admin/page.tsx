@@ -160,6 +160,8 @@ type Item = {
   selected_extras?: Array<{ id: string; label_fr: string; price: number }>;
   selected_cooking_key?: string | null;
   selected_cooking_label_fr?: string | null;
+  is_formula?: boolean | null;
+  formula_id?: string | number | null;
   special_request?: string;
   selectedSides?: string[];
   selectedExtras?: Array<{ name: string; price: number }>;
@@ -1232,6 +1234,14 @@ function AdminContent() {
     if (/plat|main|dish|principal/.test(normalized)) return "plat";
     return "plat";
   };
+  const isFormulaOrderItem = (item: Item) => {
+    const record = item as unknown as Record<string, unknown>;
+    const isFormulaFlag = readBooleanFlag(record.is_formula, false);
+    const formulaId = String(
+      record.formula_id ?? record.formulaId ?? record.formula_dish_id ?? record.formulaDishId ?? ""
+    ).trim();
+    return isFormulaFlag || Boolean(formulaId);
+  };
   const resolveItemCourse = (item: Item) => {
     const record = item as unknown as Record<string, unknown>;
     const dishData = (record.dish ?? null) as Record<string, unknown> | null;
@@ -1569,9 +1579,27 @@ function AdminContent() {
     return map;
   }, [formulaModalDish, formulaLinksByFormulaId]);
 
+  const linkedFormulaCategoryIds = useMemo(() => {
+    const formulaDishId = String(formulaModalDish?.id || "").trim();
+    if (!formulaDishId) return [] as string[];
+    const links = formulaLinksByFormulaId.get(formulaDishId) || [];
+    if (links.length === 0) return [] as string[];
+    const categoryIds = new Set<string>();
+    links.forEach((link) => {
+      const linkedDish = dishById.get(String(link.dishId || "").trim());
+      const categoryId = String(linkedDish?.category_id || "").trim();
+      if (categoryId) categoryIds.add(categoryId);
+    });
+    return [...categoryIds];
+  }, [formulaModalDish, formulaLinksByFormulaId, dishById]);
+
   const normalizedFormulaCategoryIds = useMemo(() => {
-    return parseFormulaCategoryIds((formulaModalDish as unknown as { formula_category_ids?: unknown } | null)?.formula_category_ids);
-  }, [formulaModalDish]);
+    const parsedCategoryIds = parseFormulaCategoryIds(
+      (formulaModalDish as unknown as { formula_category_ids?: unknown } | null)?.formula_category_ids
+    );
+    if (parsedCategoryIds.length > 0) return parsedCategoryIds;
+    return linkedFormulaCategoryIds;
+  }, [formulaModalDish, linkedFormulaCategoryIds]);
 
   const formulaCategories = useMemo(() => {
     if (normalizedFormulaCategoryIds.length === 0) return [] as CategoryItem[];
@@ -2435,10 +2463,28 @@ function AdminContent() {
     setServiceNotifications((prev) => prev.filter((row) => String(row.id) !== String(notificationId)));
   };
 
-  const formulaDishes = dishes.filter((dish) => {
-    const id = String(dish.id || "").trim();
-    return id && formulaDishIdsFromLinks.has(id);
-  });
+  const formulaParentDishIds = useMemo(() => {
+    const ids = new Set<string>();
+    formulaLinksByFormulaId.forEach((_, formulaDishId) => {
+      const normalizedId = String(formulaDishId || "").trim();
+      if (normalizedId) ids.add(normalizedId);
+    });
+    if (ids.size === 0) {
+      formulaDishIdsFromLinks.forEach((id) => {
+        const normalizedId = String(id || "").trim();
+        if (normalizedId) ids.add(normalizedId);
+      });
+    }
+    return ids;
+  }, [formulaLinksByFormulaId, formulaDishIdsFromLinks]);
+
+  const fetchFormulaDishes = () =>
+    dishes.filter((dish) => {
+      const id = String(dish.id || "").trim();
+      return id && formulaParentDishIds.has(id);
+    });
+
+  const formulaDishes = fetchFormulaDishes();
   const categoriesForFastEntryBase =
     categories.length > 0
       ? categories.map((category) => {
@@ -3616,8 +3662,9 @@ function AdminContent() {
     if (items.length === 0) return null;
     const foodItems = items.filter((item) => !isDrink(item));
     const drinkItems = items.filter((item) => isDrink(item));
-    const currentServiceStep = resolveOrderServiceStep(order, items);
-    const nextServiceStep = resolveNextServiceStep(order, items);
+    const hasFormulaItems = items.some((item) => isFormulaOrderItem(item));
+    const currentServiceStep = hasFormulaItems ? resolveOrderServiceStep(order, items) : "";
+    const nextServiceStep = hasFormulaItems ? resolveNextServiceStep(order, items) : "";
     const serviceStepLabel = currentServiceStep ? SERVICE_STEP_LABELS[currentServiceStep] : "";
     const itemProgress = summarizeItems(items);
     const isReadyCard = itemProgress.total > 0 && itemProgress.ready === itemProgress.total;
@@ -3916,7 +3963,7 @@ function AdminContent() {
             {visibleFastEntryDishes.length === 0 ? <div className="px-3 py-3 text-sm">Aucun article.</div> : null}
             {visibleFastEntryDishes.map((dish) => {
               const dishId = String(dish.id);
-              const isFormulaDish = formulaDishIdsFromLinks.has(String(dish.id || "").trim());
+              const isFormulaDish = formulaParentDishIds.has(String(dish.id || "").trim());
               const displayName = isFormulaDish ? getFormulaDisplayName(dish) : getDishName(dish);
               const displayPrice = isFormulaDish ? getFormulaPackPrice(dish) : getDishPrice(dish);
               const linkedDishOptions =

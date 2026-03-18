@@ -182,6 +182,7 @@ const PAID_TABLE_HISTORY_STORAGE_KEY = "menu_qr_paid_tables_history_v1";
 const PAID_TABLE_HISTORY_TTL_MS = 24 * 60 * 60 * 1000;
 const BLOCKING_PAYMENT_STATUSES = new Set(["pending", "preparing", "ready", "ready_bar", "to_prepare", "to_prepare_bar", "to_prepare_kitchen", "en_attente", "en_preparation", "pret", "prêt"]);
 const DRINK_QUEUE_STATUSES = new Set(["pending", "preparing", "to_prepare", "to_prepare_bar", "en_attente", "en_preparation"]);
+const AUTO_PRINT_TRIGGER_STATUSES = new Set(["paid", "paye", "payee", "confirmed", "confirme", "confirmee"]);
 const PAYMENT_BLOCK_MESSAGE = "Service en cours: tous les plats doivent etre marques SERVIS avant l'encaissement.";
 const euro = new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", minimumFractionDigits: 2 });
 const SERVICE_REQUEST_LABELS_FR: Record<string, string> = {
@@ -208,6 +209,14 @@ function parseItems(items: unknown): OrderItem[] {
 
 function normalizeStatus(raw: unknown) {
   return String(raw || "").trim().toLowerCase();
+}
+
+function normalizeStatusKey(raw: unknown) {
+  return String(raw || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
 }
 
 function parseNotificationPayload(payload: unknown): Record<string, unknown> | null {
@@ -887,6 +896,7 @@ export default function BarCaissePage() {
   const [serviceNotifications, setServiceNotifications] = useState<ServiceNotification[]>([]);
   const [paidTablesHistory, setPaidTablesHistory] = useState<PaidTableHistoryEntry[]>([]);
   const thermalPrintTriggerRef = useRef<number | null>(null);
+  const printedRealtimeTransitionsRef = useRef<Record<string, boolean>>({});
 
   const playBarNotificationBeep = () => {
     if (typeof window === "undefined") return;
@@ -1262,6 +1272,7 @@ export default function BarCaissePage() {
         const eventPayload = payload as { eventType?: string; new?: Record<string, unknown>; old?: Record<string, unknown> };
         const eventType = String(eventPayload.eventType || "").toUpperCase();
         const newRow = (eventPayload.new || {}) as Record<string, unknown>;
+        const oldRow = (eventPayload.old || {}) as Record<string, unknown>;
         const currentRestaurantId = String(restaurantId ?? "").trim();
         const nextRestaurantId = String(newRow.restaurant_id ?? "").trim();
         const sameRestaurant = !currentRestaurantId || !nextRestaurantId || nextRestaurantId === currentRestaurantId;
@@ -1274,6 +1285,29 @@ export default function BarCaissePage() {
           ) {
             setHasNewDrinkAlert(true);
             if (activeTab !== "boissons") playBarNotificationBeep();
+          }
+        }
+        if (eventType === "UPDATE" && sameRestaurant) {
+          const oldStatus = normalizeStatusKey(oldRow.status);
+          const newStatus = normalizeStatusKey(newRow.status);
+          const isNewPaidOrConfirmed = AUTO_PRINT_TRIGGER_STATUSES.has(newStatus);
+          const wasAlreadyPaidOrConfirmed = AUTO_PRINT_TRIGGER_STATUSES.has(oldStatus);
+          if (isNewPaidOrConfirmed && !wasAlreadyPaidOrConfirmed) {
+            const transitionKey = `${String(newRow.id || oldRow.id || "")}:${newStatus}:${String(
+              newRow.updated_at || newRow.paid_at || newRow.closed_at || ""
+            )}`;
+            if (transitionKey && !printedRealtimeTransitionsRef.current[transitionKey]) {
+              printedRealtimeTransitionsRef.current[transitionKey] = true;
+              const payloadForPrint = buildTicketPayloadFromRealtimeOrder(newRow);
+              if (payloadForPrint) {
+                console.log("[bar-caisse] auto print trigger status transition:", {
+                  orderId: payloadForPrint.orderId,
+                  status: newStatus,
+                  table: payloadForPrint.tableNumber,
+                });
+                openThermalPrint(payloadForPrint);
+              }
+            }
           }
         }
         void fetchOrders();
@@ -1633,6 +1667,53 @@ export default function BarCaissePage() {
       countryCode: "FR",
       totalTtc,
       tipAmount,
+      lines,
+      socialLinks: restaurantSocialLinks,
+      showSocialOnReceipt,
+    };
+  };
+
+  const buildTicketPayloadFromRealtimeOrder = (orderRow: Record<string, unknown>): TicketPayload | null => {
+    const tableNumber = Number(orderRow.table_number);
+    if (!Number.isFinite(tableNumber) || tableNumber <= 0) return null;
+    const items = parseItems(orderRow.items);
+    if (items.length === 0) return null;
+    const lines: TicketLinePayload[] = [];
+    let totalTtc = 0;
+    items.forEach((item) => {
+      const breakdown = calcLineBreakdown(item);
+      totalTtc += breakdown.lineTotal;
+      lines.push({
+        dishId: (item.dish_id ?? item.id) as string | number | undefined,
+        quantity: breakdown.quantity,
+        itemName: getItemName(item),
+        category: getCategory(item),
+        baseUnitPrice: breakdown.baseUnitPrice,
+        supplementUnitPrice: breakdown.supplementUnitPrice,
+        lineTotal: breakdown.lineTotal,
+        extras: getItemExtras(item),
+        notes: getItemNotes(item),
+      });
+    });
+    if (lines.length === 0) return null;
+    const normalizedStatus = normalizeStatusKey(orderRow.status);
+    const paymentMethod =
+      normalizedStatus === "confirmed" || normalizedStatus === "confirme" || normalizedStatus === "confirmee"
+        ? "Commande confirmée"
+        : "Carte Bancaire";
+    const paidAt =
+      String(orderRow.paid_at || orderRow.closed_at || orderRow.updated_at || "").trim() || new Date().toISOString();
+    return {
+      orderId: (orderRow.id as string | number | undefined) ?? undefined,
+      restaurantName: restaurantName || "Mon Restaurant",
+      restaurantLogoUrl,
+      lang: detectUiLang(),
+      tableNumber,
+      paidAt,
+      paymentMethod,
+      countryCode: "FR",
+      totalTtc,
+      tipAmount: parsePriceNumber(orderRow.tip_amount),
       lines,
       socialLinks: restaurantSocialLinks,
       showSocialOnReceipt,

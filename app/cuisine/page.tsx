@@ -7,6 +7,7 @@ import { BellRing } from "lucide-react";
 
 type Item = {
   id: string | number;
+  order_item_id?: string | number | null;
   dish_id: string | number;
   category_id?: string | number | null;
   dish: { id: string | number; name_fr: string; name: string };
@@ -40,6 +41,8 @@ type Item = {
   selected_cooking_label?: string | null;
   selected_cooking_label_pt?: string | null;
   selected_cooking: string | null;
+  is_formula?: boolean | null;
+  formula_id?: string | number | null;
   selected_side_label_fr?: string | null;
   selected_side_label?: string | null;
   selected_side_label_pt?: string | null;
@@ -248,6 +251,7 @@ export default function KitchenPage() {
       return {
         ...(row || {}),
         id: row?.id ?? row?.dish_id ?? dishRow?.id ?? "",
+        order_item_id: row?.id ?? null,
         dish_id: row?.dish_id ?? dishRow?.id ?? "",
         category_id: row?.category_id ?? dishRow?.category_id ?? null,
         dish: dishRow || undefined,
@@ -257,6 +261,8 @@ export default function KitchenPage() {
         categorie: String(row?.categorie || row?.category || dishRow?.categorie || dishRow?.category || "").trim(),
         category: String(row?.category || row?.categorie || dishRow?.category || dishRow?.categorie || "").trim(),
         instructions: String(row?.instructions || row?.notes || "").trim(),
+        is_formula: Boolean(row?.is_formula ?? dishRow?.is_formula),
+        formula_id: row?.formula_id ?? row?.formulaDishId ?? row?.formula_dish_id ?? null,
       } as Item;
     });
   };
@@ -356,7 +362,25 @@ export default function KitchenPage() {
     }
     return [];
   };
+  const isFormulaItem = (item: Item) => {
+    const record = item as unknown as Record<string, unknown>;
+    const isFormulaFlag = Boolean(
+      record.is_formula ??
+        (record.dish && typeof record.dish === "object"
+          ? (record.dish as Record<string, unknown>).is_formula
+          : false)
+    );
+    const formulaId = normalizeEntityId(
+      record.formula_id ??
+        record.formulaId ??
+        record.formula_dish_id ??
+        record.formulaDishId ??
+        ""
+    );
+    return isFormulaFlag || Boolean(formulaId);
+  };
   const resolveFormulaSequenceForItem = (item: Item) => {
+    if (!isFormulaItem(item)) return null;
     const record = item as unknown as Record<string, unknown>;
     const targetDishId = normalizeEntityId(
       record.dish_id ??
@@ -434,6 +458,7 @@ export default function KitchenPage() {
     return "";
   };
   const getOrderServiceStepLabel = (order: Order, items: Item[]) => {
+    if (!items.some((item) => isFormulaItem(item))) return "";
     const step = resolveOrderServiceStep(order, items);
     return step ? SERVICE_STEP_LABELS[step] : "";
   };
@@ -1484,22 +1509,31 @@ export default function KitchenPage() {
 
       const currentItems = getOrderItems(targetOrder as Order);
       if (currentItems.length === 0) return;
-      const hasOrderItemsRelation = Array.isArray((targetOrder as Order & { order_items?: unknown[] }).order_items)
-        && ((targetOrder as Order & { order_items?: unknown[] }).order_items || []).length > 0;
+      const relationItems = parseOrderItemsRelation(targetOrder as Order);
+      const hasOrderItemsRelation = relationItems.length > 0;
       const currentStep = resolveOrderServiceStep(targetOrder, currentItems);
       const readyItemIds: Array<string | number> = [];
       const nextItems = currentItems.map((item) => {
         if (!isKitchenCourse(item)) return item;
         const matchesCurrentStep = currentStep ? resolveItemCourse(item) === currentStep : true;
         if (matchesCurrentStep) {
-          if (item.id != null) {
-            console.log("ID envoyé:", item.id);
-            readyItemIds.push(item.id);
+          const itemRecord = item as unknown as Record<string, unknown>;
+          const orderItemId = itemRecord.order_item_id ?? itemRecord.orderItemId;
+          if (orderItemId != null) {
+            readyItemIds.push(orderItemId as string | number);
           }
           return setItemStatus(item, "ready");
         }
         return item;
       });
+      const readyItemIdsFromRelation = relationItems
+        .filter((item) => {
+          if (!isKitchenCourse(item)) return false;
+          const matchesCurrentStep = currentStep ? resolveItemCourse(item) === currentStep : true;
+          return matchesCurrentStep && item.id != null;
+        })
+        .map((item) => item.id);
+      const effectiveReadyItemIds = readyItemIdsFromRelation.length > 0 ? readyItemIdsFromRelation : readyItemIds;
       const nextStatus = deriveOrderStatusFromItems(nextItems);
       const nextServiceStep = resolveOrderServiceStep(targetOrder, nextItems);
 
@@ -1519,32 +1553,40 @@ export default function KitchenPage() {
 
       if (updateResult.error) {
         console.log("update_order_item_status failed:", updateResult.error);
-        console.error("Erreur update:", updateResult.error);
+        console.error("Erreur update orders:", updateResult.error?.message || updateResult.error);
         needsOrderRefreshRef.current = true;
         return;
       }
 
-      if (readyItemIds.length > 0 && hasOrderItemsRelation) {
+      if (effectiveReadyItemIds.length > 0 && hasOrderItemsRelation) {
         const readyUpdate = await supabase
           .from("order_items")
           .update({ status: "ready" } as never)
-          .eq("order_id", orderId)
-          .in("id", readyItemIds as never);
+          .in("id", effectiveReadyItemIds as never);
         if (readyUpdate.error) {
           console.log("update_order_item_status (order_items) failed:", readyUpdate.error);
-          console.warn("order_items status sync failed:", readyUpdate.error.message);
+          console.error("order_items status sync failed:", readyUpdate.error.message || readyUpdate.error);
           needsOrderRefreshRef.current = true;
         }
-      } else if (readyItemIds.length > 0 && !hasOrderItemsRelation) {
+      } else if (effectiveReadyItemIds.length > 0 && !hasOrderItemsRelation) {
         console.log("update_order_item_status skipped: no order_items relation for order", orderId);
       }
 
       setOrders((prev) =>
-        prev.map((order) =>
-          String(order.id) === String(orderId)
-            ? { ...order, items: nextItems, order_items: null, status: nextStatus, service_step: nextServiceStep || null }
-            : order
-        )
+        prev.map((order) => {
+          if (String(order.id) !== String(orderId)) return order;
+          const readyIdSet = new Set(effectiveReadyItemIds.map((id) => String(id)));
+          const nextOrderItems =
+            Array.isArray((order as Order & { order_items?: unknown[] }).order_items)
+              ? ((order as Order & { order_items?: unknown[] }).order_items || []).map((row) => {
+                  const record = (row || {}) as Record<string, unknown>;
+                  const rowId = String(record.id ?? "");
+                  if (!rowId || !readyIdSet.has(rowId)) return row;
+                  return { ...record, status: "ready" };
+                })
+              : (order as Order & { order_items?: unknown[] }).order_items ?? null;
+          return { ...order, items: nextItems, order_items: nextOrderItems, status: nextStatus, service_step: nextServiceStep || null };
+        })
       );
     } catch (error) {
       console.error("update_order_item_status unexpected error:", error);
@@ -1622,6 +1664,7 @@ export default function KitchenPage() {
       createdAt: string;
       orderIds: Array<string | number>;
       serviceStep: string;
+      hasFormulaItems: boolean;
       items: Array<{ orderId: string | number; item: Item; idx: number }>;
     };
 
@@ -1630,7 +1673,8 @@ export default function KitchenPage() {
       const hourKey = getHourKey(String(order.created_at || ""));
       const tableNumber = String(order.table_number || "").trim() || "?";
       const kitchenItems = getKitchenItems(order as Order);
-      const serviceStep = resolveOrderServiceStep(order as Order, kitchenItems as Item[]);
+      const hasFormulaItems = kitchenItems.some((item) => isFormulaItem(item as Item));
+      const serviceStep = hasFormulaItems ? resolveOrderServiceStep(order as Order, kitchenItems as Item[]) : "";
       const groupKey = `${tableNumber}-${hourKey}-${serviceStep || "plat"}`;
       if (kitchenItems.length === 0) return;
       const existing = map.get(groupKey);
@@ -1639,6 +1683,7 @@ export default function KitchenPage() {
         existing.items.push(
           ...kitchenItems.map((item, idx) => ({ orderId: order.id, item: item as Item, idx }))
         );
+        if (!existing.hasFormulaItems && hasFormulaItems) existing.hasFormulaItems = true;
         const nextCovers = toCovers(order);
         if (!existing.covers && nextCovers) existing.covers = nextCovers;
         if (new Date(order.created_at).getTime() < new Date(existing.createdAt).getTime()) {
@@ -1653,6 +1698,7 @@ export default function KitchenPage() {
         createdAt: order.created_at,
         orderIds: [order.id],
         serviceStep,
+        hasFormulaItems,
         items: kitchenItems.map((item, idx) => ({ orderId: order.id, item: item as Item, idx })),
       });
     });
@@ -1668,6 +1714,8 @@ export default function KitchenPage() {
   };
   const printServiceStepLabel =
     printOrder ? getOrderServiceStepLabel(printOrder, printableCuisineItems(printOrder)) : "";
+  const printHasFormulaItems =
+    printOrder ? printableCuisineItems(printOrder).some((item) => isFormulaItem(item as Item)) : false;
 
   return (
     <div className="min-h-screen bg-gray-100 p-4 font-sans text-black">
@@ -1722,9 +1770,10 @@ export default function KitchenPage() {
                       T-{group.tableNumber}
                       {group.covers ? ` | 👥 ${group.covers}` : ""}
                     </h2>
-                    {group.serviceStep ? (
+                    {group.serviceStep && group.hasFormulaItems ? (
                       <div className="mt-1 inline-flex items-center rounded border-2 border-black bg-white px-2 py-1 text-xs font-black">
                         {SERVICE_STEP_LABELS[group.serviceStep] || group.serviceStep.toUpperCase()}
+                        <span className="ml-1 font-black text-red-700">[FORMULE]</span>
                       </div>
                     ) : null}
                   </div>
@@ -1830,7 +1879,10 @@ export default function KitchenPage() {
                 : ""}
             </div>
             {printServiceStepLabel ? (
-              <div className="mt-1 text-sm font-black">{printServiceStepLabel}</div>
+              <div className="mt-1 text-sm font-black">
+                {printServiceStepLabel}
+                {printHasFormulaItems ? <span className="ml-1 font-black text-red-700">[FORMULE]</span> : null}
+              </div>
             ) : null}
             <div className="border-t border-b border-dashed border-black py-2">
               {printableCuisineItems(printOrder).map((item: any, idx: number) => {
