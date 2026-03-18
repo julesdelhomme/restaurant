@@ -2617,16 +2617,32 @@ export default function MenuDigital() {
     selectedProductOptions?: ProductOptionItem[] | null,
     selectedProductOption?: ProductOptionItem | null
   ) => {
+    const isFormulaDish = toBooleanFlag((dish as any).is_formula ?? dish.is_formula);
+    if (isFormulaDish) {
+      return getFormulaPackPrice(dish);
+    }
     const basePrice = getDishBasePrice(dish);
     const optionSupplement = getDishOptionSupplementTotal(selectedProductOptions, selectedProductOption);
     const promoPrice = getPromoPriceForDish(dish);
     const discountedBase = promoPrice != null && promoPrice < basePrice ? promoPrice : basePrice;
     return discountedBase + optionSupplement;
   };
+  const isFormulaCartItem = (item: CartItem) =>
+    Boolean(String(item.formulaDishId || "").trim()) ||
+    Number(item.formulaUnitPrice || 0) > 0 ||
+    toBooleanFlag(((item.dish as unknown as any)?.is_formula ?? item.dish?.is_formula) as unknown);
   const getCartItemUnitPrice = (item: CartItem) => {
     const formulaPrice = Number(item.formulaUnitPrice);
     if (Number.isFinite(formulaPrice) && formulaPrice > 0) {
       return formulaPrice;
+    }
+    const formulaDishId = String(item.formulaDishId || "").trim();
+    if (formulaDishId) {
+      const formulaDish = dishes.find((dish) => String(dish.id || "").trim() === formulaDishId);
+      if (formulaDish) return getFormulaPackPrice(formulaDish);
+    }
+    if (toBooleanFlag(((item.dish as unknown as any)?.is_formula ?? item.dish?.is_formula) as unknown)) {
+      return getFormulaPackPrice(item.dish);
     }
     return getDishUnitPrice(
       item.dish,
@@ -3416,13 +3432,6 @@ export default function MenuDigital() {
           .from("categories")
           .select("*")
           .order("id", { ascending: true });
-    if (categoriesResult.error && scopedRestaurantId && String((categoriesResult.error as { code?: string })?.code || "") === "42703") {
-      categoriesResult = await supabase
-        .from("categories")
-        .select("*")
-        .eq("id_restaurant", scopedRestaurantId)
-        .order("id", { ascending: true });
-    }
     if (categoriesResult.error && !scopedRestaurantId) {
       categoriesResult = await supabase
         .from("categories")
@@ -3481,7 +3490,7 @@ export default function MenuDigital() {
       filterActive: boolean;
       orderByCategory: boolean;
       withScope: boolean;
-      scopeColumn: "restaurant_id" | "id_restaurant";
+      scopeColumn: "restaurant_id";
     }) => {
       let query = supabase.from(tableName).select(selectClause);
       if (withScope && scopedRestaurantId) query = query.eq(scopeColumn, scopedRestaurantId);
@@ -3497,7 +3506,7 @@ export default function MenuDigital() {
       filterActive: boolean;
       orderByCategory: boolean;
       withScope: boolean;
-      scopeColumn: "restaurant_id" | "id_restaurant";
+      scopeColumn: "restaurant_id";
     }> = [
       {
         label: "menu_items-rich-select+active+category",
@@ -3510,14 +3519,14 @@ export default function MenuDigital() {
         scopeColumn: "restaurant_id",
       },
       {
-        label: "menu_items-rich-select+active+category(id_restaurant)",
+        label: "menu_items-rich-select+active+category(retry-2)",
         tableName: "menu_items",
         selectClause:
           "*, is_chef_suggestion, is_suggestion, is_daily_special, suggestion_message_fr, suggestion_message_en, suggestion_message_es, suggestion_message_de",
         filterActive: true,
         orderByCategory: true,
         withScope: Boolean(scopedRestaurantId),
-        scopeColumn: "id_restaurant",
+        scopeColumn: "restaurant_id",
       },
       {
         label: "menu_items-basic-select+active+category",
@@ -3529,13 +3538,13 @@ export default function MenuDigital() {
         scopeColumn: "restaurant_id",
       },
       {
-        label: "menu_items-basic-select+active+category(id_restaurant)",
+        label: "menu_items-basic-select+active+category(retry-2)",
         tableName: "menu_items",
         selectClause: "*",
         filterActive: true,
         orderByCategory: true,
         withScope: Boolean(scopedRestaurantId),
-        scopeColumn: "id_restaurant",
+        scopeColumn: "restaurant_id",
       },
       {
         label: "menu_items-basic-select+category",
@@ -3547,13 +3556,13 @@ export default function MenuDigital() {
         scopeColumn: "restaurant_id",
       },
       {
-        label: "menu_items-basic-select+category(id_restaurant)",
+        label: "menu_items-basic-select+category(retry-2)",
         tableName: "menu_items",
         selectClause: "*",
         filterActive: false,
         orderByCategory: true,
         withScope: Boolean(scopedRestaurantId),
-        scopeColumn: "id_restaurant",
+        scopeColumn: "restaurant_id",
       },
       {
         label: "rich-select+active+category",
@@ -3566,21 +3575,21 @@ export default function MenuDigital() {
         scopeColumn: "restaurant_id",
       },
       {
-        label: "rich-select+active+category(id_restaurant)",
+        label: "rich-select+active+category(retry-2)",
         tableName: "dishes",
         selectClause:
           "*, is_chef_suggestion, is_suggestion, is_daily_special, suggestion_message_fr, suggestion_message_en, suggestion_message_es, suggestion_message_de",
         filterActive: true,
         orderByCategory: true,
         withScope: Boolean(scopedRestaurantId),
-        scopeColumn: "id_restaurant",
+        scopeColumn: "restaurant_id",
       },
       { label: "basic-select+active+category", tableName: "dishes", selectClause: "*", filterActive: true, orderByCategory: true, withScope: Boolean(scopedRestaurantId), scopeColumn: "restaurant_id" },
-      { label: "basic-select+active+category(id_restaurant)", tableName: "dishes", selectClause: "*", filterActive: true, orderByCategory: true, withScope: Boolean(scopedRestaurantId), scopeColumn: "id_restaurant" },
+      { label: "basic-select+active+category(retry-2)", tableName: "dishes", selectClause: "*", filterActive: true, orderByCategory: true, withScope: Boolean(scopedRestaurantId), scopeColumn: "restaurant_id" },
       { label: "basic-select+category", tableName: "dishes", selectClause: "*", filterActive: false, orderByCategory: true, withScope: Boolean(scopedRestaurantId), scopeColumn: "restaurant_id" },
-      { label: "basic-select+category(id_restaurant)", tableName: "dishes", selectClause: "*", filterActive: false, orderByCategory: true, withScope: Boolean(scopedRestaurantId), scopeColumn: "id_restaurant" },
+      { label: "basic-select+category(retry-2)", tableName: "dishes", selectClause: "*", filterActive: false, orderByCategory: true, withScope: Boolean(scopedRestaurantId), scopeColumn: "restaurant_id" },
       { label: "basic-select+id", tableName: "dishes", selectClause: "*", filterActive: false, orderByCategory: false, withScope: Boolean(scopedRestaurantId), scopeColumn: "restaurant_id" },
-      { label: "basic-select+id(id_restaurant)", tableName: "dishes", selectClause: "*", filterActive: false, orderByCategory: false, withScope: Boolean(scopedRestaurantId), scopeColumn: "id_restaurant" },
+      { label: "basic-select+id(retry-2)", tableName: "dishes", selectClause: "*", filterActive: false, orderByCategory: false, withScope: Boolean(scopedRestaurantId), scopeColumn: "restaurant_id" },
     ];
     if (!scopedRestaurantId) {
       dishesQueryAttempts.push(
@@ -4891,10 +4900,12 @@ export default function MenuDigital() {
     }
 
     const orderItems = cart.map((item) => {
-      const extrasPrice = (item.selectedExtras || []).reduce(
+      const formulaDishId = String(item.formulaDishId || "").trim() || null;
+      const rawExtrasPrice = (item.selectedExtras || []).reduce(
         (sum, extra) => sum + parsePriceNumber(extra.price),
         0
       );
+      const extrasPrice = isFormulaCartItem(item) ? 0 : rawExtrasPrice;
       const normalizedSelectedProductOptions = getSelectedProductOptionsList(item.selectedProductOptions, item.selectedProductOption);
       const unitPrice = getCartItemUnitPrice({
         ...item,
@@ -4982,7 +4993,6 @@ export default function MenuDigital() {
           label_fr: cookingLabelFr || stableCookingValue,
         });
       }
-      const formulaDishId = String(item.formulaDishId || "").trim() || null;
       const formulaDishName = String(item.formulaDishName || "").trim() || null;
       const formulaUnitPriceRaw = Number(item.formulaUnitPrice);
       const formulaUnitPrice =
@@ -5080,10 +5090,11 @@ export default function MenuDigital() {
     });
 
     const totalPrice = cart.reduce((sum, item) => {
-      const extrasPrice = (item.selectedExtras || []).reduce(
+      const rawExtrasPrice = (item.selectedExtras || []).reduce(
         (acc, extra) => acc + parsePriceNumber(extra.price),
         0
       );
+      const extrasPrice = isFormulaCartItem(item) ? 0 : rawExtrasPrice;
       return sum + (getCartItemUnitPrice(item) + extrasPrice) * item.quantity;
     }, 0);
 
@@ -7503,6 +7514,7 @@ export default function MenuDigital() {
                           (sum, extra) => sum + parsePriceNumber(extra.price),
                           0
                         );
+                        const payableExtrasPrice = isFormulaCartItem(item) ? 0 : extrasPrice;
                         const itemUnitPrice = getCartItemUnitPrice(item);
                         return (
                           <div
@@ -7535,7 +7547,7 @@ export default function MenuDigital() {
                               {instructions || `${tt("details_label")}: ${tt("details_none")}`}
                             </p>
                             <div className="flex justify-between items-center mt-2">
-                              <span className="text-xl font-black inline-flex items-center gap-1">{(itemUnitPrice + extrasPrice).toFixed(2)}<Euro size={16} /></span>
+                              <span className="text-xl font-black inline-flex items-center gap-1">{(itemUnitPrice + payableExtrasPrice).toFixed(2)}<Euro size={16} /></span>
                               <div className="flex items-center gap-2">
                                 <button
                                   onClick={() => {
@@ -7584,10 +7596,11 @@ export default function MenuDigital() {
                             (acc, extra) => acc + parsePriceNumber(extra.price),
                             0
                           );
+                          const payableExtrasPrice = isFormulaCartItem(item) ? 0 : extrasPrice;
                           return (
                             sum +
                             (getCartItemUnitPrice(item) +
-                              extrasPrice) *
+                              payableExtrasPrice) *
                               item.quantity
                           );
                         }, 0)

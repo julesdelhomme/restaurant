@@ -731,6 +731,34 @@ function getItemNotes(item: OrderItem) {
 function calcLineBreakdown(item: OrderItem) {
   const quantity = Math.max(1, Number(item.quantity) || 1);
   const record = item as Record<string, unknown>;
+  const isFormulaItem = Boolean(
+    record.formula_dish_id ??
+      record.formulaDishId ??
+      record.formula_id ??
+      record.formulaId ??
+      record.is_formula
+  );
+  const formulaUnitCandidates: unknown[] = [
+    record.formula_unit_price,
+    record.formulaUnitPrice,
+    record.formula_price,
+    (item.dish as Record<string, unknown> | null)?.formula_price,
+  ];
+  const formulaUnitPrice = formulaUnitCandidates
+    .map((value) => parsePriceNumber(value))
+    .find((value) => value > 0) || 0;
+  if (isFormulaItem && formulaUnitPrice > 0) {
+    const unitTotal = formulaUnitPrice;
+    return {
+      quantity,
+      baseUnitPrice: formulaUnitPrice,
+      supplementUnitPrice: 0,
+      unitTotal,
+      lineTotal: unitTotal * quantity,
+      baseLineTotal: unitTotal * quantity,
+      supplementLineTotal: 0,
+    };
+  }
   const readOptionSupplement = () => {
     const directCandidates: unknown[] = [item.selected_option_price];
     const selectedOptionRecord =
@@ -1132,10 +1160,6 @@ export default function BarCaissePage() {
       categoriesLookupPromise,
     ]);
     let categoriesLookup = initialCategoriesLookup;
-
-    if (categoriesLookup.error && currentRestaurantId && String((categoriesLookup.error as { code?: string })?.code || "") === "42703") {
-      categoriesLookup = await supabase.from("categories").select("id,destination").eq("id_restaurant", currentRestaurantId);
-    }
 
     if (dishesLookup.error) console.warn("Lookup noms plats bar-caisse échoué:", dishesLookup.error);
     if (sidesLookup.error) console.warn("Lookup accompagnements bar-caisse échoué:", sidesLookup.error);

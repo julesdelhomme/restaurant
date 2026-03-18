@@ -948,22 +948,11 @@ function AdminContent() {
       setActiveDishNames(new Set());
       return;
     }
-    let { data, error } = await supabase
+    const { data, error } = await supabase
       .from("dishes")
       .select("name")
       .eq("active", true)
       .eq("restaurant_id", currentRestaurantId);
-    if (error && currentRestaurantId && String((error as { code?: string }).code || "") === "42703") {
-      const idRestaurantFallback = await supabase
-        .from("dishes")
-        .select("name")
-        .eq("id_restaurant", currentRestaurantId)
-        .eq("active", true);
-      if (!idRestaurantFallback.error) {
-        data = idRestaurantFallback.data;
-        error = null;
-      }
-    }
     if (error) {
       setActiveDishNames(new Set());
       return;
@@ -1234,6 +1223,33 @@ function AdminContent() {
     if (/plat|main|dish|principal/.test(normalized)) return "plat";
     return "plat";
   };
+  const resolveCourseFromSequence = (value: unknown) => {
+    const raw = Number(value);
+    if (!Number.isFinite(raw) || raw <= 0) return "";
+    const sequence = Math.max(1, Math.trunc(raw));
+    if (sequence === 1) return "entree";
+    if (sequence >= 3) return "dessert";
+    return "plat";
+  };
+  const parseFormulaEntryList = (value: unknown): Array<Record<string, unknown>> => {
+    let source = value;
+    if (typeof source === "string") {
+      const raw = source.trim();
+      if (!raw) return [];
+      try {
+        source = JSON.parse(raw);
+      } catch {
+        return [];
+      }
+    }
+    if (Array.isArray(source)) {
+      return source.filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === "object");
+    }
+    if (source && typeof source === "object") {
+      return [source as Record<string, unknown>];
+    }
+    return [];
+  };
   const isFormulaOrderItem = (item: Item) => {
     const record = item as unknown as Record<string, unknown>;
     const isFormulaFlag = readBooleanFlag(record.is_formula, false);
@@ -1242,7 +1258,42 @@ function AdminContent() {
     ).trim();
     return isFormulaFlag || Boolean(formulaId);
   };
+  const resolveFormulaSequenceListForItem = (item: Item) => {
+    const record = item as unknown as Record<string, unknown>;
+    const values: number[] = [];
+    const pushSequence = (value: unknown) => {
+      const raw = Number(value);
+      if (!Number.isFinite(raw) || raw <= 0) return;
+      values.push(Math.max(1, Math.trunc(raw)));
+    };
+    pushSequence(record.formula_current_sequence ?? record.formulaCurrentSequence ?? record.sequence);
+    const sources = [
+      record.formula_items,
+      record.formulaItems,
+      record.selected_options,
+      record.selectedOptions,
+      record.options,
+    ];
+    sources.forEach((source) => {
+      parseFormulaEntryList(source).forEach((entry) => {
+        const kind = normalizeLookupText(entry.kind ?? entry.type ?? entry.group ?? "");
+        const isFormulaEntry =
+          kind === "formula" ||
+          kind.includes("formula") ||
+          entry.formula_dish_id != null ||
+          entry.sequence != null;
+        if (!isFormulaEntry) return;
+        pushSequence(entry.sequence ?? entry.service_step_sequence ?? entry.step);
+      });
+    });
+    return Array.from(new Set(values)).sort((a, b) => a - b);
+  };
   const resolveItemCourse = (item: Item) => {
+    const formulaSequences = resolveFormulaSequenceListForItem(item);
+    if (formulaSequences.length > 0) {
+      const fromSequence = resolveCourseFromSequence(formulaSequences[0]);
+      if (fromSequence) return fromSequence;
+    }
     const record = item as unknown as Record<string, unknown>;
     const dishData = (record.dish ?? null) as Record<string, unknown> | null;
     const itemCategoryId = String(record.category_id ?? record.categoryId ?? "").trim();
@@ -1255,10 +1306,19 @@ function AdminContent() {
     const categoryLabel = categoryRow ? getCategoryLabel(categoryRow) : String(record.categorie || record.category || "").trim();
     return resolveCourseFromCategoryLabel(categoryLabel);
   };
+  const resolveItemCourses = (item: Item) => {
+    const sequenceCourses = resolveFormulaSequenceListForItem(item)
+      .map((sequence) => resolveCourseFromSequence(sequence))
+      .filter(Boolean);
+    if (sequenceCourses.length > 0) {
+      return Array.from(new Set(sequenceCourses));
+    }
+    return [resolveItemCourse(item)];
+  };
   const resolveOrderServiceStep = (order: Order, items: Item[]) => {
     const foodItems = items.filter((item) => !isDrink(item));
     if (foodItems.length === 0) return "";
-    const availableSteps = new Set(foodItems.map((item) => resolveItemCourse(item)));
+    const availableSteps = new Set(foodItems.flatMap((item) => resolveItemCourses(item)));
     const normalized = normalizeServiceStep(order.service_step);
     if (normalized && availableSteps.has(normalized)) return normalized;
     const fallback = SERVICE_STEP_SEQUENCE.find((step) => availableSteps.has(step));
@@ -1267,7 +1327,7 @@ function AdminContent() {
   const resolveNextServiceStep = (order: Order, items: Item[]) => {
     const foodItems = items.filter((item) => !isDrink(item));
     if (foodItems.length === 0) return "";
-    const availableSteps = new Set(foodItems.map((item) => resolveItemCourse(item)));
+    const availableSteps = new Set(foodItems.flatMap((item) => resolveItemCourses(item)));
     const current = resolveOrderServiceStep(order, items);
     const startIndex = current ? SERVICE_STEP_SEQUENCE.indexOf(current as (typeof SERVICE_STEP_SEQUENCE)[number]) : -1;
     const firstAvailable = SERVICE_STEP_SEQUENCE.find((step) => availableSteps.has(step)) || "";
@@ -1927,25 +1987,7 @@ function AdminContent() {
       sidesBaseQuery.eq("restaurant_id", currentRestaurantId),
       tablesBaseQuery.eq("restaurant_id", currentRestaurantId),
     ]);
-    let [categoriesQuery, primaryDishesQuery, sidesQuery, tablesQuery] = queryResults;
-
-    if (currentRestaurantId) {
-      const needsIdRestaurantFallback = (q: { error: unknown }) =>
-        Boolean(q.error) && String(((q.error as { code?: string } | null)?.code || "")).trim() === "42703";
-
-      if (needsIdRestaurantFallback(categoriesQuery)) {
-        categoriesQuery = await categoriesBaseQuery.eq("id_restaurant", currentRestaurantId);
-      }
-      if (needsIdRestaurantFallback(primaryDishesQuery)) {
-        primaryDishesQuery = await dishesBaseQuery.eq("id_restaurant", currentRestaurantId);
-      }
-      if (needsIdRestaurantFallback(sidesQuery)) {
-        sidesQuery = await sidesBaseQuery.eq("id_restaurant", currentRestaurantId);
-      }
-      if (needsIdRestaurantFallback(tablesQuery)) {
-        tablesQuery = await tablesBaseQuery.eq("id_restaurant", currentRestaurantId);
-      }
-    }
+    const [categoriesQuery, primaryDishesQuery, sidesQuery, tablesQuery] = queryResults;
 
     const nextCategories = !categoriesQuery.error ? ((categoriesQuery.data || []) as CategoryItem[]) : [];
     let nextDishes = !primaryDishesQuery.error ? ((primaryDishesQuery.data || []) as DishItem[]) : [];
@@ -1953,34 +1995,15 @@ function AdminContent() {
 
     if (dishesError && String((dishesError as { code?: string } | null)?.code || "") === "42703") {
       const minimalSelect = DISH_SELECT_BASE;
-      let minimalQuery = await supabase
+      const minimalQuery = await supabase
         .from("dishes")
         .select(minimalSelect)
         .eq("restaurant_id", currentRestaurantId)
         .order("id", { ascending: true });
 
-      if (minimalQuery.error && String((minimalQuery.error as { code?: string } | null)?.code || "") === "42703") {
-        minimalQuery = await supabase
-          .from("dishes")
-          .select(minimalSelect)
-          .eq("id_restaurant", currentRestaurantId)
-          .order("id", { ascending: true });
-      }
-
       if (!minimalQuery.error) {
         nextDishes = (minimalQuery.data || []) as DishItem[];
         dishesError = null;
-      }
-    }
-
-    if (!dishesError && currentRestaurantId && nextDishes.length === 0) {
-      const idRestaurantRows = await dishesBaseQuery.eq("id_restaurant", currentRestaurantId);
-      if (!idRestaurantRows.error) {
-        nextDishes = (idRestaurantRows.data || []) as DishItem[];
-        console.warn("[admin.fetchFastEntryResources] fallback id_restaurant used for dishes", {
-          restaurantId: currentRestaurantId,
-          rows: nextDishes.length,
-        });
       }
     }
 
@@ -3772,7 +3795,8 @@ function AdminContent() {
             onClick={() => void handleSendNextServiceStep(order, nextServiceStep)}
             className="mt-4 w-full border-2 border-black py-3 text-base font-black bg-orange-200 text-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all"
           >
-            Envoyer la suite{SERVICE_STEP_LABELS[nextServiceStep] ? ` (${SERVICE_STEP_LABELS[nextServiceStep]})` : ""}
+            Suite de la Formule
+            {SERVICE_STEP_LABELS[nextServiceStep] ? ` (${SERVICE_STEP_LABELS[nextServiceStep]})` : ""}
           </button>
         ) : null}
 
@@ -4162,6 +4186,19 @@ function AdminContent() {
                   if (readyEntries.length === 0) return null;
                   const readyFoodEntries = readyEntries.filter((entry) => !isDrink(entry.item));
                   const readyDrinkEntries = readyEntries.filter((entry) => isDrink(entry.item));
+                  const nonServedItems = parseItems(order.items).filter((item) => !isItemServed(item));
+                  const hasFormulaItems = nonServedItems.some((item) => isFormulaOrderItem(item));
+                  const computedNextServiceStep = hasFormulaItems ? resolveNextServiceStep(order, nonServedItems) : "";
+                  const fallbackNextServiceStep = (() => {
+                    if (!hasFormulaItems) return "";
+                    const currentStep = normalizeServiceStep(order.service_step) || "entree";
+                    const currentIndex = SERVICE_STEP_SEQUENCE.indexOf(
+                      currentStep as (typeof SERVICE_STEP_SEQUENCE)[number]
+                    );
+                    if (currentIndex < 0 || currentIndex >= SERVICE_STEP_SEQUENCE.length - 1) return "";
+                    return SERVICE_STEP_SEQUENCE[currentIndex + 1];
+                  })();
+                  const nextServiceStep = computedNextServiceStep || fallbackNextServiceStep;
                   const covers =
                     normalizeCoversValue((order as unknown as Record<string, unknown>).covers) ??
                     normalizeCoversValue((order as unknown as Record<string, unknown>).guest_count) ??
@@ -4223,6 +4260,16 @@ function AdminContent() {
                         {renderReadyBlock("PLATS", readyFoodEntries)}
                         {renderReadyBlock("BOISSONS", readyDrinkEntries)}
                       </div>
+                      {nextServiceStep ? (
+                        <button
+                          type="button"
+                          onClick={() => void handleSendNextServiceStep(order, nextServiceStep)}
+                          className="mt-3 w-full border-2 border-black bg-orange-200 text-black py-3 font-black shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none"
+                        >
+                          Suite de la Formule
+                          {SERVICE_STEP_LABELS[nextServiceStep] ? ` (${SERVICE_STEP_LABELS[nextServiceStep]})` : ""}
+                        </button>
+                      ) : null}
                     </div>
                   );
                 })

@@ -566,8 +566,6 @@ export default function KitchenPage() {
     if (formulaName) return formulaName;
     return stepLabel;
   };
-  const isMissingRelationError = (error: unknown) =>
-    String((error as { code: string } | null)?.code || "").trim() === "42P01";
   const buildStableExtraId = (dishId: unknown, name: unknown, price: unknown, index = 0) => {
     const dishKey = normalizeEntityId(dishId);
     const nameKey = normalizeLookupText(name || "");
@@ -1172,14 +1170,6 @@ export default function KitchenPage() {
     let categoriesData = ((primaryCategoriesQuery.data || []) as Array<Record<string, unknown>>);
     let categoriesError = primaryCategoriesQuery.error;
     if (categoriesError) {
-      const missingColumn = String((categoriesError as { code?: string }).code || "") === "42703";
-      if (scopeId && missingColumn) {
-        const retryWithoutScope = await supabase.from("categories").select("id,destination,name_fr,name").eq("id_restaurant", scopeId);
-        if (!retryWithoutScope.error) {
-          categoriesData = ((retryWithoutScope.data || []) as Array<Record<string, unknown>>);
-          categoriesError = null;
-        }
-      }
       const fallbackCategoriesQuery = await supabase
         .from("categories")
         .select("id,destination,name_fr,name")
@@ -1445,44 +1435,7 @@ export default function KitchenPage() {
         return;
       }
 
-      let data = (rawOrders || []) as Array<Record<string, unknown>>;
-      const orderIds = data
-        .map((row) => normalizeEntityId((row as { id?: unknown }).id))
-        .filter(Boolean);
-      if (orderIds.length > 0) {
-        let orderItemsResult = await supabase
-          .from("order_items")
-          .select("*, dishes(*)")
-          .in("order_id", orderIds);
-        if (orderItemsResult.error) {
-          orderItemsResult = await supabase.from("order_items").select("*").in("order_id", orderIds);
-        }
-        if (orderItemsResult.error) {
-          if (!isMissingRelationError(orderItemsResult.error)) {
-            console.warn("order_items fetch fallback failed:", orderItemsResult.error.message || orderItemsResult.error);
-          }
-        } else {
-          const orderItemsByOrderId = new Map<string, unknown[]>();
-          (orderItemsResult.data || []).forEach((row: Record<string, unknown>) => {
-            const key = normalizeEntityId(row.order_id ?? row.orderId);
-            if (!key) return;
-            const list = orderItemsByOrderId.get(key) || [];
-            list.push(row);
-            orderItemsByOrderId.set(key, list);
-          });
-          if (orderItemsByOrderId.size > 0) {
-            data = data.map((order) => {
-              const orderId = normalizeEntityId((order as { id?: unknown }).id);
-              return {
-                ...order,
-                order_items:
-                  orderItemsByOrderId.get(orderId) ??
-                  (((order as { order_items?: unknown[] }).order_items as unknown[]) || []),
-              };
-            });
-          }
-        }
-      }
+      const data = (rawOrders || []) as Array<Record<string, unknown>>;
 
       const allowedStatuses = new Set([
         "pending",
@@ -1640,31 +1593,15 @@ export default function KitchenPage() {
 
       const currentItems = getOrderItems(targetOrder as Order);
       if (currentItems.length === 0) return;
-      const relationItems = parseOrderItemsRelation(targetOrder as Order);
-      const hasOrderItemsRelation = relationItems.length > 0;
       const currentStep = resolveOrderServiceStep(targetOrder, currentItems);
-      const readyItemIds: Array<string | number> = [];
       const nextItems = currentItems.map((item) => {
         if (!isKitchenCourse(item)) return item;
         const matchesCurrentStep = currentStep ? resolveItemCourse(item) === currentStep : true;
         if (matchesCurrentStep) {
-          const itemRecord = item as unknown as Record<string, unknown>;
-          const orderItemId = itemRecord.order_item_id ?? itemRecord.orderItemId;
-          if (orderItemId != null) {
-            readyItemIds.push(orderItemId as string | number);
-          }
           return setItemStatus(item, "ready");
         }
         return item;
       });
-      const readyItemIdsFromRelation = relationItems
-        .filter((item) => {
-          if (!isKitchenCourse(item)) return false;
-          const matchesCurrentStep = currentStep ? resolveItemCourse(item) === currentStep : true;
-          return matchesCurrentStep && item.id != null;
-        })
-        .map((item) => item.id);
-      const effectiveReadyItemIds = readyItemIdsFromRelation.length > 0 ? readyItemIdsFromRelation : readyItemIds;
       const nextStatus = deriveOrderStatusFromItems(nextItems);
       const nextServiceStep = resolveOrderServiceStep(targetOrder, nextItems);
       const persistedServiceStep =
@@ -1698,37 +1635,12 @@ export default function KitchenPage() {
         return;
       }
 
-      if (effectiveReadyItemIds.length > 0 && hasOrderItemsRelation) {
-        const readyUpdate = await supabase
-          .from("order_items")
-          .update({ status: "ready" } as never)
-          .in("id", effectiveReadyItemIds as never);
-        if (readyUpdate.error) {
-          console.log("update_order_item_status (order_items) failed:", readyUpdate.error);
-          console.error("order_items status sync failed:", readyUpdate.error.message || readyUpdate.error);
-          needsOrderRefreshRef.current = true;
-        }
-      } else if (effectiveReadyItemIds.length > 0 && !hasOrderItemsRelation) {
-        console.log("update_order_item_status skipped: no order_items relation for order", orderId);
-      }
-
       setOrders((prev) =>
         prev.map((order) => {
           if (String(order.id) !== String(orderId)) return order;
-          const readyIdSet = new Set(effectiveReadyItemIds.map((id) => String(id)));
-          const nextOrderItems =
-            Array.isArray((order as Order & { order_items?: unknown[] }).order_items)
-              ? ((order as Order & { order_items?: unknown[] }).order_items || []).map((row) => {
-                  const record = (row || {}) as Record<string, unknown>;
-                  const rowId = String(record.id ?? "");
-                  if (!rowId || !readyIdSet.has(rowId)) return row;
-                  return { ...record, status: "ready" };
-                })
-              : (order as Order & { order_items?: unknown[] }).order_items ?? null;
           return {
             ...order,
             items: nextItems,
-            order_items: nextOrderItems,
             status: nextStatus,
             service_step: persistedServiceStep,
           };
