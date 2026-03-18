@@ -1,4 +1,4 @@
-
+﻿
 "use client";
 
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -46,7 +46,7 @@ function parseAddonPrice(raw: unknown): number {
 
 function formatPriceTwoDecimals(value: number): string {
   const safe = parsePriceNumber(value);
-  return `${safe.toFixed(2)} €`;
+  return `${safe.toFixed(2)} â‚¬`;
 }
 
 const supabaseUrl = "https://ezzetspsjqgylsqkukdp.supabase.co";
@@ -144,42 +144,42 @@ function getServerCallCooldownText(secondsLeft: number) {
 
 const UI_TEXT = {
   fr: {
-    categories: ["Tous", "Entrées", "Plats", "Desserts", "Boissons"],
+    categories: ["Tous", "EntrÃ©es", "Plats", "Desserts", "Boissons"],
     labels: {
       all: "Tous",
       others: "Autres",
-      order_success: "Votre commande a été envoyée avec succès. Votre plat va bientôt arriver. Bon appétit.",
-      order_confirmed: "Votre commande a été envoyée avec succès. Votre plat va bientôt arriver. Bon appétit.",
-      order_success_message: "Votre commande a été envoyée avec succès ! Table {table}. Bon appétit !",
-      consultation_mode_banner: "La commande se fait auprès de votre serveur. Utilisez ce menu pour découvrir nos plats !",
+      order_success: "Votre commande a Ã©tÃ© envoyÃ©e avec succÃ¨s. Votre plat va bientÃ´t arriver. Bon appÃ©tit.",
+      order_confirmed: "Votre commande a Ã©tÃ© envoyÃ©e avec succÃ¨s. Votre plat va bientÃ´t arriver. Bon appÃ©tit.",
+      order_success_message: "Votre commande a Ã©tÃ© envoyÃ©e avec succÃ¨s ! Table {table}. Bon appÃ©tit !",
+      consultation_mode_banner: "La commande se fait auprÃ¨s de votre serveur. Utilisez ce menu pour dÃ©couvrir nos plats !",
       validation_code_prompt: "Saisissez le code PIN de votre table pour valider la commande.",
       validation_code_label: "Code PIN",
       validation_code_placeholder: "Code PIN",
       validation_code_invalid: "Code PIN incorrect.",
       table_required: "Veuillez renseigner votre table.",
-      table_invalid: "Numéro de table invalide.",
+      table_invalid: "NumÃ©ro de table invalide.",
       empty_cart_error: "Votre panier est vide.",
       side_required_error: "Veuillez choisir un accompagnement obligatoire.",
       cooking_required_error: "Veuillez choisir une cuisson.",
       max_options_error: "Maximum {max} options.",
-      server_called_success: "Serveur appelé !",
+      server_called_success: "Serveur appelÃ© !",
       generic_error: "Erreur.",
       supabase_error_prefix: "Erreur Supabase :",
-      item_added: "Article ajouté !",
-      added: "Ajouté au panier",
-      details_label: "Précisions",
-      details_none: "Aucune demande particulière.",
+      item_added: "Article ajoutÃ© !",
+      added: "AjoutÃ© au panier",
+      details_label: "PrÃ©cisions",
+      details_none: "Aucune demande particuliÃ¨re.",
       pin_required_cart: "Renseignez la table et le code PIN avant d'ajouter un article.",
       loading: "Chargement...",
       featured_daily: "Plat du Jour",
       featured_chef: "Suggestion du Chef",
       sales_advice_title: "Conseil du Chef",
       sales_advice_view_item: "Voir l'article",
-      vegetarian: "Végétarien",
-      spicy: "Pimenté",
-      select_sides_up_to: "Choisissez jusqu'à {max} choix",
-      select_sides_up_to_icecream: "Choisissez jusqu'à {max} parfums",
-      no_side_configured: "Aucun accompagnement configuré pour ce plat.",
+      vegetarian: "VÃ©gÃ©tarien",
+      spicy: "PimentÃ©",
+      select_sides_up_to: "Choisissez jusqu'Ã  {max} choix",
+      select_sides_up_to_icecream: "Choisissez jusqu'Ã  {max} parfums",
+      no_side_configured: "Aucun accompagnement configurÃ© pour ce plat.",
       formulas: "Formules",
       available_in_formula: "Disponible en formule",
       view_formula: "Voir la formule",
@@ -187,21 +187,21 @@ const UI_TEXT = {
       formula_image: "Image de la formule",
       view_formula_offer: "Voir l'offre en formule",
       order_in_formula: "Commander en formule",
-      item_details: "Détails de l'article",
-      formula_option_locked: "Supplément indisponible en formule",
+      item_details: "DÃ©tails de l'article",
+      formula_option_locked: "SupplÃ©ment indisponible en formule",
     },
     categoryMap: {
       all: "Tous",
       tous: "Tous",
-      entree: "Entrées",
-      entrees: "Entrées",
+      entree: "EntrÃ©es",
+      entrees: "EntrÃ©es",
       plats: "Plats",
       plat: "Plats",
       dessert: "Desserts",
       desserts: "Desserts",
       boisson: "Boissons",
       boissons: "Boissons",
-      starters: "Entrées",
+      starters: "EntrÃ©es",
       mains: "Plats",
       drinks: "Boissons",
     },
@@ -218,17 +218,17 @@ const UI_TEXT = {
     menu: "Menu",
     callServer: "Appeler le serveur",
     help: "Besoin d'aide ?",
-    categoriesTitle: "Catégories",
+    categoriesTitle: "CatÃ©gories",
     close: "Fermer",
-    quantity: "Quantité",
+    quantity: "QuantitÃ©",
     emptyCart: "Votre panier est vide.",
     noDishes: "Aucun plat disponible.",
-    specialRequestLabel: "Demande spéciale",
-    specialRequestPlaceholder: "Ex : sans oignons, sauce à part...",
+    specialRequestLabel: "Demande spÃ©ciale",
+    specialRequestPlaceholder: "Ex : sans oignons, sauce Ã  part...",
     sidesLabel: "Accompagnements",
-    allergensLabel: "Allergènes",
-    extraLabel: "Supplément",
-    extrasLabel: "Suppléments",
+    allergensLabel: "AllergÃ¨nes",
+    extraLabel: "SupplÃ©ment",
+    extrasLabel: "SupplÃ©ments",
     table: "Table",
     pin: "Code PIN",
     yourTable: "Votre Table",
@@ -242,7 +242,7 @@ const UI_TEXT = {
     cooking: {
       blue: "Bleu",
       rare: "Saignant",
-      medium: "À point",
+      medium: "Ã€ point",
       wellDone: "Bien cuit",
     },
   },
@@ -354,47 +354,47 @@ const UI_TEXT = {
     labels: {
       all: "Todos",
       others: "Otros",
-      order_success: "Tu pedido se ha enviado con éxito. Tu plato llegará pronto. Buen provecho.",
-      order_confirmed: "Tu pedido se ha enviado con éxito. Tu plato llegará pronto. Buen provecho.",
-      order_success_message: "¡Tu pedido se ha enviado con éxito! Mesa {table}. ¡Buen provecho!",
-      consultation_mode_banner: "El pedido se realiza con su camarero. ¡Use este menú para descubrir nuestros platos!",
-      validation_code_prompt: "Introduzca el código PIN de su mesa para validar el pedido.",
-      validation_code_label: "Código PIN",
-      validation_code_placeholder: "Código PIN",
-      validation_code_invalid: "Código PIN incorrecto.",
-      table_required: "Indique su número de mesa.",
-      table_invalid: "Número de mesa inválido.",
-      empty_cart_error: "Tu carrito está vacío.",
-      side_required_error: "Seleccione un acompañamiento obligatorio.",
-      cooking_required_error: "Seleccione un punto de cocción.",
-      max_options_error: "Máximo {max} opciones.",
-      server_called_success: "¡Camarero avisado!",
+      order_success: "Tu pedido se ha enviado con Ã©xito. Tu plato llegarÃ¡ pronto. Buen provecho.",
+      order_confirmed: "Tu pedido se ha enviado con Ã©xito. Tu plato llegarÃ¡ pronto. Buen provecho.",
+      order_success_message: "Â¡Tu pedido se ha enviado con Ã©xito! Mesa {table}. Â¡Buen provecho!",
+      consultation_mode_banner: "El pedido se realiza con su camarero. Â¡Use este menÃº para descubrir nuestros platos!",
+      validation_code_prompt: "Introduzca el cÃ³digo PIN de su mesa para validar el pedido.",
+      validation_code_label: "CÃ³digo PIN",
+      validation_code_placeholder: "CÃ³digo PIN",
+      validation_code_invalid: "CÃ³digo PIN incorrecto.",
+      table_required: "Indique su nÃºmero de mesa.",
+      table_invalid: "NÃºmero de mesa invÃ¡lido.",
+      empty_cart_error: "Tu carrito estÃ¡ vacÃ­o.",
+      side_required_error: "Seleccione un acompaÃ±amiento obligatorio.",
+      cooking_required_error: "Seleccione un punto de cocciÃ³n.",
+      max_options_error: "MÃ¡ximo {max} opciones.",
+      server_called_success: "Â¡Camarero avisado!",
       generic_error: "Error.",
       supabase_error_prefix: "Error de Supabase:",
-      item_added: "¡Artículo añadido!",
-      added: "Añadido al carrito",
+      item_added: "Â¡ArtÃ­culo aÃ±adido!",
+      added: "AÃ±adido al carrito",
       details_label: "Detalles",
-      details_none: "Sin petición especial.",
-      pin_required_cart: "Indique mesa y código PIN válido antes de añadir un artículo.",
+      details_none: "Sin peticiÃ³n especial.",
+      pin_required_cart: "Indique mesa y cÃ³digo PIN vÃ¡lido antes de aÃ±adir un artÃ­culo.",
       loading: "Cargando...",
-      featured_daily: "Plato del Día",
+      featured_daily: "Plato del DÃ­a",
       featured_chef: "Sugerencia del Chef",
       sales_advice_title: "Consejo del chef",
-      sales_advice_view_item: "Ver artículo",
+      sales_advice_view_item: "Ver artÃ­culo",
       vegetarian: "Vegetariano",
       spicy: "Picante",
       select_sides_up_to: "Elige hasta {max} opciones",
       select_sides_up_to_icecream: "Elige hasta {max} sabores",
-      no_side_configured: "No hay acompañamiento configurado para este plato.",
-      formulas: "Menús",
-      available_in_formula: "Disponible en fórmula",
-      view_formula: "Ver el menú",
-      formula_name: "Nombre de la fórmula",
-      formula_image: "Imagen de la fórmula",
-      view_formula_offer: "Ver la oferta en fórmula",
-      order_in_formula: "Pedir en menú",
-      item_details: "Detalles del artículo",
-      formula_option_locked: "Suplemento no disponible en el menú",
+      no_side_configured: "No hay acompaÃ±amiento configurado para este plato.",
+      formulas: "MenÃºs",
+      available_in_formula: "Disponible en fÃ³rmula",
+      view_formula: "Ver el menÃº",
+      formula_name: "Nombre de la fÃ³rmula",
+      formula_image: "Imagen de la fÃ³rmula",
+      view_formula_offer: "Ver la oferta en fÃ³rmula",
+      order_in_formula: "Pedir en menÃº",
+      item_details: "Detalles del artÃ­culo",
+      formula_option_locked: "Suplemento no disponible en el menÃº",
     },
     categoryMap: {
       all: "Todos",
@@ -416,35 +416,35 @@ const UI_TEXT = {
       other: "Otros",
       others: "Otros",
     },
-    addToCart: "Añadir al carrito",
+    addToCart: "AÃ±adir al carrito",
     cart: "Carrito",
     total: "Total",
     order: "Pedir",
-    backToMenu: "Volver al menú",
-    menu: "Menú",
+    backToMenu: "Volver al menÃº",
+    menu: "MenÃº",
     callServer: "Llamar al camarero",
-    help: "¿Necesitas ayuda?",
-    categoriesTitle: "Categorías",
+    help: "Â¿Necesitas ayuda?",
+    categoriesTitle: "CategorÃ­as",
     close: "Cerrar",
     quantity: "Cantidad",
-    emptyCart: "Tu carrito está vacío.",
+    emptyCart: "Tu carrito estÃ¡ vacÃ­o.",
     noDishes: "No hay platos disponibles.",
-    specialRequestLabel: "Petición especial",
+    specialRequestLabel: "PeticiÃ³n especial",
     specialRequestPlaceholder: "Ej: sin cebolla, salsa aparte...",
-    sidesLabel: "Acompañamientos",
-    allergensLabel: "Alérgenos",
+    sidesLabel: "AcompaÃ±amientos",
+    allergensLabel: "AlÃ©rgenos",
     extraLabel: "Suplemento",
     extrasLabel: "Suplementos",
     table: "Mesa",
-    pin: "Código PIN",
+    pin: "CÃ³digo PIN",
     yourTable: "Su Mesa",
-    pinCode: "Código PIN",
+    pinCode: "CÃ³digo PIN",
     hunger: {
       small: "Poca hambre",
       medium: "Hambre media",
       large: "Mucha hambre",
     },
-    cookingLabel: "Cocción",
+    cookingLabel: "CocciÃ³n",
     cooking: {
       blue: "Poco hecho",
       rare: "Poco cocido",
@@ -453,51 +453,51 @@ const UI_TEXT = {
     },
   },
   de: {
-    categories: ["Alle", "Vorspeisen", "Hauptgerichte", "Desserts", "Getränke"],
+    categories: ["Alle", "Vorspeisen", "Hauptgerichte", "Desserts", "GetrÃ¤nke"],
     labels: {
       all: "Alle",
       others: "Andere",
       order_success: "Ihre Bestellung wurde erfolgreich gesendet. Ihr Gericht kommt bald. Guten Appetit.",
       order_confirmed: "Ihre Bestellung wurde erfolgreich gesendet. Ihr Gericht kommt bald. Guten Appetit.",
       order_success_message: "Ihre Bestellung wurde erfolgreich gesendet! Tisch {table}. Guten Appetit!",
-      consultation_mode_banner: "Bestellen Sie bitte direkt beim Service. Nutzen Sie dieses Menü, um unsere Gerichte zu entdecken!",
-      validation_code_prompt: "Geben Sie den PIN-Code Ihres Tisches ein, um die Bestellung zu bestätigen.",
+      consultation_mode_banner: "Bestellen Sie bitte direkt beim Service. Nutzen Sie dieses MenÃ¼, um unsere Gerichte zu entdecken!",
+      validation_code_prompt: "Geben Sie den PIN-Code Ihres Tisches ein, um die Bestellung zu bestÃ¤tigen.",
       validation_code_label: "PIN-Code",
       validation_code_placeholder: "PIN-Code",
-      validation_code_invalid: "Ungültiger PIN-Code.",
+      validation_code_invalid: "UngÃ¼ltiger PIN-Code.",
       table_required: "Bitte geben Sie Ihre Tischnummer ein.",
-      table_invalid: "Ungültige Tischnummer.",
+      table_invalid: "UngÃ¼ltige Tischnummer.",
       empty_cart_error: "Ihr Warenkorb ist leer.",
-      side_required_error: "Bitte wählen Sie eine Beilage aus.",
-      cooking_required_error: "Bitte wählen Sie eine Garstufe.",
+      side_required_error: "Bitte wÃ¤hlen Sie eine Beilage aus.",
+      cooking_required_error: "Bitte wÃ¤hlen Sie eine Garstufe.",
       max_options_error: "Maximal {max} Optionen.",
       server_called_success: "Service gerufen!",
       generic_error: "Fehler.",
       supabase_error_prefix: "Supabase-Fehler:",
-      item_added: "Artikel hinzugefügt!",
+      item_added: "Artikel hinzugefÃ¼gt!",
       added: "In den Warenkorb",
       details_label: "Details",
       details_none: "Keine besondere Anfrage.",
-      pin_required_cart: "Geben Sie Tischnummer und gültigen PIN-Code ein, bevor Sie einen Artikel hinzufügen.",
+      pin_required_cart: "Geben Sie Tischnummer und gÃ¼ltigen PIN-Code ein, bevor Sie einen Artikel hinzufÃ¼gen.",
       loading: "Wird geladen...",
       featured_daily: "Tagesgericht",
       featured_chef: "Empfehlung des Chefs",
-      sales_advice_title: "Empfehlung des Küchenchefs",
+      sales_advice_title: "Empfehlung des KÃ¼chenchefs",
       sales_advice_view_item: "Artikel ansehen",
       vegetarian: "Vegetarisch",
       spicy: "Scharf",
-      select_sides_up_to: "Wählen Sie bis zu {max} Optionen",
-      select_sides_up_to_icecream: "Wählen Sie bis zu {max} Sorten",
-      no_side_configured: "Keine Beilage für dieses Gericht konfiguriert.",
-      formulas: "Menüs",
-      available_in_formula: "In Formel verfügbar",
-      view_formula: "Menü ansehen",
+      select_sides_up_to: "WÃ¤hlen Sie bis zu {max} Optionen",
+      select_sides_up_to_icecream: "WÃ¤hlen Sie bis zu {max} Sorten",
+      no_side_configured: "Keine Beilage fÃ¼r dieses Gericht konfiguriert.",
+      formulas: "MenÃ¼s",
+      available_in_formula: "In Formel verfÃ¼gbar",
+      view_formula: "MenÃ¼ ansehen",
       formula_name: "Formelname",
       formula_image: "Formelbild",
       view_formula_offer: "Formelangebot ansehen",
-      order_in_formula: "Als Menü bestellen",
+      order_in_formula: "Als MenÃ¼ bestellen",
       item_details: "Artikeldetails",
-      formula_option_locked: "Aufpreis im Menü nicht verfügbar",
+      formula_option_locked: "Aufpreis im MenÃ¼ nicht verfÃ¼gbar",
     },
     categoryMap: {
       all: "Alle",
@@ -508,11 +508,11 @@ const UI_TEXT = {
       plats: "Hauptgerichte",
       dessert: "Desserts",
       desserts: "Desserts",
-      boisson: "Getränke",
-      boissons: "Getränke",
+      boisson: "GetrÃ¤nke",
+      boissons: "GetrÃ¤nke",
       starters: "Vorspeisen",
       mains: "Hauptgerichte",
-      drinks: "Getränke",
+      drinks: "GetrÃ¤nke",
     },
     subcategoryMap: {
       autres: "Andere",
@@ -523,15 +523,15 @@ const UI_TEXT = {
     cart: "Warenkorb",
     total: "Summe",
     order: "Bestellen",
-    backToMenu: "Zurück zum Menü",
-    menu: "Menü",
+    backToMenu: "ZurÃ¼ck zum MenÃ¼",
+    menu: "MenÃ¼",
     callServer: "Service rufen",
-    help: "Hilfe benötigt?",
+    help: "Hilfe benÃ¶tigt?",
     categoriesTitle: "Kategorien",
-    close: "Schließen",
+    close: "SchlieÃŸen",
     quantity: "Menge",
     emptyCart: "Ihr Warenkorb ist leer.",
-    noDishes: "Keine Gerichte verfügbar.",
+    noDishes: "Keine Gerichte verfÃ¼gbar.",
     specialRequestLabel: "Besonderer Wunsch",
     specialRequestPlaceholder: "Z.B. ohne Zwiebeln, Sauce extra...",
     sidesLabel: "Beilagen",
@@ -545,7 +545,7 @@ const UI_TEXT = {
     hunger: {
       small: "Kleiner Hunger",
       medium: "Mittlerer Hunger",
-      large: "Großer Hunger",
+      large: "GroÃŸer Hunger",
     },
     cookingLabel: "Garstufe",
     cooking: {
@@ -1575,8 +1575,8 @@ function parseOptionsFromDescription(description?: string | null): ParsedOptions
           const [namePart, pricePart] = entry.split("=").map((p) => p.trim());
           const price = pricePart ? Number(pricePart.replace(",", ".")) : 0;
           return {
-            id: buildStableExtraId("legacy", { name_fr: namePart || "Supplément", price: Number.isFinite(price) ? price : 0 }, index),
-            name_fr: namePart || "Supplément",
+            id: buildStableExtraId("legacy", { name_fr: namePart || "SupplÃ©ment", price: Number.isFinite(price) ? price : 0 }, index),
+            name_fr: namePart || "SupplÃ©ment",
             name_en: namePart || "Supplement",
             name_es: namePart || "Suplemento",
             name_de: namePart || "Zusatz",
@@ -1605,7 +1605,7 @@ function parseOptionsFromDescription(description?: string | null): ParsedOptions
                 if (!key) return;
                 names[key] = String(v || "").trim();
               });
-              const fr = String(item.name_fr || names.fr || "").trim() || "Supplément";
+              const fr = String(item.name_fr || names.fr || "").trim() || "SupplÃ©ment";
               const priceRaw = item.price || 0;
               const price =
                 typeof priceRaw === "number" ? priceRaw : Number(String(priceRaw).replace(",", "."));
@@ -1637,8 +1637,8 @@ function parseOptionsFromDescription(description?: string | null): ParsedOptions
           const [fr, en, es, de] = (labels || "").split("~").map((p) => decodeURIComponent((p || "").trim()));
           const price = pricePart ? Number(pricePart.replace(",", ".")) : 0;
           return {
-            id: buildStableExtraId("legacy-extra", { name_fr: fr || "Supplément", price: Number.isFinite(price) ? price : 0 }, index),
-            name_fr: fr || "Supplément",
+            id: buildStableExtraId("legacy-extra", { name_fr: fr || "SupplÃ©ment", price: Number.isFinite(price) ? price : 0 }, index),
+            name_fr: fr || "SupplÃ©ment",
             name_en: en || fr || "Supplement",
             name_es: es || fr || "Suplemento",
             name_de: de || fr || "Zusatz",
@@ -1936,7 +1936,7 @@ function getExtraLabel(extra: ExtrasItem, lang: string) {
   if (normalizedLang === "en" && extra.name_en) return extra.name_en;
   if (normalizedLang === "es" && extra.name_es) return extra.name_es;
   if (normalizedLang === "de" && extra.name_de) return extra.name_de;
-  return extra.name_fr || "Supplément";
+  return extra.name_fr || "SupplÃ©ment";
 }
 function getAllergens(dish: Dish) {
   const parseList = (value: unknown) => {
@@ -2169,8 +2169,8 @@ function getCaloriesLabel(dish: Dish, kcalLabel = "kcal") {
   const unit = String(kcalLabel || "kcal").trim() || "kcal";
   const formatValue = (value: unknown) => {
     const cleaned = String(value ?? "")
-      .replace(/\b(kcal|千卡|ккал)\b/gi, "")
-      .replace(/سعرة(?:\s+حرارية)?/gi, "")
+      .replace(/\b(kcal|åƒå¡|ÐºÐºÐ°Ð»)\b/gi, "")
+      .replace(/Ø³Ø¹Ø±Ø©(?:\s+Ø­Ø±Ø§Ø±ÙŠØ©)?/gi, "")
       .trim();
     return cleaned;
   };
@@ -2457,8 +2457,8 @@ export default function MenuDigital() {
     return {
       title: get("formula_title", "Composer votre formule"),
       subtitle: get("formula_subtitle", "Choisissez vos plats"),
-      missing: get("formula_missing", "Veuillez choisir un plat pour chaque catégorie."),
-      missingOptions: get("formula_missing_options", "Veuillez compléter les options obligatoires des plats sélectionnés."),
+      missing: get("formula_missing", "Veuillez choisir un plat pour chaque catÃ©gorie."),
+      missingOptions: get("formula_missing_options", "Veuillez complÃ©ter les options obligatoires des plats sÃ©lectionnÃ©s."),
       label: get("formula_label", "Formule"),
       choose: get("formula_choose", "Choisir"),
     };
@@ -2509,8 +2509,8 @@ export default function MenuDigital() {
     const pick = (key: string, fallback: string) =>
       String(mergedUiDictionary[key] || UI_TRANSLATIONS[normalizedLang]?.[key] || UI_TRANSLATIONS[uiLang]?.[key] || fallback);
     return {
-      vegetarian: pick("badge_vegetarian", "Végétarien"),
-      spicy: pick("badge_spicy", "Pimenté"),
+      vegetarian: pick("badge_vegetarian", "VÃ©gÃ©tarien"),
+      spicy: pick("badge_spicy", "PimentÃ©"),
       isNew: pick("badge_new", "Nouveau"),
       glutenFree: pick("badge_gluten_free", "Sans gluten"),
     };
@@ -2537,13 +2537,13 @@ export default function MenuDigital() {
     mergedUiDictionary.footer_follow_us ||
       UI_TRANSLATIONS[normalizedLang]?.footer_follow_us ||
       UI_TRANSLATIONS[uiLang]?.footer_follow_us ||
-      "Suivez-nous sur nos réseaux"
+      "Suivez-nous sur nos rÃ©seaux"
   );
   const footerPhotoShareLabel = String(
     mergedUiDictionary.footer_photo_share_cta ||
       UI_TRANSLATIONS[normalizedLang]?.footer_photo_share_cta ||
       UI_TRANSLATIONS[uiLang]?.footer_photo_share_cta ||
-      "N'hésitez pas à prendre vos plats en photo, à les partager et à nous mentionner !"
+      "N'hÃ©sitez pas Ã  prendre vos plats en photo, Ã  les partager et Ã  nous mentionner !"
   );
   const getDishStyleBadges = (dish: Dish) => {
     const flags = getDishStyleBadgeFlags(dish);
@@ -2654,19 +2654,19 @@ export default function MenuDigital() {
         UI_TRANSLATIONS[normalizedLang]?.click_details ||
         UI_TRANSLATIONS[uiLang]?.click_details ||
         ""
-    ).trim() || "Cliquez pour voir les détails";
+    ).trim() || "Cliquez pour voir les dÃ©tails";
   const viewDetailsLabel =
     String(
       mergedUiDictionary.view_details ||
         UI_TRANSLATIONS[normalizedLang]?.view_details ||
         UI_TRANSLATIONS[uiLang]?.view_details ||
         ""
-    ).trim() || "Voir détails";
+    ).trim() || "Voir dÃ©tails";
   const consultationModeBannerText =
     String(
       (uiText as unknown as any).consultation_mode_banner ||
-        "La commande se fait auprès de votre serveur. Utilisez ce menu pour découvrir nos plats !"
-    ).trim() || "La commande se fait auprès de votre serveur. Utilisez ce menu pour découvrir nos plats !";
+        "La commande se fait auprÃ¨s de votre serveur. Utilisez ce menu pour dÃ©couvrir nos plats !"
+    ).trim() || "La commande se fait auprÃ¨s de votre serveur. Utilisez ce menu pour dÃ©couvrir nos plats !";
   const restaurantTableConfig = parseJsonObject(restaurant?.table_config);
   const restaurantRecord = restaurant as any | null;
   const quickAddToCartEnabled =
@@ -3179,7 +3179,7 @@ export default function MenuDigital() {
   };
 
   const fetchData = async () => {
-    console.log("ID utilisé:", scopedRestaurantId, "[client.fetchData]");
+    console.log("ID utilisÃ©:", scopedRestaurantId, "[client.fetchData]");
     setLoading(true);
     setIsRestaurantOffline(false);
     setOfflineRestaurantName("");
@@ -3352,7 +3352,7 @@ export default function MenuDigital() {
           Object.prototype.hasOwnProperty.call(row, "enabled_languages")
         ) {
     const parsed = parseDisplaySettingsFromRow(row);
-    console.log("État du mode consultation reçu du serveur :", row.is_order_disabled ?? null, "=> parsed:", parsed.consultationMode);
+    console.log("Ã‰tat du mode consultation reÃ§u du serveur :", row.is_order_disabled ?? null, "=> parsed:", parsed.consultationMode);
     setShowCaloriesClient(parsed.showCalories);
           setEnabledLanguagesClient(parsed.enabledLanguages);
           setEnabledLanguageLabels(parsed.languageLabels);
@@ -4178,6 +4178,11 @@ export default function MenuDigital() {
     return linkedFormulasByDishId.get(dishId) || [];
   }, [selectedDish, linkedFormulasByDishId]);
 
+  const isSelectedFormulaDish = selectedDish
+    ? toBooleanFlag((selectedDish as any).is_formula ?? selectedDish.is_formula)
+    : false;
+  const selectedFormulaButtonDish =
+    selectedDishLinkedFormulas[0] || (isSelectedFormulaDish && selectedDish ? selectedDish : null);
   const formulaAddDisabled = (() => {
     if (!formulaDish) return false;
     const formulaMainConfig = getFormulaDishConfig(formulaDish);
@@ -4939,7 +4944,7 @@ export default function MenuDigital() {
       );
       const selectedExtras = (item.selectedExtras || []).map((extra, index) => ({
         id: buildStableExtraId(item.dish.id, extra, index),
-        label_fr: String(extra.name_fr || extra.name || "").trim() || "Supplément",
+        label_fr: String(extra.name_fr || extra.name || "").trim() || "SupplÃ©ment",
         price: parsePriceNumber(extra.price),
       }));
       const selectedOptionsPayload: Array<Record<string, unknown>> = [];
@@ -5108,10 +5113,10 @@ export default function MenuDigital() {
         };
         const { id: removedId, ...orderData } = newOrder;
         void removedId;
-        console.log("Données envoyées", orderData);
+        console.log("DonnÃ©es envoyÃ©es", orderData);
         const { error } = await supabase.from("orders").insert([orderData]);
         if (error) {
-          console.log("Détails erreur commande cuisine:", JSON.stringify(error, null, 2));
+          console.log("DÃ©tails erreur commande cuisine:", JSON.stringify(error, null, 2));
           alert(`${tt("supabase_error_prefix")} ${error.message}`);
           return;
         }
@@ -5140,10 +5145,10 @@ export default function MenuDigital() {
         };
         const { id: removedId, ...orderData } = newOrder;
         void removedId;
-        console.log("Données envoyées", orderData);
+        console.log("DonnÃ©es envoyÃ©es", orderData);
         const { error } = await supabase.from("orders").insert([orderData]);
         if (error) {
-          console.log("Détails erreur commande bar:", JSON.stringify(error, null, 2));
+          console.log("DÃ©tails erreur commande bar:", JSON.stringify(error, null, 2));
           alert(`${tt("supabase_error_prefix")} ${error.message}`);
           return;
         }
@@ -5946,6 +5951,8 @@ export default function MenuDigital() {
             const featuredDish = highlight.dish;
             const featuredLinkedFormulas = linkedFormulasByDishId.get(String(featuredDish.id || "").trim()) || [];
             const featuredPrimaryFormula = featuredLinkedFormulas[0] || null;
+            const isFeaturedFormulaDish = toBooleanFlag((featuredDish as any).is_formula ?? featuredDish.is_formula);
+            const featuredFormulaButtonDish = featuredPrimaryFormula || (isFeaturedFormulaDish ? featuredDish : null);
             const primaryType = highlight.types[0] || "daily";
             const featuredOverlay = cardLayout === "overlay" && Boolean(featuredDish.image_url);
             const primaryBackground = cardSurfaceBg;
@@ -6079,17 +6086,21 @@ export default function MenuDigital() {
                           </span>
                         )}
                         <div className="flex flex-wrap items-center justify-end gap-2 sm:flex-nowrap">
-                          {featuredPrimaryFormula && !isInteractionDisabled ? (
+                          {featuredFormulaButtonDish && !isInteractionDisabled ? (
                             <button
                               type="button"
                               onClick={(event) => {
                                 event.stopPropagation();
-                                openFormulaModal(featuredPrimaryFormula, featuredDish);
+                                if (featuredFormulaButtonDish === featuredDish) {
+                                  openFormulaModal(featuredFormulaButtonDish, null);
+                                  return;
+                                }
+                                openFormulaModal(featuredFormulaButtonDish, featuredDish);
                               }}
                               className="text-sm md:text-base font-black px-4 py-2.5 rounded-lg border-2 border-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] whitespace-nowrap shrink-0"
                               style={{ backgroundColor: "#FFF8E1", color: "#111111" }}
                             >
-                              {viewFormulaLabel} ({getFormulaPackPrice(featuredPrimaryFormula).toFixed(2)} €)
+                              {viewFormulaLabel} ({getFormulaPackPrice(featuredFormulaButtonDish).toFixed(2)} â‚¬)
                             </button>
                           ) : null}
                           {quickAddToCartEnabled ? (
@@ -6262,6 +6273,7 @@ export default function MenuDigital() {
                 const isFormulaDishCard = toBooleanFlag((dish as any).is_formula ?? dish.is_formula);
                 const linkedFormulas = linkedFormulasByDishId.get(String(dish.id || "").trim()) || [];
                 const primaryLinkedFormula = linkedFormulas[0] || null;
+                const formulaButtonDish = primaryLinkedFormula || (isFormulaDishCard ? dish : null);
                 const isFormulasCategorySelected = String(selectedCategoryId || "") === FORMULAS_CATEGORY_ID;
                 const formulaDisplay = isFormulasCategorySelected && isFormulaDishCard
                   ? formulaDisplayById.get(String(dish.id || "").trim())
@@ -6482,12 +6494,16 @@ export default function MenuDigital() {
                           </span>
                         )}
                         <div className="w-full sm:w-auto sm:ml-auto flex flex-wrap items-center gap-2 sm:justify-end">
-                          {primaryLinkedFormula && !isInteractionDisabled ? (
+                          {formulaButtonDish && !isInteractionDisabled ? (
                             <button
                               type="button"
                               onClick={(event) => {
                                 event.stopPropagation();
-                                openFormulaModal(primaryLinkedFormula, dish);
+                                if (formulaButtonDish === dish) {
+                                  openFormulaModal(formulaButtonDish, null);
+                                  return;
+                                }
+                                openFormulaModal(formulaButtonDish, dish);
                               }}
                               className={`h-11 px-3.5 py-2 rounded-lg inline-flex items-center justify-center text-sm sm:text-base font-black border-2 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] whitespace-nowrap ${
                                 isOverlayCard ? "border-white" : "border-black"
@@ -6497,7 +6513,7 @@ export default function MenuDigital() {
                                 color: "#111111",
                               }}
                             >
-                              {viewFormulaLabel} ({getFormulaPackPrice(primaryLinkedFormula).toFixed(2)} €)
+                              {viewFormulaLabel} ({getFormulaPackPrice(formulaButtonDish).toFixed(2)} â‚¬)
                             </button>
                           ) : null}
                           {quickAddToCartEnabled ? (
@@ -7084,16 +7100,22 @@ export default function MenuDigital() {
                 {getDishName(selectedDish, lang)}
               </h2>
               <p className="text-black mb-2">{getDescription(selectedDish, lang)}</p>
-              {selectedDishLinkedFormulas.length > 0 ? (
+              {selectedFormulaButtonDish ? (
                 <div className="mb-3 rounded-lg border-2 border-black bg-amber-50 p-3">
                   <div className="text-sm font-black text-black mb-1">{availableInFormulaLabel}</div>
-                  {selectedDishLinkedFormulas[0] && !isInteractionDisabled ? (
+                  {selectedFormulaButtonDish && !isInteractionDisabled ? (
                     <button
                       type="button"
-                      onClick={() => openFormulaModal(selectedDishLinkedFormulas[0], selectedDish)}
+                      onClick={() => {
+                        if (selectedFormulaButtonDish === selectedDish) {
+                          openFormulaModal(selectedFormulaButtonDish, null);
+                          return;
+                        }
+                        openFormulaModal(selectedFormulaButtonDish, selectedDish);
+                      }}
                       className="w-full mb-2 px-3 py-3 rounded-lg border-2 border-black bg-black text-white font-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]"
                     >
-                      {viewFormulaLabel} ({getFormulaPackPrice(selectedDishLinkedFormulas[0]).toFixed(2)} €)
+                      {viewFormulaLabel} ({getFormulaPackPrice(selectedFormulaButtonDish).toFixed(2)} â‚¬)
                     </button>
                   ) : null}
                   <div className="flex flex-col gap-2">
@@ -7109,7 +7131,7 @@ export default function MenuDigital() {
                         >
                           <div className="text-[11px] uppercase tracking-wide text-black/70">{viewFormulaLabel}</div>
                           <div className="text-base">
-                            {getDishName(formula, lang)} - {getFormulaPackPrice(formula).toFixed(2)} €
+                            {getDishName(formula, lang)} - {getFormulaPackPrice(formula).toFixed(2)} â‚¬
                           </div>
                         </button>
                       );
@@ -7630,6 +7652,10 @@ export default function MenuDigital() {
     </>
   );
 }
+
+
+
+
 
 
 

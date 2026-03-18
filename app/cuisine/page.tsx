@@ -96,12 +96,15 @@ export default function KitchenPage() {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [isMounted, setIsMounted] = useState(false);
   const [refreshMs, setRefreshMs] = useState(3000);
+  const [isOrderStatusUpdating, setIsOrderStatusUpdating] = useState(false);
   const [printOrder, setPrintOrder] = useState<Order | null>(null);
   const [lastPrintedId, setLastPrintedId] = useState<string | null>(null);
   const [autoPrintEnabled, setAutoPrintEnabled] = useState(true);
   const [callsTableName, setCallsTableName] = useState<"calls">("calls");
   const knownPendingIdsRef = useRef<Record<string, boolean>>({});
   const hasInitializedPendingSnapshotRef = useRef(false);
+  const isOrderStatusUpdatingRef = useRef(false);
+  const needsOrderRefreshRef = useRef(false);
 
   const logSqlError = (context: string, error: unknown) => {
     const err = (error || {}) as { code: string; message: string; details: string; hint: string };
@@ -1286,6 +1289,7 @@ export default function KitchenPage() {
   };
 
   const fetchOrders = async (allowAutoPrint = false) => {
+    if (isOrderStatusUpdatingRef.current) return false;
     let shouldTriggerAutoPrint = false;
     try {
       const restaurantId = String(resolvedRestaurantId || "").trim();
@@ -1418,6 +1422,10 @@ export default function KitchenPage() {
   };
 
   useEffect(() => {
+    isOrderStatusUpdatingRef.current = isOrderStatusUpdating;
+  }, [isOrderStatusUpdating]);
+
+  useEffect(() => {
     void (async () => {
       await resolveCallsTable();
       await fetchKitchenSettings();
@@ -1469,7 +1477,7 @@ export default function KitchenPage() {
   const handleReady = async (orderId: string | number) => {
     const targetOrder = orders.find((order) => String(order.id) === String(orderId));
     if (!targetOrder) {
-      await fetchOrders();
+      needsOrderRefreshRef.current = true;
       return;
     }
 
@@ -1489,14 +1497,6 @@ export default function KitchenPage() {
     const nextStatus = deriveOrderStatusFromItems(nextItems);
     const nextServiceStep = resolveOrderServiceStep(targetOrder, nextItems);
 
-    setOrders((prev) =>
-      prev.map((order) =>
-        String(order.id) === String(orderId)
-          ? { ...order, items: nextItems, order_items: null, status: nextStatus, service_step: nextServiceStep || null }
-          : order
-      )
-    );
-
     let updateResult = await supabase
       .from("orders")
       .update({ items: nextItems, status: nextStatus, service_step: nextServiceStep || null })
@@ -1511,7 +1511,8 @@ export default function KitchenPage() {
 
     if (updateResult.error) {
       console.error("Erreur update:", updateResult.error);
-      await fetchOrders();
+      needsOrderRefreshRef.current = true;
+      return;
     }
 
     if (readyItemIds.length > 0) {
@@ -1522,13 +1523,24 @@ export default function KitchenPage() {
         .in("id", readyItemIds as never);
       if (readyUpdate.error) {
         console.warn("order_items status sync failed:", readyUpdate.error.message);
+        needsOrderRefreshRef.current = true;
       }
     }
+
+    setOrders((prev) =>
+      prev.map((order) =>
+        String(order.id) === String(orderId)
+          ? { ...order, items: nextItems, order_items: null, status: nextStatus, service_step: nextServiceStep || null }
+          : order
+      )
+    );
   };
 
   const [readyGroupLoadingKey, setReadyGroupLoadingKey] = useState<string>("");
   const handleReadyGroup = async (groupKey: string, orderIds: Array<string | number>) => {
     if (!groupKey || orderIds.length === 0) return;
+    isOrderStatusUpdatingRef.current = true;
+    setIsOrderStatusUpdating(true);
     setReadyGroupLoadingKey(groupKey);
     try {
       for (const orderId of orderIds) {
@@ -1536,6 +1548,12 @@ export default function KitchenPage() {
       }
     } finally {
       setReadyGroupLoadingKey("");
+      isOrderStatusUpdatingRef.current = false;
+      setIsOrderStatusUpdating(false);
+      if (needsOrderRefreshRef.current) {
+        needsOrderRefreshRef.current = false;
+        await fetchOrders();
+      }
     }
   };
 
