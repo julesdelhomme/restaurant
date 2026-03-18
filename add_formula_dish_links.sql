@@ -22,6 +22,9 @@ where sequence is null;
 alter table public.formula_dish_links
   alter column sequence set not null;
 
+alter table public.formula_dish_links
+  add column if not exists default_product_option_ids text[];
+
 create index if not exists idx_formula_dish_links_formula_id
   on public.formula_dish_links (formula_dish_id);
 

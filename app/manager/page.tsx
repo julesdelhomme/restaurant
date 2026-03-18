@@ -950,6 +950,7 @@ interface DishForm {
   is_formula: boolean;
   formula_category_ids: string[];
   formula_dish_ids: string[];
+  formula_default_option_ids: Record<string, string[]>;
   only_in_formula: boolean;
   linked_formula_ids: string[];
   max_options: string;
@@ -1470,6 +1471,9 @@ export default function MenuManager() {
   const [dishes, setDishes] = useState<Dish[]>([]);
   const [formulaLinksByFormulaId, setFormulaLinksByFormulaId] = useState<Map<string, string[]>>(new Map());
   const [formulaLinksByDishId, setFormulaLinksByDishId] = useState<Map<string, string[]>>(new Map());
+  const [formulaLinkDefaultOptionsByFormulaId, setFormulaLinkDefaultOptionsByFormulaId] = useState<
+    Map<string, Map<string, string[]>>
+  >(new Map());
   const [orders, setOrders] = useState<Order[]>([]);
   const [reviews, setReviews] = useState<ReviewRow[]>([]);
   const [stats, setStats] = useState<Stats>({
@@ -1669,6 +1673,7 @@ export default function MenuManager() {
     is_formula: false,
     formula_category_ids: [],
     formula_dish_ids: [],
+    formula_default_option_ids: {},
     only_in_formula: false,
     linked_formula_ids: [],
     max_options: "1",
@@ -2999,18 +3004,31 @@ export default function MenuManager() {
     let result: any = scopedRestaurantId
       ? await supabase
           .from("formula_dish_links")
-          .select("formula_dish_id,dish_id,restaurant_id")
+          .select("formula_dish_id,dish_id,restaurant_id,default_product_option_ids")
           .in("formula_dish_id", formulaIds as never)
           .eq("restaurant_id", scopedRestaurantId)
       : await supabase
           .from("formula_dish_links")
-          .select("formula_dish_id,dish_id,restaurant_id")
+          .select("formula_dish_id,dish_id,restaurant_id,default_product_option_ids")
           .in("formula_dish_id", formulaIds as never);
+
+    if (result.error && hasMissingColumnError(result.error, "default_product_option_ids")) {
+      result = scopedRestaurantId
+        ? await supabase
+            .from("formula_dish_links")
+            .select("formula_dish_id,dish_id,restaurant_id")
+            .in("formula_dish_id", formulaIds as never)
+            .eq("restaurant_id", scopedRestaurantId)
+        : await supabase
+            .from("formula_dish_links")
+            .select("formula_dish_id,dish_id,restaurant_id")
+            .in("formula_dish_id", formulaIds as never);
+    }
 
     if (result.error && hasMissingColumnError(result.error, "restaurant_id")) {
       result = await supabase
         .from("formula_dish_links")
-        .select("formula_dish_id,dish_id")
+        .select("formula_dish_id,dish_id,default_product_option_ids")
         .in("formula_dish_id", formulaIds as never);
     }
 
@@ -3018,26 +3036,51 @@ export default function MenuManager() {
       console.warn("formula_dish_links fetch failed:", toLoggableSupabaseError(result.error));
       setFormulaLinksByFormulaId(new Map());
       setFormulaLinksByDishId(new Map());
+      setFormulaLinkDefaultOptionsByFormulaId(new Map());
       return;
     }
 
     const byFormula = new Map<string, string[]>();
     const byDish = new Map<string, string[]>();
+    const defaultByFormula = new Map<string, Map<string, string[]>>();
     (result.data || []).forEach((row: unknown) => {
       if (!row || typeof row !== "object") return;
       const record = row as any;
       const formulaId = String(record.formula_dish_id || "").trim();
       const dishId = String(record.dish_id || "").trim();
       if (!formulaId || !dishId) return;
+      const rawDefaults = record.default_product_option_ids;
+      let defaultOptionIds: string[] = [];
+      if (Array.isArray(rawDefaults)) {
+        defaultOptionIds = rawDefaults.map((value: unknown) => String(value || "").trim()).filter(Boolean);
+      } else if (typeof rawDefaults === "string") {
+        try {
+          const parsed = JSON.parse(rawDefaults) as unknown;
+          if (Array.isArray(parsed)) {
+            defaultOptionIds = parsed.map((value: unknown) => String(value || "").trim()).filter(Boolean);
+          }
+        } catch {
+          defaultOptionIds = rawDefaults
+            .split(",")
+            .map((value) => String(value || "").trim())
+            .filter(Boolean);
+        }
+      }
       const formulaList = byFormula.get(formulaId) || [];
       if (!formulaList.includes(dishId)) formulaList.push(dishId);
       byFormula.set(formulaId, formulaList);
       const dishList = byDish.get(dishId) || [];
       if (!dishList.includes(formulaId)) dishList.push(formulaId);
       byDish.set(dishId, dishList);
+      if (defaultOptionIds.length > 0) {
+        const currentDefaults = defaultByFormula.get(formulaId) || new Map<string, string[]>();
+        currentDefaults.set(dishId, defaultOptionIds);
+        defaultByFormula.set(formulaId, currentDefaults);
+      }
     });
     setFormulaLinksByFormulaId(byFormula);
     setFormulaLinksByDishId(byDish);
+    setFormulaLinkDefaultOptionsByFormulaId(defaultByFormula);
   };
 
   const fetchDishes = async () => {
@@ -3672,6 +3715,7 @@ export default function MenuManager() {
       is_formula: false,
       formula_category_ids: [],
       formula_dish_ids: [],
+      formula_default_option_ids: {},
       only_in_formula: false,
       linked_formula_ids: [],
       max_options: "1",
@@ -3771,6 +3815,10 @@ export default function MenuManager() {
     const currentDishId = String(dish.id || "").trim();
     const linkedFormulaIds = currentDishId ? formulaLinksByDishId.get(currentDishId) || [] : [];
     const linkedFormulaDishIds = currentDishId ? formulaLinksByFormulaId.get(currentDishId) || [] : [];
+    const linkedFormulaDefaultOptions =
+      currentDishId && formulaLinkDefaultOptionsByFormulaId.get(currentDishId)
+        ? Object.fromEntries(formulaLinkDefaultOptionsByFormulaId.get(currentDishId) || [])
+        : {};
     const manualAllergensByName = parseJsonObject(dietaryI18nNode.allergens_manual);
     const dietaryAllergensListRaw =
       (dietary as any).allergens_selected ??
@@ -3998,6 +4046,7 @@ export default function MenuManager() {
       is_formula: isFormula,
       formula_category_ids: isFormula ? normalizedFormulaCategoryIds : [],
       formula_dish_ids: isFormula ? linkedFormulaDishIds : [],
+      formula_default_option_ids: isFormula ? linkedFormulaDefaultOptions : {},
       only_in_formula: onlyInFormula,
       linked_formula_ids: !isFormula ? linkedFormulaIds : [],
       max_options: String(dish.max_options ?? 1),
@@ -4504,33 +4553,40 @@ export default function MenuManager() {
       formula_dish_id: string | number;
       dish_id: string | number;
       sequence: number;
+      default_product_option_ids?: string[] | null;
     };
     const insertFormulaLinks = async (rows: FormulaLinkInsertRow[]) => {
       if (rows.length === 0) return { error: null } as { error: any };
-      const rowsWithRestaurant = rows.map((row) => ({
+      const stripColumn = (sourceRows: Array<Record<string, unknown>>, column: string) =>
+        sourceRows.map((row) => {
+          const copy = { ...row } as Record<string, unknown>;
+          delete copy[column];
+          return copy;
+        });
+      let rowsToInsert: Array<Record<string, unknown>> = rows.map((row) => ({
         ...row,
         restaurant_id: scopedRestaurantId || null,
       }));
-      let insertLinksResult = await supabase.from("formula_dish_links").insert(rowsWithRestaurant as never);
+      let insertLinksResult = await supabase.from("formula_dish_links").insert(rowsToInsert as never);
+      if (insertLinksResult.error && hasMissingColumnError(insertLinksResult.error, "default_product_option_ids")) {
+        rowsToInsert = stripColumn(rowsToInsert, "default_product_option_ids");
+        insertLinksResult = await supabase.from("formula_dish_links").insert(rowsToInsert as never);
+      }
       if (insertLinksResult.error && hasMissingColumnError(insertLinksResult.error, "restaurant_id")) {
-        insertLinksResult = await supabase.from("formula_dish_links").insert(rows as never);
+        rowsToInsert = stripColumn(rowsToInsert, "restaurant_id");
+        insertLinksResult = await supabase.from("formula_dish_links").insert(rowsToInsert as never);
       }
       if (insertLinksResult.error && hasMissingColumnError(insertLinksResult.error, "sequence")) {
-        const rowsWithoutSequence = rows.map((row) => ({
-          formula_dish_id: row.formula_dish_id,
-          dish_id: row.dish_id,
-          restaurant_id: scopedRestaurantId || null,
-        }));
-        insertLinksResult = await supabase.from("formula_dish_links").insert(rowsWithoutSequence as never);
-        if (insertLinksResult.error && hasMissingColumnError(insertLinksResult.error, "restaurant_id")) {
-          const rowsWithoutSequenceOrRestaurant = rows.map((row) => ({
-            formula_dish_id: row.formula_dish_id,
-            dish_id: row.dish_id,
-          }));
-          insertLinksResult = await supabase
-            .from("formula_dish_links")
-            .insert(rowsWithoutSequenceOrRestaurant as never);
-        }
+        rowsToInsert = stripColumn(rowsToInsert, "sequence");
+        insertLinksResult = await supabase.from("formula_dish_links").insert(rowsToInsert as never);
+      }
+      if (insertLinksResult.error && hasMissingColumnError(insertLinksResult.error, "restaurant_id")) {
+        rowsToInsert = stripColumn(rowsToInsert, "restaurant_id");
+        insertLinksResult = await supabase.from("formula_dish_links").insert(rowsToInsert as never);
+      }
+      if (insertLinksResult.error && hasMissingColumnError(insertLinksResult.error, "default_product_option_ids")) {
+        rowsToInsert = stripColumn(rowsToInsert, "default_product_option_ids");
+        insertLinksResult = await supabase.from("formula_dish_links").insert(rowsToInsert as never);
       }
       return insertLinksResult;
     };
@@ -4912,10 +4968,15 @@ export default function MenuManager() {
                 ? normalizedFormulaCategorySequenceById.get(linkedCategoryId) ??
                   inferSequenceFromCategoryId(linkedCategoryId, normalizedFormulaCategorySequenceById.size + 1)
                 : 2;
+              const rawDefaultOptionIds = formData.formula_default_option_ids[dishId] || [];
+              const defaultOptionIds = Array.from(
+                new Set(rawDefaultOptionIds.map((value) => String(value || "").trim()).filter(Boolean))
+              );
               return {
                 formula_dish_id: String(savedDishIdRaw || "").trim(),
                 dish_id: dishId,
                 sequence: Math.max(1, Math.trunc(sequence)),
+                default_product_option_ids: defaultOptionIds.length > 0 ? defaultOptionIds : null,
               };
             });
             const insertLinksResult = await insertFormulaLinks(linkRows);
@@ -11414,6 +11475,8 @@ export default function MenuManager() {
                         ...formData,
                         is_formula: e.target.checked,
                         formula_category_ids: e.target.checked ? formData.formula_category_ids : [],
+                        formula_dish_ids: e.target.checked ? formData.formula_dish_ids : [],
+                        formula_default_option_ids: e.target.checked ? formData.formula_default_option_ids : {},
                       })
                     }
                   />
@@ -11502,21 +11565,78 @@ export default function MenuManager() {
                                 {options.map((dish) => {
                                   const dishId = String(dish.id || "").trim();
                                   const checked = formData.formula_dish_ids.some((id) => String(id) === dishId);
+                                  const dishOptions = Array.isArray((dish as any).product_options)
+                                    ? ((dish as any).product_options as ProductOptionItem[])
+                                    : [];
+                                  const allowMulti = Boolean((dish as any).allow_multi_select);
+                                  const selectedDefaultOptionIds = formData.formula_default_option_ids[dishId] || [];
                                   return (
-                                    <label key={`formula-dish-${categoryId}-${dishId}`} className="flex items-center gap-2 text-black font-bold px-2 py-1 rounded hover:bg-gray-50">
-                                      <input
-                                        type="checkbox"
-                                        checked={checked}
-                                        onChange={(e) => {
-                                          if (!dishId) return;
-                                          const next = e.target.checked
-                                            ? [...formData.formula_dish_ids, dishId]
-                                            : formData.formula_dish_ids.filter((id) => String(id) !== dishId);
-                                          setFormData({ ...formData, formula_dish_ids: next });
-                                        }}
-                                      />
-                                      {dish.name_fr || dish.name || `Plat #${dish.id}`}
-                                    </label>
+                                    <div key={`formula-dish-${categoryId}-${dishId}`} className="flex flex-col gap-1 rounded hover:bg-gray-50 px-2 py-1">
+                                      <label className="flex items-center gap-2 text-black font-bold">
+                                        <input
+                                          type="checkbox"
+                                          checked={checked}
+                                          onChange={(e) => {
+                                            if (!dishId) return;
+                                            const next = e.target.checked
+                                              ? [...formData.formula_dish_ids, dishId]
+                                              : formData.formula_dish_ids.filter((id) => String(id) !== dishId);
+                                            const nextDefaults = { ...formData.formula_default_option_ids };
+                                            if (!e.target.checked) {
+                                              delete nextDefaults[dishId];
+                                            }
+                                            setFormData({
+                                              ...formData,
+                                              formula_dish_ids: next,
+                                              formula_default_option_ids: nextDefaults,
+                                            });
+                                          }}
+                                        />
+                                        {dish.name_fr || dish.name || `Plat #${dish.id}`}
+                                      </label>
+                                      {checked && dishOptions.length > 0 ? (
+                                        <div className="ml-6 border-l border-gray-200 pl-3">
+                                          <div className="text-xs font-bold text-gray-700 mb-1">
+                                            Option incluse par dÃ©faut
+                                          </div>
+                                          <div className="flex flex-col gap-2">
+                                            {dishOptions.map((option, optionIndex) => {
+                                              const optionId = String(option.id || `option-${optionIndex}`);
+                                              const optionLabel = String(option.name_fr || option.name || "").trim();
+                                              const checkedOption = selectedDefaultOptionIds.includes(optionId);
+                                              return (
+                                                <label key={`formula-default-option-${dishId}-${optionId}`} className="flex items-center gap-2 text-xs font-bold text-gray-700">
+                                                  <input
+                                                    type={allowMulti ? "checkbox" : "radio"}
+                                                    name={allowMulti ? undefined : `formula-default-${dishId}`}
+                                                    checked={checkedOption}
+                                                    onChange={(event) => {
+                                                      const current = formData.formula_default_option_ids[dishId] || [];
+                                                      let nextIds = current;
+                                                      if (allowMulti) {
+                                                        nextIds = event.target.checked
+                                                          ? [...current, optionId]
+                                                          : current.filter((id) => id !== optionId);
+                                                      } else {
+                                                        nextIds = event.target.checked ? [optionId] : [];
+                                                      }
+                                                      setFormData({
+                                                        ...formData,
+                                                        formula_default_option_ids: {
+                                                          ...formData.formula_default_option_ids,
+                                                          [dishId]: Array.from(new Set(nextIds)),
+                                                        },
+                                                      });
+                                                    }}
+                                                  />
+                                                  <span>{optionLabel || `Option #${optionId}`}</span>
+                                                </label>
+                                              );
+                                            })}
+                                          </div>
+                                        </div>
+                                      ) : null}
+                                    </div>
                                   );
                                 })}
                               </div>

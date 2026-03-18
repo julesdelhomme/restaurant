@@ -183,6 +183,9 @@ const UI_TEXT = {
       formulas: "Formules",
       available_in_formula: "Disponible en formule",
       view_formula: "Voir la formule",
+      order_in_formula: "Commander en formule",
+      item_details: "Details de l'article",
+      formula_option_locked: "Supplement indisponible en formule",
     },
     categoryMap: {
       all: "Tous",
@@ -280,6 +283,9 @@ const UI_TEXT = {
       formulas: "Menus",
       available_in_formula: "Available in formula",
       view_formula: "View menu",
+      order_in_formula: "Order as set menu",
+      item_details: "Item details",
+      formula_option_locked: "Extra not available in set menu",
     },
     categoryMap: {
       all: "All",
@@ -377,6 +383,9 @@ const UI_TEXT = {
       formulas: "MenÃºs",
       available_in_formula: "Disponible en formula",
       view_formula: "Ver el menÃº",
+      order_in_formula: "Pedir en menÃº",
+      item_details: "Detalles del artÃ­culo",
+      formula_option_locked: "Suplemento no disponible en el menÃº",
     },
     categoryMap: {
       all: "Todos",
@@ -474,6 +483,9 @@ const UI_TEXT = {
       formulas: "MenÃ¼s",
       available_in_formula: "In Formel verfugbar",
       view_formula: "MenÃ¼ ansehen",
+      order_in_formula: "Als MenÃ¼ bestellen",
+      item_details: "Artikeldetails",
+      formula_option_locked: "Aufpreis im MenÃ¼ nicht verfÃ¼gbar",
     },
     categoryMap: {
       all: "Alle",
@@ -1510,6 +1522,7 @@ interface FormulaDishLink {
   formulaDishId: string;
   dishId: string;
   sequence: number | null;
+  defaultProductOptionIds?: string[];
 }
 
 function parseOptionsFromDescription(description?: string | null): ParsedOptions {
@@ -2323,6 +2336,7 @@ export default function MenuDigital() {
   const [formulaSelections, setFormulaSelections] = useState<Record<string, string>>({});
   const [formulaSelectionDetails, setFormulaSelectionDetails] = useState<Record<string, FormulaSelectionDetails>>({});
   const [formulaSelectionError, setFormulaSelectionError] = useState("");
+  const [formulaItemDetailsOpen, setFormulaItemDetailsOpen] = useState<Record<string, boolean>>({});
   const [dishModalQuantity, setDishModalQuantity] = useState(1);
   const [serverCallMsg, setServerCallMsg] = useState("");
   const [showCallModal, setShowCallModal] = useState(false);
@@ -2547,6 +2561,9 @@ export default function MenuDigital() {
     String((uiText as unknown as any).optionsAndVariants || "").trim() || "Options / Variantes";
   const itemTotalLabel =
     String((uiText as unknown as any).itemTotal || "").trim() || "Total article";
+  const orderInFormulaLabel = tt("order_in_formula");
+  const itemDetailsLabel = tt("item_details");
+  const formulaOptionLockedLabel = tt("formula_option_locked");
   const toFinitePrice = (raw: unknown) => {
     if (raw == null) return null;
     if (typeof raw === "string" && raw.trim() === "") return null;
@@ -3005,6 +3022,7 @@ export default function MenuDigital() {
       setFormulaSelections({});
       setFormulaSelectionDetails({});
       setFormulaSelectionError("");
+      setFormulaItemDetailsOpen({});
     }
   }, [isInteractionDisabled, isCartOpen, formulaDish]);
 
@@ -3051,14 +3069,33 @@ export default function MenuDigital() {
       return;
     }
 
-    let result: any = scopedRestaurantId
-      ? await supabase
+    let result: any = null;
+    if (scopedRestaurantId) {
+      result = await supabase
+        .from("formula_dish_links")
+        .select("formula_dish_id,dish_id,restaurant_id,sequence,default_product_option_ids")
+        .eq("restaurant_id", scopedRestaurantId);
+      if (result.error && String((result.error as { code?: string })?.code || "") === "42703") {
+        result = await supabase
           .from("formula_dish_links")
           .select("formula_dish_id,dish_id,restaurant_id,sequence")
-          .eq("restaurant_id", scopedRestaurantId)
-      : await supabase
+          .eq("restaurant_id", scopedRestaurantId);
+      }
+      if (result.error && String((result.error as { code?: string })?.code || "") === "42703") {
+        result = await supabase
+          .from("formula_dish_links")
+          .select("formula_dish_id,dish_id,sequence,default_product_option_ids");
+      }
+    } else {
+      result = await supabase
+        .from("formula_dish_links")
+        .select("formula_dish_id,dish_id,sequence,default_product_option_ids");
+      if (result.error && String((result.error as { code?: string })?.code || "") === "42703") {
+        result = await supabase
           .from("formula_dish_links")
           .select("formula_dish_id,dish_id,sequence");
+      }
+    }
     if (result.error && String((result.error as { code?: string })?.code || "") === "42703") {
       result = await supabase
         .from("formula_dish_links")
@@ -3085,7 +3122,29 @@ export default function MenuDigital() {
       if (!formulaDishId || !dishId || !formulaIdSet.has(formulaDishId)) return;
       const rawSequence = Number(row.sequence);
       const sequence = Number.isFinite(rawSequence) ? Math.max(1, Math.trunc(rawSequence)) : null;
-      const link: FormulaDishLink = { formulaDishId, dishId, sequence };
+      const rawDefaultOptionIds = row.default_product_option_ids;
+      let defaultProductOptionIds: string[] = [];
+      if (Array.isArray(rawDefaultOptionIds)) {
+        defaultProductOptionIds = rawDefaultOptionIds.map((value: unknown) => String(value || "").trim()).filter(Boolean);
+      } else if (typeof rawDefaultOptionIds === "string") {
+        try {
+          const parsed = JSON.parse(rawDefaultOptionIds) as unknown;
+          if (Array.isArray(parsed)) {
+            defaultProductOptionIds = parsed.map((value: unknown) => String(value || "").trim()).filter(Boolean);
+          }
+        } catch {
+          defaultProductOptionIds = rawDefaultOptionIds
+            .split(",")
+            .map((value) => String(value || "").trim())
+            .filter(Boolean);
+        }
+      }
+      const link: FormulaDishLink = {
+        formulaDishId,
+        dishId,
+        sequence,
+        defaultProductOptionIds: defaultProductOptionIds.length > 0 ? defaultProductOptionIds : undefined,
+      };
       const formulaLinks = byFormula.get(formulaDishId) || [];
       if (!formulaLinks.some((entry) => entry.dishId === dishId)) formulaLinks.push(link);
       byFormula.set(formulaDishId, formulaLinks);
@@ -3962,6 +4021,20 @@ export default function MenuDigital() {
     return map;
   }, [formulaLinksByDishId, dishById]);
 
+  const formulaDefaultOptionsByDishId = useMemo(() => {
+    const map = new Map<string, string[]>();
+    const formulaDishId = String(formulaDish?.id || "").trim();
+    if (!formulaDishId) return map;
+    const links = formulaLinksByFormulaId.get(formulaDishId) || [];
+    links.forEach((link) => {
+      const dishId = String(link.dishId || "").trim();
+      if (!dishId) return;
+      const defaults = Array.isArray(link.defaultProductOptionIds) ? link.defaultProductOptionIds : [];
+      if (defaults.length > 0) map.set(dishId, defaults);
+    });
+    return map;
+  }, [formulaDish, formulaLinksByFormulaId]);
+
   const formulaLinkedOptionsByCategory = useMemo(() => {
     const map = new Map<string, Set<string>>();
     const formulaDishId = String(formulaDish?.id || "").trim();
@@ -4096,7 +4169,28 @@ export default function MenuDigital() {
       if (prev[sourceCategoryId] === sourceDishId) return prev;
       return { ...prev, [sourceCategoryId]: sourceDishId };
     });
-  }, [formulaDish, formulaSourceDish, formulaOptionsByCategory]);
+    const config = getFormulaDishConfig(formulaSourceDish);
+    const rawDefaults = formulaDefaultOptionsByDishId.get(sourceDishId) || [];
+    const allowedIds = new Set(config.productOptions.map((option) => String(option.id || "").trim()).filter(Boolean));
+    const normalizedDefaults = rawDefaults.filter((id) => allowedIds.has(String(id || "").trim()));
+    if (normalizedDefaults.length > 0) {
+      const allowMulti = Boolean((formulaSourceDish as any)?.allow_multi_select);
+      const nextDefaults = allowMulti ? normalizedDefaults : normalizedDefaults.slice(0, 1);
+      setFormulaSelectionDetails((prev) => {
+        const current = prev[sourceCategoryId];
+        if (current && current.selectedProductOptionIds.length > 0) return prev;
+        return {
+          ...prev,
+          [sourceCategoryId]: {
+            selectedSideIds: [],
+            selectedSides: [],
+            selectedCooking: "",
+            selectedProductOptionIds: nextDefaults,
+          },
+        };
+      });
+    }
+  }, [formulaDish, formulaSourceDish, formulaOptionsByCategory, formulaDefaultOptionsByDishId]);
 
   const getCategoryDestination = (categoryId?: string | number | null) => {
     if (!categoryId) return "cuisine";
@@ -5013,6 +5107,7 @@ export default function MenuDigital() {
     setFormulaSelections({});
     setFormulaSelectionDetails({});
     setFormulaSelectionError("");
+    setFormulaItemDetailsOpen({});
     setSelectedDish(null);
     setModalProductOptions([]);
     setSelectedProductOptionIds([]);
@@ -6399,6 +6494,7 @@ export default function MenuDigital() {
                   setFormulaSelections({});
                   setFormulaSelectionDetails({});
                   setFormulaSelectionError("");
+                  setFormulaItemDetailsOpen({});
                 }}
                 aria-label={uiText.close}
                 title={uiText.close}
@@ -6428,6 +6524,16 @@ export default function MenuDigital() {
                     const formulaDishConfig = selectedDishForCategory ? getFormulaDishConfig(selectedDishForCategory) : null;
                     const categoryDetails = getFormulaSelectionDetails(categoryId);
                     const allowMultiOptionSelection = Boolean((selectedDishForCategory as any)?.allow_multi_select);
+                    const selectedDishIdForDefaults = selectedDishForCategory ? String(selectedDishForCategory.id || "").trim() : "";
+                    const rawDefaultOptionIdsForSelectedDish = selectedDishIdForDefaults
+                      ? formulaDefaultOptionsByDishId.get(selectedDishIdForDefaults) || []
+                      : [];
+                    const availableOptionIdSet = new Set(
+                      (formulaDishConfig?.productOptions || []).map((option) => String(option.id || "").trim()).filter(Boolean)
+                    );
+                    const defaultOptionIdsForSelectedDish = rawDefaultOptionIdsForSelectedDish.filter((id) =>
+                      availableOptionIdSet.has(String(id || "").trim())
+                    );
                     return (
                       <div key={`formula-category-${categoryId}`} className="border-2 border-black rounded-xl p-3">
                         <div className="font-black text-base mb-2">{getCategoryLabel(category)}</div>
@@ -6437,30 +6543,60 @@ export default function MenuDigital() {
                           <div className="grid grid-cols-1 gap-2">
                             {options.map((optionDish) => {
                               const optionId = String(optionDish.id || "").trim();
+                              if (!optionId) return null;
                               const isSelected = selectedId === optionId;
+                              const optionConfig = getFormulaDishConfig(optionDish);
+                              const rawDefaultOptionIds = formulaDefaultOptionsByDishId.get(optionId) || [];
+                              const optionProductOptionIds = new Set(
+                                optionConfig.productOptions.map((option) => String(option.id || "").trim()).filter(Boolean)
+                              );
+                              const normalizedDefaultOptionIds = rawDefaultOptionIds.filter((id) =>
+                                optionProductOptionIds.has(String(id || "").trim())
+                              );
+                              const allowMultiDefaults = Boolean((optionDish as any)?.allow_multi_select);
+                              const defaultOptionIds = allowMultiDefaults ? normalizedDefaultOptionIds : normalizedDefaultOptionIds.slice(0, 1);
+                              const isDetailsOpen = Boolean(formulaItemDetailsOpen[optionId]);
+                              const optionDescription = getDescription(optionDish, lang);
                               return (
-                                <button
-                                  key={`formula-option-${categoryId}-${optionId}`}
-                                  type="button"
-                                  onClick={() => {
-                                    setFormulaSelectionError("");
-                                    setFormulaSelections((prev) => ({ ...prev, [categoryId]: optionId }));
-                                    setFormulaSelectionDetails((prev) => ({
-                                      ...prev,
-                                      [categoryId]: {
-                                        selectedSideIds: [],
-                                        selectedSides: [],
-                                        selectedCooking: "",
-                                        selectedProductOptionIds: [],
-                                      },
-                                    }));
-                                  }}
-                                  className={`w-full text-left px-3 py-2 rounded-lg border-2 font-black ${
-                                    isSelected ? "bg-black text-white border-black" : "bg-white text-black border-black"
-                                  }`}
-                                >
-                                  {getDishName(optionDish, lang)}
-                                </button>
+                                <div key={`formula-option-${categoryId}-${optionId}`} className="flex flex-col gap-2">
+                                  <div className="flex gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setFormulaSelectionError("");
+                                        setFormulaSelections((prev) => ({ ...prev, [categoryId]: optionId }));
+                                        setFormulaSelectionDetails((prev) => ({
+                                          ...prev,
+                                          [categoryId]: {
+                                            selectedSideIds: [],
+                                            selectedSides: [],
+                                            selectedCooking: "",
+                                            selectedProductOptionIds: defaultOptionIds,
+                                          },
+                                        }));
+                                      }}
+                                      className={`flex-1 text-left px-3 py-2 rounded-lg border-2 font-black ${
+                                        isSelected ? "bg-black text-white border-black" : "bg-white text-black border-black"
+                                      }`}
+                                    >
+                                      {getDishName(optionDish, lang)}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setFormulaItemDetailsOpen((prev) => ({ ...prev, [optionId]: !prev[optionId] }))
+                                      }
+                                      className="px-3 py-2 rounded-lg border-2 border-black bg-white text-xs font-black text-black whitespace-nowrap"
+                                    >
+                                      {itemDetailsLabel}
+                                    </button>
+                                  </div>
+                                  {isDetailsOpen ? (
+                                    <div className="text-sm text-black/70 rounded-lg border border-black/10 bg-white px-3 py-2">
+                                      {optionDescription || tt("details_none")}
+                                    </div>
+                                  ) : null}
+                                </div>
                               );
                             })}
                           </div>
@@ -6474,14 +6610,23 @@ export default function MenuDigital() {
                                   {formulaDishConfig.productOptions.map((option) => {
                                     const optionId = String(option.id || "").trim();
                                     if (!optionId) return null;
+                                    const optionPrice = parseAddonPrice(option.price_override);
+                                    const isPaidOption = optionPrice > 0;
+                                    const isDefaultOption = defaultOptionIdsForSelectedDish.includes(optionId);
+                                    const isLocked = isPaidOption && !isDefaultOption;
                                     const selected = categoryDetails.selectedProductOptionIds.includes(optionId);
                                     return (
-                                      <label key={`formula-option-detail-${categoryId}-${optionId}`} className="flex items-center gap-2 text-sm font-bold">
+                                      <label
+                                        key={`formula-option-detail-${categoryId}-${optionId}`}
+                                        className={`flex items-center gap-2 text-sm font-bold ${isLocked ? "text-gray-400" : ""}`}
+                                      >
                                         <input
                                           type={allowMultiOptionSelection ? "checkbox" : "radio"}
                                           name={`formula-product-option-${categoryId}`}
                                           checked={selected}
+                                          disabled={isLocked}
                                           onChange={(event) => {
+                                            if (isLocked) return;
                                             setFormulaSelectionError("");
                                             setFormulaSelectionDetails((prev) => {
                                               const current = prev[categoryId] || {
@@ -6507,7 +6652,10 @@ export default function MenuDigital() {
                                             });
                                           }}
                                         />
-                                        <span>{getProductOptionLabel(option, lang)}</span>
+                                        <span>
+                                          {getProductOptionLabel(option, lang)}
+                                          {isLocked ? ` (${formulaOptionLockedLabel})` : ""}
+                                        </span>
                                       </label>
                                     );
                                   })}
@@ -6519,54 +6667,58 @@ export default function MenuDigital() {
                                 <div className="text-xs font-black uppercase tracking-wide mb-2">
                                   {uiText.sidesLabel} ({Math.min(formulaDishConfig.maxSides, categoryDetails.selectedSides.length)}/{formulaDishConfig.maxSides})
                                 </div>
-                                <div className="grid grid-cols-1 gap-2">
-                                  {formulaDishConfig.sideOptions.map((sideLabel) => {
-                                    const sideId = sideIdByAlias.get(normalizeLookupText(sideLabel)) || sideLabel;
-                                    const checked = categoryDetails.selectedSideIds.includes(sideId);
-                                    return (
-                                      <label key={`formula-side-${categoryId}-${sideId}`} className="flex items-center gap-2 text-sm font-bold">
-                                        <input
-                                          type="checkbox"
-                                          checked={checked}
-                                          onChange={(event) => {
-                                            setFormulaSelectionError("");
-                                            setFormulaSelectionDetails((prev) => {
-                                              const current = prev[categoryId] || {
-                                                selectedSideIds: [],
-                                                selectedSides: [],
-                                                selectedCooking: "",
-                                                selectedProductOptionIds: [],
-                                              };
-                                              const maxSides = formulaDishConfig.maxSides;
-                                              const nextPairs = current.selectedSideIds.map((id, index) => ({
-                                                id,
-                                                label: current.selectedSides[index] || id,
-                                              }));
-                                              const exists = nextPairs.some((entry) => entry.id === sideId);
-                                              const canAdd = nextPairs.length < maxSides;
-                                              const updatedPairs = event.target.checked
-                                                ? exists
-                                                  ? nextPairs
-                                                  : canAdd
-                                                    ? [...nextPairs, { id: sideId, label: sideLabel }]
-                                                    : nextPairs
-                                                : nextPairs.filter((entry) => entry.id !== sideId);
-                                              return {
-                                                ...prev,
-                                                [categoryId]: {
-                                                  ...current,
-                                                  selectedSideIds: updatedPairs.map((entry) => entry.id),
-                                                  selectedSides: updatedPairs.map((entry) => entry.label),
-                                                },
-                                              };
-                                            });
-                                          }}
-                                        />
-                                        <span>{sideLabel}</span>
-                                      </label>
-                                    );
-                                  })}
-                                </div>
+                                {formulaDishConfig.sideOptions.length === 0 ? (
+                                  <div className="text-xs font-bold text-red-600">{tt("no_side_configured")}</div>
+                                ) : (
+                                  <div className="grid grid-cols-1 gap-2">
+                                    {formulaDishConfig.sideOptions.map((sideLabel) => {
+                                      const sideId = sideIdByAlias.get(normalizeLookupText(sideLabel)) || sideLabel;
+                                      const checked = categoryDetails.selectedSideIds.includes(sideId);
+                                      return (
+                                        <label key={`formula-side-${categoryId}-${sideId}`} className="flex items-center gap-2 text-sm font-bold">
+                                          <input
+                                            type="checkbox"
+                                            checked={checked}
+                                            onChange={(event) => {
+                                              setFormulaSelectionError("");
+                                              setFormulaSelectionDetails((prev) => {
+                                                const current = prev[categoryId] || {
+                                                  selectedSideIds: [],
+                                                  selectedSides: [],
+                                                  selectedCooking: "",
+                                                  selectedProductOptionIds: [],
+                                                };
+                                                const maxSides = formulaDishConfig.maxSides;
+                                                const nextPairs = current.selectedSideIds.map((id, index) => ({
+                                                  id,
+                                                  label: current.selectedSides[index] || id,
+                                                }));
+                                                const exists = nextPairs.some((entry) => entry.id === sideId);
+                                                const canAdd = nextPairs.length < maxSides;
+                                                const updatedPairs = event.target.checked
+                                                  ? exists
+                                                    ? nextPairs
+                                                    : canAdd
+                                                      ? [...nextPairs, { id: sideId, label: sideLabel }]
+                                                      : nextPairs
+                                                  : nextPairs.filter((entry) => entry.id !== sideId);
+                                                return {
+                                                  ...prev,
+                                                  [categoryId]: {
+                                                    ...current,
+                                                    selectedSideIds: updatedPairs.map((entry) => entry.id),
+                                                    selectedSides: updatedPairs.map((entry) => entry.label),
+                                                  },
+                                                };
+                                              });
+                                            }}
+                                          />
+                                          <span>{sideLabel}</span>
+                                        </label>
+                                      );
+                                    })}
+                                  </div>
+                                )}
                               </div>
                             ) : null}
                             {formulaDishConfig.askCooking ? (
@@ -6716,6 +6868,7 @@ export default function MenuDigital() {
                   setFormulaSelections({});
                   setFormulaSelectionDetails({});
                   setFormulaSelectionError("");
+                  setFormulaItemDetailsOpen({});
                 }}
               >
                 {uiText.addToCart}
@@ -6760,6 +6913,15 @@ export default function MenuDigital() {
               {selectedDishLinkedFormulas.length > 0 ? (
                 <div className="mb-3 rounded-lg border-2 border-black bg-amber-50 p-3">
                   <div className="text-sm font-black text-black mb-1">{availableInFormulaLabel}</div>
+                  {selectedDishLinkedFormulas[0] && !isInteractionDisabled ? (
+                    <button
+                      type="button"
+                      onClick={() => openFormulaModal(selectedDishLinkedFormulas[0], selectedDish)}
+                      className="w-full mb-2 px-3 py-3 rounded-lg border-2 border-black bg-black text-white font-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]"
+                    >
+                      {orderInFormulaLabel} ({getFormulaPackPrice(selectedDishLinkedFormulas[0]).toFixed(2)} €)
+                    </button>
+                  ) : null}
                   <div className="flex flex-col gap-2">
                     {selectedDishLinkedFormulas.map((formula) => {
                       const formulaId = String(formula.id || "").trim();
