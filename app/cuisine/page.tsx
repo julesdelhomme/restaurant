@@ -43,6 +43,10 @@ type Item = {
   selected_cooking: string | null;
   is_formula?: boolean | null;
   formula_id?: string | number | null;
+  formula_dish_id?: string | number | null;
+  formula_name?: string | null;
+  formula_dish_name?: string | null;
+  formula_current_sequence?: number | null;
   selected_side_label_fr?: string | null;
   selected_side_label?: string | null;
   selected_side_label_pt?: string | null;
@@ -81,10 +85,31 @@ export default function KitchenPage() {
       return raw;
     }
   };
-  const scopedRestaurantIdFromPath = decodeAndTrim(params?.restaurant_id || params?.id || "");
-  const scopedRestaurantIdFromQuery = decodeAndTrim(searchParams.get("restaurant_id") || "");
+  const RESERVED_ROUTE_SEGMENTS = new Set([
+    "cuisine",
+    "admin",
+    "manager",
+    "bar-caisse",
+    "login",
+    "login-staff",
+    "restaurant",
+    "vitrine",
+    "feedback",
+    "super-admin",
+    "api",
+  ]);
+  const normalizeRestaurantScope = (value: unknown) => {
+    const normalized = decodeAndTrim(value).replace(/^["'{\s]+|["'}\s]+$/g, "");
+    if (!normalized) return "";
+    if (RESERVED_ROUTE_SEGMENTS.has(normalized.toLowerCase())) return "";
+    return normalized;
+  };
+  const scopedRestaurantIdFromPath = normalizeRestaurantScope(params?.restaurant_id || params?.id || "");
+  const scopedRestaurantIdFromQuery = normalizeRestaurantScope(searchParams.get("restaurant_id") || "");
   const scopedRestaurantIdFromLocation =
-    typeof window !== "undefined" ? decodeAndTrim(window.location.pathname.split("/").filter(Boolean)[0] || "") : "";
+    typeof window !== "undefined"
+      ? normalizeRestaurantScope(window.location.pathname.split("/").filter(Boolean)[0] || "")
+      : "";
   const resolvedRestaurantId = String(
     scopedRestaurantIdFromPath || scopedRestaurantIdFromQuery || scopedRestaurantIdFromLocation || SETTINGS_ROW_ID || ""
   ).trim();
@@ -263,6 +288,12 @@ export default function KitchenPage() {
         instructions: String(row?.instructions || row?.notes || "").trim(),
         is_formula: Boolean(row?.is_formula ?? dishRow?.is_formula),
         formula_id: row?.formula_id ?? row?.formulaDishId ?? row?.formula_dish_id ?? null,
+        formula_dish_id: row?.formula_dish_id ?? row?.formulaDishId ?? row?.formula_id ?? null,
+        formula_name: String(row?.formula_name || row?.formula_dish_name || "").trim() || null,
+        formula_dish_name: String(row?.formula_dish_name || row?.formula_name || "").trim() || null,
+        formula_current_sequence: Number.isFinite(Number(row?.formula_current_sequence))
+          ? Number(row?.formula_current_sequence)
+          : null,
       } as Item;
     });
   };
@@ -457,15 +488,84 @@ export default function KitchenPage() {
     }
     return "";
   };
-  const getOrderServiceStepLabel = (order: Order, items: Item[]) => {
-    if (!items.some((item) => isFormulaItem(item))) return "";
-    const step = resolveOrderServiceStep(order, items);
-    return step ? SERVICE_STEP_LABELS[step] : "";
-  };
   const isUuidLike = (value: unknown) =>
     /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
       String(value || "").trim()
     );
+  const resolveFormulaNameForItem = (item: Item) => {
+    if (!isFormulaItem(item)) return "";
+    const record = item as unknown as Record<string, unknown>;
+    const directCandidates = [
+      record.formula_dish_name,
+      record.formulaDishName,
+      record.formula_name,
+      record.formulaName,
+      (item as { formula_dish_name?: unknown }).formula_dish_name,
+      (item as { formula_name?: unknown }).formula_name,
+    ];
+    for (const candidate of directCandidates) {
+      const normalized = String(candidate || "").trim();
+      if (normalized && !isUuidLike(normalized)) return normalized;
+    }
+
+    const targetDishId = normalizeEntityId(record.dish_id ?? record.id ?? "");
+    const sources = [
+      record.selected_options,
+      record.selectedOptions,
+      record.options,
+      record.formula_items,
+      record.formulaItems,
+    ];
+    for (const source of sources) {
+      const entries = parseFormulaEntryList(source);
+      for (const entry of entries) {
+        const kind = normalizeLookupText(entry.kind ?? entry.type ?? entry.group ?? "");
+        const isFormulaEntry =
+          kind === "formula" ||
+          kind.includes("formula") ||
+          entry.formula_dish_id != null ||
+          entry.sequence != null;
+        if (!isFormulaEntry) continue;
+        const entryDishId = normalizeEntityId(entry.dish_id ?? entry.dishId ?? entry.id ?? "");
+        if (targetDishId && entryDishId && entryDishId !== targetDishId) continue;
+        const candidate = String(
+          entry.formula_dish_name ??
+            entry.formula_name ??
+            entry.formulaDishName ??
+            entry.formulaName ??
+            ""
+        ).trim();
+        if (candidate && !isUuidLike(candidate)) return candidate;
+      }
+    }
+
+    const fallbackFormulaId = normalizeEntityId(
+      record.formula_dish_id ??
+        record.formulaDishId ??
+        record.formula_id ??
+        record.formulaId ??
+        ""
+    );
+    if (fallbackFormulaId) return `Formule #${fallbackFormulaId}`;
+    return "Formule";
+  };
+  const resolveFormulaStepLabelForItem = (item: Item) => {
+    if (!isFormulaItem(item)) return "";
+    const sequence = resolveFormulaSequenceForItem(item);
+    if (Number.isFinite(sequence) && Number(sequence) > 0) {
+      return `ÉTAPE ${Math.max(1, Math.trunc(Number(sequence)))}`;
+    }
+    const step = resolveItemCourse(item);
+    return SERVICE_STEP_LABELS[step] || "";
+  };
+  const getFormulaDisplayTagForItem = (item: Item) => {
+    if (!isFormulaItem(item)) return "";
+    const formulaName = resolveFormulaNameForItem(item);
+    const stepLabel = resolveFormulaStepLabelForItem(item);
+    if (formulaName && stepLabel) return `${formulaName} - ${stepLabel}`;
+    if (formulaName) return formulaName;
+    return stepLabel;
+  };
   const isMissingRelationError = (error: unknown) =>
     String((error as { code: string } | null)?.code || "").trim() === "42P01";
   const buildStableExtraId = (dishId: unknown, name: unknown, price: unknown, index = 0) => {
@@ -1325,32 +1425,63 @@ export default function KitchenPage() {
       const sinceIso = new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString();
       let ordersResult = await supabase
         .from("orders")
-        .select("*, order_items!inner(*, dishes(*))")
+        .select("*")
         .eq("restaurant_id", restaurantId)
         .gt("created_at", sinceIso)
         .order("created_at", { ascending: true });
-      if (ordersResult.error) {
-        ordersResult = await supabase
-          .from("orders")
-          .select("*, order_items(*, dishes(*))")
-          .eq("restaurant_id", restaurantId)
-          .gt("created_at", sinceIso)
-          .order("created_at", { ascending: true });
-      }
-      if (ordersResult.error) {
+      if (ordersResult.error && String((ordersResult.error as { code?: string })?.code || "") === "42703") {
         ordersResult = await supabase
           .from("orders")
           .select("*")
-          .eq("restaurant_id", restaurantId)
+          .eq("id_restaurant", restaurantId)
           .gt("created_at", sinceIso)
           .order("created_at", { ascending: true });
       }
-      const { data, error } = ordersResult;
+      const { data: rawOrders, error } = ordersResult;
 
       if (error) {
         logSqlError("kitchen.fetchOrders.primary", error);
         if (isRateLimitError(error)) setRefreshMs((prev) => (prev === 5000 ? prev : 5000));
         return;
+      }
+
+      let data = (rawOrders || []) as Array<Record<string, unknown>>;
+      const orderIds = data
+        .map((row) => normalizeEntityId((row as { id?: unknown }).id))
+        .filter(Boolean);
+      if (orderIds.length > 0) {
+        let orderItemsResult = await supabase
+          .from("order_items")
+          .select("*, dishes(*)")
+          .in("order_id", orderIds);
+        if (orderItemsResult.error) {
+          orderItemsResult = await supabase.from("order_items").select("*").in("order_id", orderIds);
+        }
+        if (orderItemsResult.error) {
+          if (!isMissingRelationError(orderItemsResult.error)) {
+            console.warn("order_items fetch fallback failed:", orderItemsResult.error.message || orderItemsResult.error);
+          }
+        } else {
+          const orderItemsByOrderId = new Map<string, unknown[]>();
+          (orderItemsResult.data || []).forEach((row: Record<string, unknown>) => {
+            const key = normalizeEntityId(row.order_id ?? row.orderId);
+            if (!key) return;
+            const list = orderItemsByOrderId.get(key) || [];
+            list.push(row);
+            orderItemsByOrderId.set(key, list);
+          });
+          if (orderItemsByOrderId.size > 0) {
+            data = data.map((order) => {
+              const orderId = normalizeEntityId((order as { id?: unknown }).id);
+              return {
+                ...order,
+                order_items:
+                  orderItemsByOrderId.get(orderId) ??
+                  (((order as { order_items?: unknown[] }).order_items as unknown[]) || []),
+              };
+            });
+          }
+        }
       }
 
       const allowedStatuses = new Set([
@@ -1536,16 +1667,25 @@ export default function KitchenPage() {
       const effectiveReadyItemIds = readyItemIdsFromRelation.length > 0 ? readyItemIdsFromRelation : readyItemIds;
       const nextStatus = deriveOrderStatusFromItems(nextItems);
       const nextServiceStep = resolveOrderServiceStep(targetOrder, nextItems);
+      const persistedServiceStep =
+        normalizeServiceStep(nextServiceStep) ||
+        normalizeServiceStep(targetOrder.service_step) ||
+        "entree";
+      const orderUpdatePayload = {
+        items: nextItems,
+        status: nextStatus,
+        service_step: persistedServiceStep,
+      };
 
       let updateResult = await supabase
         .from("orders")
-        .update({ items: nextItems, status: nextStatus, service_step: nextServiceStep || null })
+        .update(orderUpdatePayload)
         .eq("id", orderId)
         .select("id,status,service_step,items");
       if (updateResult.error && nextStatus === "ready") {
         const fallback = await supabase
           .from("orders")
-          .update({ items: nextItems, status: "pret", service_step: nextServiceStep || null })
+          .update({ ...orderUpdatePayload, status: "pret" })
           .eq("id", orderId)
           .select("id,status,service_step,items");
         updateResult = fallback;
@@ -1585,7 +1725,13 @@ export default function KitchenPage() {
                   return { ...record, status: "ready" };
                 })
               : (order as Order & { order_items?: unknown[] }).order_items ?? null;
-          return { ...order, items: nextItems, order_items: nextOrderItems, status: nextStatus, service_step: nextServiceStep || null };
+          return {
+            ...order,
+            items: nextItems,
+            order_items: nextOrderItems,
+            status: nextStatus,
+            service_step: persistedServiceStep,
+          };
         })
       );
     } catch (error) {
@@ -1712,10 +1858,15 @@ export default function KitchenPage() {
     setPrintOrder(targetOrder);
     handleAutoPrint();
   };
-  const printServiceStepLabel =
-    printOrder ? getOrderServiceStepLabel(printOrder, printableCuisineItems(printOrder)) : "";
-  const printHasFormulaItems =
-    printOrder ? printableCuisineItems(printOrder).some((item) => isFormulaItem(item as Item)) : false;
+  const printFormulaTags = printOrder
+    ? Array.from(
+        new Set(
+          printableCuisineItems(printOrder)
+            .map((item) => getFormulaDisplayTagForItem(item as Item))
+            .filter((value) => String(value || "").trim().length > 0)
+        )
+      )
+    : [];
 
   return (
     <div className="min-h-screen bg-gray-100 p-4 font-sans text-black">
@@ -1757,6 +1908,13 @@ export default function KitchenPage() {
         {groupedPriorityOrders.map((group) => {
           const isSubmitting = readyGroupLoadingKey === group.groupKey;
           if (group.items.length === 0) return null;
+          const formulaTags = Array.from(
+            new Set(
+              group.items
+                .map(({ item }) => getFormulaDisplayTagForItem(item as Item))
+                .filter((value) => String(value || "").trim().length > 0)
+            )
+          );
 
           return (
             <div
@@ -1770,10 +1928,16 @@ export default function KitchenPage() {
                       T-{group.tableNumber}
                       {group.covers ? ` | 👥 ${group.covers}` : ""}
                     </h2>
-                    {group.serviceStep && group.hasFormulaItems ? (
-                      <div className="mt-1 inline-flex items-center rounded border-2 border-black bg-white px-2 py-1 text-xs font-black">
-                        {SERVICE_STEP_LABELS[group.serviceStep] || group.serviceStep.toUpperCase()}
-                        <span className="ml-1 font-black text-red-700">[FORMULE]</span>
+                    {formulaTags.length > 0 ? (
+                      <div className="mt-1 flex flex-wrap items-center gap-1">
+                        {formulaTags.map((tag) => (
+                          <span
+                            key={`${group.groupKey}-${tag}`}
+                            className="inline-flex items-center rounded border-2 border-black bg-white px-2 py-1 text-[11px] font-black"
+                          >
+                            {tag}
+                          </span>
+                        ))}
                       </div>
                     ) : null}
                   </div>
@@ -1787,6 +1951,7 @@ export default function KitchenPage() {
                 <div className="space-y-2 mb-4">
                   {group.items.map(({ item, orderId, idx }) => {
                     const finalDetails = getKitchenFinalDetails(item as Item);
+                    const formulaTag = getFormulaDisplayTagForItem(item as Item);
                     return (
                       <div key={`${String(orderId)}-${idx}-${String(item.dish_id || item.id || "")}`} className="bg-gray-100 p-2">
                         <div className="font-bold text-lg">
@@ -1795,6 +1960,11 @@ export default function KitchenPage() {
                             {resolveKitchenDishName(item)}
                           </span>
                         </div>
+                        {formulaTag ? (
+                          <div className="mt-1 text-[11px] font-black text-red-700">
+                            {formulaTag}
+                          </div>
+                        ) : null}
                         {finalDetails ? (
                           <div
                             className="mt-1 text-xs italic text-gray-800 leading-tight"
@@ -1846,6 +2016,7 @@ export default function KitchenPage() {
                   <div className="space-y-1">
                     {kitchenItems.map((item: any, idx: number) => {
                       const finalDetails = getKitchenFinalDetails(item as Item);
+                      const formulaTag = getFormulaDisplayTagForItem(item as Item);
                       return (
                         <div key={`${String(order.id)}-ready-${idx}-${String(item.dish_id || item.id || "")}`} className="text-xs text-black">
                           <div className="font-semibold">
@@ -1854,6 +2025,9 @@ export default function KitchenPage() {
                               {resolveKitchenDishName(item)}
                             </span>
                           </div>
+                          {formulaTag ? (
+                            <div className="text-[11px] font-black text-red-700">{formulaTag}</div>
+                          ) : null}
                           {finalDetails ? (
                             <div className="text-[11px] italic text-gray-700" translate="no">
                               <span className="notranslate">- {finalDetails}</span>
@@ -1878,21 +2052,28 @@ export default function KitchenPage() {
                 ? ` | 👥 ${Number(printOrder.covers || printOrder.guest_count || printOrder.customer_count)}`
                 : ""}
             </div>
-            {printServiceStepLabel ? (
-              <div className="mt-1 text-sm font-black">
-                {printServiceStepLabel}
-                {printHasFormulaItems ? <span className="ml-1 font-black text-red-700">[FORMULE]</span> : null}
+            {printFormulaTags.length > 0 ? (
+              <div className="mt-1 flex flex-col gap-0.5 text-sm font-black">
+                {printFormulaTags.map((tag) => (
+                  <span key={`print-formula-tag-${tag}`}>{tag}</span>
+                ))}
               </div>
             ) : null}
             <div className="border-t border-b border-dashed border-black py-2">
               {printableCuisineItems(printOrder).map((item: any, idx: number) => {
                 const finalDetails = getKitchenFinalDetails(item as Item);
+                const formulaTag = getFormulaDisplayTagForItem(item as Item);
                 return (
                   <div key={`print-${String(printOrder.id)}-${idx}-${String(item.dish_id || item.id || "")}`}>
                     {item.quantity}x{" "}
                     <span translate="no" className="notranslate">
                       {resolveKitchenDishName(item)}
                     </span>
+                    {formulaTag ? (
+                      <div translate="no" className="notranslate text-[11px] font-black">
+                        {formulaTag}
+                      </div>
+                    ) : null}
                     {finalDetails ? (
                       <div translate="no" className="notranslate italic text-xs">
                         - {finalDetails}

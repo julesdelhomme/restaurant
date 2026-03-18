@@ -2513,7 +2513,9 @@ function AdminContent() {
       : effectiveSelectedFastCategoryKey === FORMULAS_CATEGORY_KEY
         ? formulaDishes
         : dishes.filter(
-            (dish) => normalizeCategoryKey(getDishCategoryLabel(dish)) === effectiveSelectedFastCategoryKey
+            (dish) =>
+              normalizeCategoryKey(getDishCategoryLabel(dish)) === effectiveSelectedFastCategoryKey &&
+              !formulaParentDishIds.has(String(dish.id || "").trim())
           );
   const visibleFastEntryDishes =
     effectiveSelectedFastCategoryKey === FORMULAS_CATEGORY_KEY
