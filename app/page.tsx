@@ -1491,6 +1491,19 @@ interface FormulaSelection {
   dishName: string;
   dishNameFr: string;
   sequence?: number | null;
+  selectedSideIds?: string[];
+  selectedSides?: string[];
+  selectedCooking?: string;
+  selectedOptionIds?: string[];
+  selectedOptionNames?: string[];
+  selectedOptionPrice?: number;
+}
+
+interface FormulaSelectionDetails {
+  selectedSideIds: string[];
+  selectedSides: string[];
+  selectedCooking: string;
+  selectedProductOptionIds: string[];
 }
 
 interface FormulaDishLink {
@@ -2308,6 +2321,7 @@ export default function MenuDigital() {
   const [formulaLinksByFormulaId, setFormulaLinksByFormulaId] = useState<Map<string, FormulaDishLink[]>>(new Map());
   const [formulaLinksByDishId, setFormulaLinksByDishId] = useState<Map<string, FormulaDishLink[]>>(new Map());
   const [formulaSelections, setFormulaSelections] = useState<Record<string, string>>({});
+  const [formulaSelectionDetails, setFormulaSelectionDetails] = useState<Record<string, FormulaSelectionDetails>>({});
   const [formulaSelectionError, setFormulaSelectionError] = useState("");
   const [dishModalQuantity, setDishModalQuantity] = useState(1);
   const [serverCallMsg, setServerCallMsg] = useState("");
@@ -2411,6 +2425,7 @@ export default function MenuDigital() {
       title: get("formula_title", "Composer votre formule"),
       subtitle: get("formula_subtitle", "Choisissez vos plats"),
       missing: get("formula_missing", "Veuillez choisir un plat pour chaque catégorie."),
+      missingOptions: get("formula_missing_options", "Veuillez completer les options obligatoires des plats selectionnes."),
       label: get("formula_label", "Formule"),
       choose: get("formula_choose", "Choisir"),
     };
@@ -2988,6 +3003,7 @@ export default function MenuDigital() {
       setFormulaDish(null);
       setFormulaSourceDish(null);
       setFormulaSelections({});
+      setFormulaSelectionDetails({});
       setFormulaSelectionError("");
     }
   }, [isInteractionDisabled, isCartOpen, formulaDish]);
@@ -3871,6 +3887,35 @@ export default function MenuDigital() {
     });
     return map;
   }, [sidesLibrary]);
+  const emptyFormulaSelectionDetails: FormulaSelectionDetails = {
+    selectedSideIds: [],
+    selectedSides: [],
+    selectedCooking: "",
+    selectedProductOptionIds: [],
+  };
+  const getFormulaSelectionDetails = (categoryId: string) => {
+    const details = formulaSelectionDetails[categoryId];
+    return details || emptyFormulaSelectionDetails;
+  };
+  const getFormulaDishConfig = (dish: Dish) => {
+    const parsed = parseOptionsFromDescription(String(dish.description || ""));
+    const selectedSideIdsRaw = Array.isArray(dish.selected_sides) ? dish.selected_sides : parsed.sideIds || [];
+    const sideOptions = dedupeDisplayValues(
+      selectedSideIdsRaw
+        .map((id) => sidesLibrary.find((side) => String(side.id) === String(id)))
+        .filter(Boolean)
+        .map((side) => getSideLabel(side as SideLibraryItem))
+    );
+    const hasRequiredSides = Boolean(dish.has_sides) || sideOptions.length > 0;
+    const maxRaw = Number(dish.max_options);
+    const maxSides = Number.isFinite(maxRaw) && maxRaw > 0 ? Math.max(1, Math.trunc(maxRaw)) : 1;
+    const askCooking = Boolean(dish.ask_cooking || parsed.askCooking);
+    const dishRecord = dish as any;
+    const productOptions = Array.isArray(dishRecord.product_options)
+      ? (dishRecord.product_options as ProductOptionItem[]).filter(Boolean)
+      : [];
+    return { sideOptions, hasRequiredSides, maxSides, askCooking, productOptions };
+  };
 
   const selectedCategoryId = useMemo(() => {
     if (selectedCategory === 0) return null;
@@ -4768,6 +4813,12 @@ export default function MenuDigital() {
             value: selection.dishName || selection.dishNameFr || null,
             label_fr: selection.dishNameFr || selection.dishName || null,
             name_fr: selection.dishNameFr || selection.dishName || null,
+            selected_side_ids: Array.isArray(selection.selectedSideIds) ? selection.selectedSideIds : [],
+            selected_sides: Array.isArray(selection.selectedSides) ? selection.selectedSides : [],
+            selected_cooking: String(selection.selectedCooking || "").trim() || null,
+            selected_option_ids: Array.isArray(selection.selectedOptionIds) ? selection.selectedOptionIds : [],
+            selected_option_names: Array.isArray(selection.selectedOptionNames) ? selection.selectedOptionNames : [],
+            selected_option_price: Number(selection.selectedOptionPrice || 0) || 0,
             sequence,
           });
         });
@@ -4785,10 +4836,22 @@ export default function MenuDigital() {
             dish_id: selection.dishId || null,
             dish_name: selection.dishName || selection.dishNameFr || null,
             dish_name_fr: selection.dishNameFr || selection.dishName || null,
+            selected_side_ids: Array.isArray(selection.selectedSideIds) ? selection.selectedSideIds : [],
+            selected_sides: Array.isArray(selection.selectedSides) ? selection.selectedSides : [],
+            selected_cooking: String(selection.selectedCooking || "").trim() || null,
+            selected_option_ids: Array.isArray(selection.selectedOptionIds) ? selection.selectedOptionIds : [],
+            selected_option_names: Array.isArray(selection.selectedOptionNames) ? selection.selectedOptionNames : [],
+            selected_option_price: Number(selection.selectedOptionPrice || 0) || 0,
             sequence,
           };
         })
         .filter(Boolean);
+      const formulaSequenceValues = formulaSelections
+        .map((selection) => Number(selection.sequence))
+        .filter((value) => Number.isFinite(value) && value > 0)
+        .map((value) => Math.max(1, Math.trunc(value)));
+      const formulaCurrentSequence =
+        formulaSequenceValues.length > 0 ? Math.min(...formulaSequenceValues) : null;
         return {
           dish_id: String(item.dish.id || "").trim(),
           id: String(item.dish.id || "").trim(),
@@ -4819,6 +4882,7 @@ export default function MenuDigital() {
         formula_dish_id: formulaDishId,
         formula_dish_name: formulaDishName,
         formula_unit_price: formulaUnitPrice,
+        formula_current_sequence: formulaCurrentSequence,
         formula_items: formulaItemsPayload.length > 0 ? formulaItemsPayload : null,
         special_request: String(item.specialRequest || "").trim(),
         from_recommendation: !!item.fromRecommendation,
@@ -4914,6 +4978,7 @@ export default function MenuDigital() {
     setFormulaDish(sourceFormula);
     setFormulaSourceDish(resolvedSourceDish);
     setFormulaSelections({});
+    setFormulaSelectionDetails({});
     setFormulaSelectionError("");
     setSelectedDish(null);
     setModalProductOptions([]);
@@ -4922,7 +4987,8 @@ export default function MenuDigital() {
   };
 
   const handleSelectDish = (dish: Dish) => {
-    if (toBooleanFlag((dish as any).is_formula ?? dish.is_formula)) {
+    const isFormulaDish = toBooleanFlag((dish as any).is_formula ?? dish.is_formula);
+    if (isFormulaDish && String(selectedCategoryId || "") === FORMULAS_CATEGORY_ID) {
       openFormulaModal(dish, null);
       return;
     }
@@ -6298,6 +6364,7 @@ export default function MenuDigital() {
                   setFormulaDish(null);
                   setFormulaSourceDish(null);
                   setFormulaSelections({});
+                  setFormulaSelectionDetails({});
                   setFormulaSelectionError("");
                 }}
                 aria-label={uiText.close}
@@ -6316,11 +6383,6 @@ export default function MenuDigital() {
                 {Number(getFormulaPackPrice(formulaDish) || 0).toFixed(2)}
                 <Euro size={16} />
               </div>
-              {formulaSourceDish ? (
-                <div className="mb-3 rounded-lg border border-black/20 bg-black/5 px-3 py-2 text-sm font-semibold text-black">
-                  Produit principal: {getDishName(formulaSourceDish, lang)}
-                </div>
-              ) : null}
               {formulaCategories.length === 0 ? (
                 <div className="text-sm text-black/70">{uiText.noDishes}</div>
               ) : (
@@ -6329,6 +6391,10 @@ export default function MenuDigital() {
                     const categoryId = String(category.id || "").trim();
                     const options = formulaOptionsByCategory.get(categoryId) || [];
                     const selectedId = formulaSelections[categoryId] || "";
+                    const selectedDishForCategory = selectedId ? dishById.get(String(selectedId || "").trim()) || null : null;
+                    const formulaDishConfig = selectedDishForCategory ? getFormulaDishConfig(selectedDishForCategory) : null;
+                    const categoryDetails = getFormulaSelectionDetails(categoryId);
+                    const allowMultiOptionSelection = Boolean((selectedDishForCategory as any)?.allow_multi_select);
                     return (
                       <div key={`formula-category-${categoryId}`} className="border-2 border-black rounded-xl p-3">
                         <div className="font-black text-base mb-2">{getCategoryLabel(category)}</div>
@@ -6346,6 +6412,15 @@ export default function MenuDigital() {
                                   onClick={() => {
                                     setFormulaSelectionError("");
                                     setFormulaSelections((prev) => ({ ...prev, [categoryId]: optionId }));
+                                    setFormulaSelectionDetails((prev) => ({
+                                      ...prev,
+                                      [categoryId]: {
+                                        selectedSideIds: [],
+                                        selectedSides: [],
+                                        selectedCooking: "",
+                                        selectedProductOptionIds: [],
+                                      },
+                                    }));
                                   }}
                                   className={`w-full text-left px-3 py-2 rounded-lg border-2 font-black ${
                                     isSelected ? "bg-black text-white border-black" : "bg-white text-black border-black"
@@ -6357,6 +6432,147 @@ export default function MenuDigital() {
                             })}
                           </div>
                         )}
+                        {selectedDishForCategory && formulaDishConfig ? (
+                          <div className="mt-3 space-y-3 border-t border-black/20 pt-3">
+                            {formulaDishConfig.productOptions.length > 0 ? (
+                              <div>
+                                <div className="text-xs font-black uppercase tracking-wide mb-2">{optionVariantsLabel}</div>
+                                <div className="grid grid-cols-1 gap-2">
+                                  {formulaDishConfig.productOptions.map((option) => {
+                                    const optionId = String(option.id || "").trim();
+                                    if (!optionId) return null;
+                                    const selected = categoryDetails.selectedProductOptionIds.includes(optionId);
+                                    return (
+                                      <label key={`formula-option-detail-${categoryId}-${optionId}`} className="flex items-center gap-2 text-sm font-bold">
+                                        <input
+                                          type={allowMultiOptionSelection ? "checkbox" : "radio"}
+                                          name={`formula-product-option-${categoryId}`}
+                                          checked={selected}
+                                          onChange={(event) => {
+                                            setFormulaSelectionError("");
+                                            setFormulaSelectionDetails((prev) => {
+                                              const current = prev[categoryId] || {
+                                                selectedSideIds: [],
+                                                selectedSides: [],
+                                                selectedCooking: "",
+                                                selectedProductOptionIds: [],
+                                              };
+                                              const nextIds = allowMultiOptionSelection
+                                                ? event.target.checked
+                                                  ? [...current.selectedProductOptionIds, optionId]
+                                                  : current.selectedProductOptionIds.filter((id) => id !== optionId)
+                                                : event.target.checked
+                                                  ? [optionId]
+                                                  : [];
+                                              return {
+                                                ...prev,
+                                                [categoryId]: {
+                                                  ...current,
+                                                  selectedProductOptionIds: Array.from(new Set(nextIds)),
+                                                },
+                                              };
+                                            });
+                                          }}
+                                        />
+                                        <span>{getProductOptionLabel(option, lang)}</span>
+                                      </label>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            ) : null}
+                            {formulaDishConfig.hasRequiredSides ? (
+                              <div>
+                                <div className="text-xs font-black uppercase tracking-wide mb-2">
+                                  {uiText.sidesLabel} ({Math.min(formulaDishConfig.maxSides, categoryDetails.selectedSides.length)}/{formulaDishConfig.maxSides})
+                                </div>
+                                <div className="grid grid-cols-1 gap-2">
+                                  {formulaDishConfig.sideOptions.map((sideLabel) => {
+                                    const sideId = sideIdByAlias.get(normalizeLookupText(sideLabel)) || sideLabel;
+                                    const checked = categoryDetails.selectedSideIds.includes(sideId);
+                                    return (
+                                      <label key={`formula-side-${categoryId}-${sideId}`} className="flex items-center gap-2 text-sm font-bold">
+                                        <input
+                                          type="checkbox"
+                                          checked={checked}
+                                          onChange={(event) => {
+                                            setFormulaSelectionError("");
+                                            setFormulaSelectionDetails((prev) => {
+                                              const current = prev[categoryId] || {
+                                                selectedSideIds: [],
+                                                selectedSides: [],
+                                                selectedCooking: "",
+                                                selectedProductOptionIds: [],
+                                              };
+                                              const maxSides = formulaDishConfig.maxSides;
+                                              const nextPairs = current.selectedSideIds.map((id, index) => ({
+                                                id,
+                                                label: current.selectedSides[index] || id,
+                                              }));
+                                              const exists = nextPairs.some((entry) => entry.id === sideId);
+                                              const canAdd = nextPairs.length < maxSides;
+                                              const updatedPairs = event.target.checked
+                                                ? exists
+                                                  ? nextPairs
+                                                  : canAdd
+                                                    ? [...nextPairs, { id: sideId, label: sideLabel }]
+                                                    : nextPairs
+                                                : nextPairs.filter((entry) => entry.id !== sideId);
+                                              return {
+                                                ...prev,
+                                                [categoryId]: {
+                                                  ...current,
+                                                  selectedSideIds: updatedPairs.map((entry) => entry.id),
+                                                  selectedSides: updatedPairs.map((entry) => entry.label),
+                                                },
+                                              };
+                                            });
+                                          }}
+                                        />
+                                        <span>{sideLabel}</span>
+                                      </label>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            ) : null}
+                            {formulaDishConfig.askCooking ? (
+                              <div>
+                                <div className="text-xs font-black uppercase tracking-wide mb-2">{uiText.cookingLabel}</div>
+                                <div className="grid grid-cols-1 gap-2">
+                                  {[uiText.cooking.blue, uiText.cooking.rare, uiText.cooking.medium, uiText.cooking.wellDone].map((cookingLabel) => (
+                                    <label key={`formula-cooking-${categoryId}-${cookingLabel}`} className="flex items-center gap-2 text-sm font-bold">
+                                      <input
+                                        type="radio"
+                                        name={`formula-cooking-${categoryId}`}
+                                        checked={categoryDetails.selectedCooking === cookingLabel}
+                                        onChange={() => {
+                                          setFormulaSelectionError("");
+                                          setFormulaSelectionDetails((prev) => {
+                                            const current = prev[categoryId] || {
+                                              selectedSideIds: [],
+                                              selectedSides: [],
+                                              selectedCooking: "",
+                                              selectedProductOptionIds: [],
+                                            };
+                                            return {
+                                              ...prev,
+                                              [categoryId]: {
+                                                ...current,
+                                                selectedCooking: cookingLabel,
+                                              },
+                                            };
+                                          });
+                                        }}
+                                      />
+                                      <span>{cookingLabel}</span>
+                                    </label>
+                                  ))}
+                                </div>
+                              </div>
+                            ) : null}
+                          </div>
+                        ) : null}
                       </div>
                     );
                   })}
@@ -6381,6 +6597,30 @@ export default function MenuDigital() {
                     setFormulaSelectionError(formulaUi.missing);
                     return;
                   }
+                  const missingRequiredOptionsCategory = normalizedFormulaCategoryIds.find((categoryId) => {
+                    const normalizedCategoryId = String(categoryId || "").trim();
+                    if (!normalizedCategoryId) return false;
+                    const selectedId = String(formulaSelections[normalizedCategoryId] || "").trim();
+                    if (!selectedId) return false;
+                    const selectedDish = dishById.get(selectedId);
+                    if (!selectedDish) return false;
+                    const config = getFormulaDishConfig(selectedDish);
+                    const details = getFormulaSelectionDetails(normalizedCategoryId);
+                    if (config.productOptions.length > 0 && details.selectedProductOptionIds.length === 0) {
+                      return true;
+                    }
+                    if (config.hasRequiredSides && details.selectedSides.length === 0) {
+                      return true;
+                    }
+                    if (config.askCooking && !String(details.selectedCooking || "").trim()) {
+                      return true;
+                    }
+                    return false;
+                  });
+                  if (missingRequiredOptionsCategory) {
+                    setFormulaSelectionError(formulaUi.missingOptions);
+                    return;
+                  }
                   const selections: FormulaSelection[] = normalizedFormulaCategoryIds
                     .map((categoryId, categoryIndex) => {
                       const normalizedCategoryId = String(categoryId || "").trim();
@@ -6389,6 +6629,18 @@ export default function MenuDigital() {
                       const category = categoryById.get(normalizedCategoryId);
                       const selectedDish = dishById.get(selectedId);
                       if (!selectedDish) return null;
+                      const config = getFormulaDishConfig(selectedDish);
+                      const details = getFormulaSelectionDetails(normalizedCategoryId);
+                      const selectedOptions = config.productOptions.filter((option) =>
+                        details.selectedProductOptionIds.includes(String(option.id || "").trim())
+                      );
+                      const selectedOptionNames = selectedOptions
+                        .map((option) => getProductOptionLabel(option, lang))
+                        .filter(Boolean);
+                      const selectedOptionPrice = selectedOptions.reduce(
+                        (sum, option) => sum + parseAddonPrice(option.price_override),
+                        0
+                      );
                       const linkedSequence = formulaSequenceByDishId.get(selectedId);
                       const sequence =
                         Number.isFinite(Number(linkedSequence)) && Number(linkedSequence) > 0
@@ -6401,6 +6653,12 @@ export default function MenuDigital() {
                         dishName: getDishName(selectedDish, lang),
                         dishNameFr: String(selectedDish.name_fr || selectedDish.name || selectedDish.nom || "").trim() || getDishName(selectedDish, lang),
                         sequence,
+                        selectedSideIds: details.selectedSideIds,
+                        selectedSides: details.selectedSides,
+                        selectedCooking: details.selectedCooking,
+                        selectedOptionIds: details.selectedProductOptionIds,
+                        selectedOptionNames,
+                        selectedOptionPrice,
                       };
                     })
                     .filter(Boolean) as FormulaSelection[];
@@ -6422,6 +6680,7 @@ export default function MenuDigital() {
                   setFormulaDish(null);
                   setFormulaSourceDish(null);
                   setFormulaSelections({});
+                  setFormulaSelectionDetails({});
                   setFormulaSelectionError("");
                 }}
               >
