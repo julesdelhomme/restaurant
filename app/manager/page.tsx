@@ -11751,9 +11751,7 @@ export default function MenuManager() {
                                     : [];
                                   const allowMulti = Boolean((dish as any).allow_multi_select);
                                   const selectedDefaultOptionIds = formData.formula_default_option_ids[dishId] || [];
-                                  const resolvedSequence =
-                                    formData.formula_sequence_by_dish[dishId] ??
-                                    resolveDishSequenceForFormula(formData.formula_category_ids, dishId);
+                                  const resolvedSequence = formData.formula_sequence_by_dish?.[dishId] ?? 0;
                                   return (
                                     <div key={`formula-dish-${categoryId}-${dishId}`} className="flex flex-col gap-1 rounded hover:bg-gray-50 px-2 py-1">
                                       <label className="flex items-center gap-2 text-black font-bold">
