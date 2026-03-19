@@ -301,6 +301,7 @@ type FormulaDishLink = {
   formulaDishId: string;
   dishId: string;
   sequence: number | null;
+  step?: number | null;
   isMain?: boolean;
   defaultProductOptionIds?: string[];
   formulaName?: string;
@@ -1207,10 +1208,23 @@ function AdminContent() {
     }
     return isDrink({ category: fallbackCategoryLabel, destination: null }) ? "bar" : "cuisine";
   };
-  const isDirectFormulaSequence = (value: unknown) => {
+  const normalizeFormulaStepValue = (value: unknown, allowZero = false) => {
     const raw = Number(value);
-    if (!Number.isFinite(raw) || raw <= 0) return false;
-    return Math.max(1, Math.trunc(raw)) >= FORMULA_DIRECT_SEND_SEQUENCE;
+    if (!Number.isFinite(raw)) return null;
+    const truncated = Math.trunc(raw);
+    if (allowZero && truncated === 0) return 0;
+    if (truncated <= 0) return null;
+    return Math.max(1, truncated);
+  };
+  const isDirectFormulaSequence = (value: unknown) => {
+    const asText = normalizeLookupText(value);
+    if (asText.includes("direct")) return true;
+    const raw = Number(value);
+    if (!Number.isFinite(raw)) return false;
+    const sequence = Math.trunc(raw);
+    if (sequence === 0) return true;
+    if (sequence < 0) return false;
+    return Math.max(1, sequence) >= FORMULA_DIRECT_SEND_SEQUENCE;
   };
   const resolveFormulaSelectionDestination = (
     selection: Pick<FormulaSelection, "sequence" | "destination" | "categoryId" | "categoryLabel">,
@@ -1294,11 +1308,11 @@ function AdminContent() {
     const record = item as unknown as Record<string, unknown>;
     const values: number[] = [];
     const pushSequence = (value: unknown) => {
-      const raw = Number(value);
-      if (!Number.isFinite(raw) || raw <= 0) return;
-      values.push(Math.max(1, Math.trunc(raw)));
+      const normalized = normalizeFormulaStepValue(value, true);
+      if (normalized == null || normalized <= 0) return;
+      values.push(normalized);
     };
-    pushSequence(record.formula_current_sequence ?? record.formulaCurrentSequence ?? record.sequence);
+    pushSequence(record.step ?? record.sequence ?? record.formula_current_sequence ?? record.formulaCurrentSequence);
     const sources = [
       record.formula_items,
       record.formulaItems,
@@ -1315,17 +1329,18 @@ function AdminContent() {
           entry.formula_dish_id != null ||
           entry.sequence != null;
         if (!isFormulaEntry) return;
-        pushSequence(entry.sequence ?? entry.service_step_sequence ?? entry.step);
+        pushSequence(entry.step ?? entry.sequence ?? entry.service_step_sequence);
       });
     });
     return Array.from(new Set(values)).sort((a, b) => a - b);
   };
   const resolveCurrentFormulaSequenceForItem = (item: Item) => {
     const record = item as unknown as Record<string, unknown>;
-    const rawCurrent = Number(
-      record.formula_current_sequence ?? record.formulaCurrentSequence ?? record.sequence
+    const directCurrent = normalizeFormulaStepValue(
+      record.step ?? record.sequence ?? record.formula_current_sequence ?? record.formulaCurrentSequence,
+      true
     );
-    if (Number.isFinite(rawCurrent) && rawCurrent > 0) return Math.max(1, Math.trunc(rawCurrent));
+    if (directCurrent != null && directCurrent > 0) return directCurrent;
     const sequences = resolveFormulaSequenceListForItem(item);
     if (sequences.length === 0) return null;
     return sequences[0];
@@ -1355,7 +1370,7 @@ function AdminContent() {
           entry.formula_dish_id != null ||
           entry.sequence != null;
         if (!isFormulaEntry) continue;
-        const rawSequence = Number(entry.sequence ?? entry.service_step_sequence ?? entry.step);
+        const rawSequence = Number(entry.step ?? entry.sequence ?? entry.service_step_sequence);
         if (!Number.isFinite(rawSequence) || rawSequence <= 0) continue;
         const normalizedSequence = Math.max(1, Math.trunc(rawSequence));
         if (normalizedSequence === sequence) return entry;
@@ -1796,11 +1811,11 @@ function AdminContent() {
     if (!formulaDishId) return map;
     const links = formulaLinksByFormulaId.get(formulaDishId) || [];
     links.forEach((link) => {
-      const sequence = Number(link.sequence);
-      if (!Number.isFinite(sequence)) return;
+      const sequence = normalizeFormulaStepValue(link.step ?? link.sequence, true);
+      if (sequence == null) return;
       const dishId = String(link.dishId || "").trim();
       if (!dishId) return;
-      map.set(dishId, Math.max(1, Math.trunc(sequence)));
+      map.set(dishId, sequence);
     });
     return map;
   }, [formulaModalDish, formulaLinksByFormulaId]);
@@ -2297,8 +2312,7 @@ function AdminContent() {
           const dishId = String(record.dish_id || "").trim();
           if (!formulaDishId || !dishId) return;
           formulaIdSetForInit.add(formulaDishId);
-          const rawSequence = Number(record.sequence ?? record.step);
-          const sequence = Number.isFinite(rawSequence) ? Math.max(1, Math.trunc(rawSequence)) : null;
+          const sequence = normalizeFormulaStepValue(record.step ?? record.sequence, true);
           const isMain = readBooleanFlag(record.is_main, dishId === formulaDishId);
           const rawDefaultOptionIds = record.default_product_option_ids;
           let defaultProductOptionIds: string[] = [];
@@ -2323,6 +2337,7 @@ function AdminContent() {
             formulaDishId,
             dishId,
             sequence,
+            step: sequence,
             isMain,
             defaultProductOptionIds: defaultProductOptionIds.length > 0 ? defaultProductOptionIds : undefined,
             formulaName: formulaName || undefined,
@@ -2347,8 +2362,9 @@ function AdminContent() {
         setFormulaDisplayById(displayByFormula);
         setFormulaDishIdsFromLinks(new Set(formulaIdSetForInit));
       }
-      hasFormulaCategoryLocal =
-        formulaDishIdSetFromTable.size > 0;
+      hasFormulaCategoryLocal = nextDishes.some((dish) =>
+        readBooleanFlag((dish as unknown as { is_formula?: unknown }).is_formula, false)
+      );
       console.log("[admin.fetchFastEntryResources] dishes loaded", {
         restaurantId: currentRestaurantId,
         count: nextDishes.length,
@@ -2706,12 +2722,13 @@ function AdminContent() {
 
   const formulaParentDishIds = useMemo(() => {
     const ids = new Set<string>();
-    formulaDishIdsFromFormulasTable.forEach((id) => {
-      const normalizedId = String(id || "").trim();
+    dishes.forEach((dish) => {
+      if (!readBooleanFlag((dish as unknown as { is_formula?: unknown }).is_formula, false)) return;
+      const normalizedId = String(dish.id || "").trim();
       if (normalizedId) ids.add(normalizedId);
     });
     return ids;
-  }, [formulaDishIdsFromFormulasTable]);
+  }, [dishes]);
 
   const fetchFormulaDishes = () =>
     dishes.filter((dish) => {
@@ -3075,11 +3092,11 @@ function AdminContent() {
     const links = resolveFormulaLinksForDish(formulaDish);
     if (links.length === 0) return [] as FormulaDishLink[];
     const normalized = links.map((link) => {
-      const rawSequence = Number(link.sequence);
-      if (Number.isFinite(rawSequence) && rawSequence > 0) {
+      const rawSequence = normalizeFormulaStepValue(link.step ?? link.sequence, true);
+      if (rawSequence != null && rawSequence > 0) {
         return {
           link,
-          sequence: Math.max(1, Math.trunc(rawSequence)),
+          sequence: rawSequence,
         };
       }
       if (link.isMain) {
@@ -3124,9 +3141,9 @@ function AdminContent() {
     links.forEach((link) => {
       const linkedDishId = String(link.dishId || "").trim();
       if (!linkedDishId) return;
-      const rawSequence = Number(link.sequence);
-      if (Number.isFinite(rawSequence) && rawSequence > 0) {
-        sequenceByDishId.set(linkedDishId, Math.max(1, Math.trunc(rawSequence)));
+      const rawSequence = normalizeFormulaStepValue(link.step ?? link.sequence, true);
+      if (rawSequence != null) {
+        sequenceByDishId.set(linkedDishId, rawSequence);
       } else if (Boolean(link.isMain)) {
         sequenceByDishId.set(linkedDishId, 1);
       }
@@ -3196,7 +3213,7 @@ function AdminContent() {
       );
       const linkedSequence = sequenceByDishId.get(selectedDishId);
       const sequence =
-        Number.isFinite(Number(linkedSequence)) && Number(linkedSequence) > 0
+        Number.isFinite(Number(linkedSequence))
           ? Number(linkedSequence)
           : categoryIndex + 1;
       const category = categoryById.get(categoryId);
@@ -3371,7 +3388,7 @@ function AdminContent() {
         );
         const linkedSequence = formulaSequenceByDishId.get(selectedId);
         const sequence =
-          Number.isFinite(Number(linkedSequence)) && Number(linkedSequence) > 0
+          Number.isFinite(Number(linkedSequence))
             ? Number(linkedSequence)
             : categoryIndex + 1;
         const categoryLabel = category ? getCategoryLabel(category) : "";
@@ -3685,8 +3702,7 @@ function AdminContent() {
         if (formulaSelections.length > 0) {
           formulaSelections.forEach((selection) => {
             if (!selection?.dishId) return;
-            const rawSequence = Number(selection.sequence);
-            const sequence = Number.isFinite(rawSequence) && rawSequence > 0 ? Math.trunc(rawSequence) : null;
+            const sequence = normalizeFormulaStepValue(selection.sequence, true);
             const selectionSideIds = Array.isArray(selection.selectedSideIds) ? selection.selectedSideIds : [];
             const selectionSides = Array.isArray(selection.selectedSides) ? selection.selectedSides : [];
             const selectionCooking = String(selection.selectedCooking || "").trim();
@@ -3765,8 +3781,7 @@ function AdminContent() {
         const formulaItemsPayload = formulaSelections
           .map((selection) => {
             if (!selection?.dishId) return null;
-            const rawSequence = Number(selection.sequence);
-            const sequence = Number.isFinite(rawSequence) && rawSequence > 0 ? Math.trunc(rawSequence) : null;
+            const sequence = normalizeFormulaStepValue(selection.sequence, true);
             const selectionSideIds = Array.isArray(selection.selectedSideIds) ? selection.selectedSideIds : [];
             const selectionSides = Array.isArray(selection.selectedSides) ? selection.selectedSides : [];
             const selectionCooking = String(selection.selectedCooking || "").trim();
@@ -3800,6 +3815,7 @@ function AdminContent() {
               selected_option_label_fr: selectionOptionLabelFr || null,
               selected_option_price: 0,
               sequence,
+              is_main: String(selection.dishId || "").trim() === String(formulaDishId || "").trim(),
             };
           })
           .filter(Boolean);
@@ -3813,7 +3829,7 @@ function AdminContent() {
           formulaCurrentSequence == null
             ? [...formulaSelections].sort((a, b) => Number(a.sequence || 0) - Number(b.sequence || 0))[0] || null
             : formulaSelections.find(
-                (selection) => Math.max(1, Math.trunc(Number(selection.sequence || 0))) === formulaCurrentSequence
+                (selection) => normalizeFormulaStepValue(selection.sequence, true) === formulaCurrentSequence
               ) || null;
         const formulaCurrentDestination = currentFormulaSelection
           ? resolveSelectionDestination(currentFormulaSelection)
@@ -3862,6 +3878,22 @@ function AdminContent() {
 
         const lineInstructions = buildLineInstructions(line);
         const resolvedFormulaLinePrice = Number((formulaUnitPrice != null ? formulaUnitPrice : unitPrice).toFixed(2));
+        const formulaMainItemIndex = (() => {
+          if (!isFormulaLine || formulaItemsPayload.length === 0) return 0;
+          const entries = formulaItemsPayload as Array<Record<string, unknown>>;
+          const formulaId = String(formulaDishId || "").trim();
+          const explicitMainIndex = entries.findIndex((entry) => {
+            const entryDishId = String(entry.dish_id || "").trim();
+            return readBooleanFlag(entry.is_main, false) || (formulaId && entryDishId === formulaId);
+          });
+          if (explicitMainIndex >= 0) return explicitMainIndex;
+          const firstStepOneIndex = entries.findIndex((entry) => {
+            const step = normalizeFormulaStepValue(entry.sequence ?? entry.step, true);
+            return step === 1;
+          });
+          if (firstStepOneIndex >= 0) return firstStepOneIndex;
+          return 0;
+        })();
 
         if (isFormulaLine && formulaItemsPayload.length > 0) {
           const formulaSelectionItems = (formulaItemsPayload as Array<Record<string, unknown>>).map((entry, index) => {
@@ -3871,11 +3903,11 @@ function AdminContent() {
             ).trim();
             const entryCategoryLabel = String((entry.category_label ?? entry.categoryLabel ?? line.category) || "").trim();
             const entryCategoryId = String(entry.category_id ?? entry.categoryId ?? line.categoryId ?? "").trim() || null;
-            const rawEntrySequence = Number(entry.sequence ?? formulaCurrentSequence ?? 1);
+            const normalizedEntrySequence = normalizeFormulaStepValue(entry.sequence ?? entry.step, true);
             const entrySequence =
-              Number.isFinite(rawEntrySequence) && rawEntrySequence > 0
-                ? Math.max(1, Math.trunc(rawEntrySequence))
-                : 1;
+              normalizedEntrySequence != null
+                ? normalizedEntrySequence
+                : normalizeFormulaStepValue(formulaCurrentSequence, true) ?? 1;
             const entryDestinationRaw = String(entry.destination || "").trim().toLowerCase();
             const entryDestination: "cuisine" | "bar" =
               isDirectFormulaSequence(entrySequence)
@@ -3934,7 +3966,7 @@ function AdminContent() {
               });
             }
 
-            const entryUnitPrice = index === 0 ? resolvedFormulaLinePrice : 0;
+            const entryUnitPrice = index === formulaMainItemIndex ? resolvedFormulaLinePrice : 0;
             return {
               id: entryDishId || line.dishId,
               dish_id: entryDishId || line.dishId,
@@ -3979,10 +4011,10 @@ function AdminContent() {
               sequence: entrySequence,
               step: entrySequence,
               formula_items: [entry],
-              formula: index === 0 ? formulaPayload : null,
+              formula: index === formulaMainItemIndex ? formulaPayload : null,
               special_request: String(line.specialRequest || "").trim(),
               instructions: lineInstructions,
-              status: entrySequence > 1 ? "waiting" : "pending",
+              status: isDirectFormulaSequence(entrySequence) ? "pending" : entrySequence > 1 ? "waiting" : "pending",
               from_recommendation: false,
               is_formula: true,
             } as Item;
@@ -4237,48 +4269,27 @@ function AdminContent() {
     return ["waiting", "en_attente", "attente", "queued", "queue"].includes(normalized);
   };
 
-  const resolveFormulaStepStateForOrder = (order: Order) => {
+  const resolveWorkflowStepForItem = (item: Item) => {
+    const record = item as unknown as Record<string, unknown>;
+    const directStep = normalizeFormulaStepValue(
+      record.step ?? record.sequence ?? record.formula_current_sequence ?? record.formulaCurrentSequence,
+      true
+    );
+    if (directStep != null && directStep > 0) return directStep;
+    const fallback = resolveCurrentFormulaSequenceForItem(item);
+    if (!Number.isFinite(fallback) || Number(fallback) <= 0) return null;
+    return Math.max(1, Math.trunc(Number(fallback)));
+  };
+
+  const checkStepFinished = (order: Order) => {
     const formulaItems = parseItems(order.items).filter((item) => isFormulaOrderItem(item));
-    if (formulaItems.length === 0) {
-      return { currentStep: "", nextStep: "", currentSequence: null, nextSequence: null, isCurrentStepCompleted: false };
-    }
-
-    const stepItems = new Map<number, Item[]>();
-    formulaItems.forEach((item) => {
-      const sequence = resolveCurrentFormulaSequenceForItem(item);
-      if (!Number.isFinite(sequence) || Number(sequence) <= 0) return;
-      const normalizedSequence = Math.max(1, Math.trunc(Number(sequence)));
-      const current = stepItems.get(normalizedSequence) || [];
-      current.push(item);
-      stepItems.set(normalizedSequence, current);
-    });
-
-    const orderedSequences = [...stepItems.keys()].sort((a, b) => a - b);
-    if (orderedSequences.length <= 1) {
-      return { currentStep: "", nextStep: "", currentSequence: null, nextSequence: null, isCurrentStepCompleted: false };
-    }
-
-    for (let index = 0; index < orderedSequences.length - 1; index += 1) {
-      const currentSequence = orderedSequences[index];
-      const nextSequence = orderedSequences[index + 1];
-      const currentItems = stepItems.get(currentSequence) || [];
-      const nextItems = stepItems.get(nextSequence) || [];
-      if (currentItems.length === 0 || nextItems.length === 0) continue;
-      const isCurrentStepCompleted = currentItems.every((item) => isItemServed(item));
-      if (!isCurrentStepCompleted) continue;
-      const hasWaitingItemsInNextStep = nextItems.some((item) => isItemWaitingForNextStep(item));
-      if (!hasWaitingItemsInNextStep) continue;
-
-      return {
-        currentStep: resolveCourseFromSequence(currentSequence) || "",
-        nextStep: resolveCourseFromSequence(nextSequence) || "",
-        currentSequence,
-        nextSequence,
-        isCurrentStepCompleted: true,
-      };
-    }
-
-    return { currentStep: "", nextStep: "", currentSequence: null, nextSequence: null, isCurrentStepCompleted: false };
+    if (formulaItems.length === 0) return false;
+    const stepOneItems = formulaItems.filter((item) => resolveWorkflowStepForItem(item) === 1);
+    const stepTwoWaitingItems = formulaItems.filter(
+      (item) => resolveWorkflowStepForItem(item) === 2 && isItemWaitingForNextStep(item)
+    );
+    if (stepOneItems.length === 0 || stepTwoWaitingItems.length === 0) return false;
+    return stepOneItems.every((item) => isItemServed(item));
   };
 
   const tableStatusRows = useMemo(() => {
@@ -4339,16 +4350,8 @@ function AdminContent() {
             }
         }
 
-        const formulaActionOrder =
-          tableOrders.find((order) => {
-            const { nextStep, isCurrentStepCompleted } = resolveFormulaStepStateForOrder(order);
-            if (!nextStep) return false;
-            return isCurrentStepCompleted;
-          }) || null;
-        const formulaState = formulaActionOrder ? resolveFormulaStepStateForOrder(formulaActionOrder) : null;
-        const formulaCurrentServiceStep = formulaState?.currentStep || "";
-        const formulaNextServiceStep = formulaState?.nextStep || "";
-        const formulaNextSequence = Number.isFinite(formulaState?.nextSequence) ? Number(formulaState?.nextSequence) : null;
+        const formulaActionOrder = tableOrders.find((order) => checkStepFinished(order)) || null;
+        const canLaunchStep2 = Boolean(formulaActionOrder);
 
         return {
           tableNumber,
@@ -4356,9 +4359,7 @@ function AdminContent() {
           waitingMinutes,
           count: tableOrders.length,
           formulaActionOrder,
-          formulaCurrentServiceStep,
-          formulaNextServiceStep,
-          formulaNextSequence,
+          canLaunchStep2,
         };
       })
       .sort((a, b) => a.tableNumber - b.tableNumber);
@@ -5240,29 +5241,14 @@ function AdminContent() {
                     {!row.allServed && row.waitingMinutes != null ? (
                       <div className="mt-1 text-sm font-black text-orange-700">Attente : {row.waitingMinutes} min</div>
                     ) : null}
-                    {row.formulaActionOrder && row.formulaNextServiceStep ? (
+                    {row.formulaActionOrder && row.canLaunchStep2 ? (
                       <button
                         type="button"
                         disabled={Boolean(sendingNextStepOrderIds[String((row.formulaActionOrder as Order).id || "")])}
-                        onClick={() =>
-                          void handleSendNextServiceStep(
-                            row.formulaActionOrder as Order,
-                            row.formulaNextServiceStep,
-                            row.formulaNextSequence
-                          )
-                        }
+                        onClick={() => void handleSendNextServiceStep(row.formulaActionOrder as Order, "plat", 2)}
                         className="mt-2 w-full border-2 border-black bg-orange-200 px-2 py-2 text-xs font-black text-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none disabled:opacity-50 disabled:cursor-not-allowed"
                       >
-                        {(() => {
-                          const currentStepIndex = SERVICE_STEP_SEQUENCE.indexOf(
-                            row.formulaCurrentServiceStep as (typeof SERVICE_STEP_SEQUENCE)[number]
-                          );
-                          const currentStepLabel = currentStepIndex >= 0 ? `Étape ${currentStepIndex + 1}` : "Étape";
-                          const nextStepLabel = SERVICE_STEP_LABELS[row.formulaNextServiceStep]
-                            ? ` (${SERVICE_STEP_LABELS[row.formulaNextServiceStep]})`
-                            : "";
-                          return `${currentStepLabel} terminée -> Envoyer l'étape suivante${nextStepLabel}`;
-                        })()}
+                        Lancer l&apos;étape 2
                       </button>
                     ) : null}
                   </div>

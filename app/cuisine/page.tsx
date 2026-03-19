@@ -306,10 +306,29 @@ export default function KitchenPage() {
     return [];
   };
 
-  const normalizeStepValue = (value: unknown) => {
+  const normalizeStepValue = (value: unknown, allowZero = false) => {
     const raw = Number(value);
-    if (!Number.isFinite(raw) || raw <= 0) return null;
-    return Math.max(1, Math.trunc(raw));
+    if (!Number.isFinite(raw)) return null;
+    const truncated = Math.trunc(raw);
+    if (allowZero && truncated === 0) return 0;
+    if (truncated <= 0) return null;
+    return Math.max(1, truncated);
+  };
+  const resolveItemExplicitStep = (item: Item) => {
+    const record = item as unknown as Record<string, unknown>;
+    const candidates: unknown[] = [
+      record.step,
+      (item as { step?: unknown }).step,
+      record.sequence,
+      (item as { sequence?: unknown }).sequence,
+      record.formula_current_sequence,
+      record.formulaCurrentSequence,
+    ];
+    for (const candidate of candidates) {
+      const normalized = normalizeStepValue(candidate, true);
+      if (normalized != null && normalized > 0) return normalized;
+    }
+    return null;
   };
   const resolveServiceStepRank = (step: unknown) => {
     const normalized = normalizeServiceStep(step);
@@ -317,19 +336,8 @@ export default function KitchenPage() {
     return index >= 0 ? index + 1 : 99;
   };
   const resolveItemStepRank = (item: Item) => {
-    const record = item as unknown as Record<string, unknown>;
-    const candidates: unknown[] = [
-      record.step,
-      record.sequence,
-      record.formula_current_sequence,
-      record.formulaCurrentSequence,
-      (item as { step?: unknown }).step,
-      (item as { sequence?: unknown }).sequence,
-    ];
-    for (const candidate of candidates) {
-      const normalized = normalizeStepValue(candidate);
-      if (normalized != null) return normalized;
-    }
+    const explicitStep = resolveItemExplicitStep(item);
+    if (explicitStep != null) return explicitStep;
     const formulaSequence = normalizeStepValue(resolveFormulaSequenceForItem(item));
     if (formulaSequence != null) return formulaSequence;
     return resolveServiceStepRank(resolveItemCourse(item));
@@ -452,11 +460,15 @@ export default function KitchenPage() {
   const resolveFormulaSequenceForItem = (item: Item) => {
     if (!isFormulaItem(item)) return null;
     const record = item as unknown as Record<string, unknown>;
-    const directCurrent = Number(
-      record.formula_current_sequence ?? record.formulaCurrentSequence ?? record.sequence
-    );
-    if (Number.isFinite(directCurrent) && directCurrent > 0) {
-      return Math.max(1, Math.trunc(directCurrent));
+    const directCandidates: unknown[] = [
+      record.step,
+      record.sequence,
+      record.formula_current_sequence,
+      record.formulaCurrentSequence,
+    ];
+    for (const candidate of directCandidates) {
+      const directCurrent = normalizeStepValue(candidate, true);
+      if (directCurrent != null && directCurrent > 0) return directCurrent;
     }
     const targetDishId = normalizeEntityId(
       record.dish_id ??
@@ -481,7 +493,7 @@ export default function KitchenPage() {
           entry.formula_dish_id != null ||
           entry.sequence != null;
         if (!isFormulaEntry) continue;
-        const rawSequence = Number(entry.sequence ?? entry.service_step_sequence ?? entry.step);
+        const rawSequence = Number(entry.step ?? entry.sequence ?? entry.service_step_sequence);
         if (!Number.isFinite(rawSequence) || rawSequence <= 0) continue;
         const sequence = Math.max(1, Math.trunc(rawSequence));
         const entryDishId = normalizeEntityId(entry.dish_id ?? entry.dishId ?? entry.id ?? "");
@@ -518,7 +530,7 @@ export default function KitchenPage() {
           entry.formula_dish_id != null ||
           entry.sequence != null;
         if (!isFormulaEntry) continue;
-        const rawSequence = Number(entry.sequence ?? entry.service_step_sequence ?? entry.step);
+        const rawSequence = Number(entry.step ?? entry.sequence ?? entry.service_step_sequence);
         if (!Number.isFinite(rawSequence) || rawSequence <= 0) continue;
         const entrySequence = Math.max(1, Math.trunc(rawSequence));
         if (entrySequence === normalizedCurrent) return entry;
@@ -626,6 +638,8 @@ export default function KitchenPage() {
     return "Formule";
   };
   const resolveFormulaStepLabelForItem = (item: Item) => {
+    const explicitStep = resolveItemExplicitStep(item);
+    if (explicitStep != null && explicitStep > 0) return `ÉTAPE ${explicitStep}`;
     if (!isFormulaItem(item)) return "";
     const sequence = resolveFormulaSequenceForItem(item);
     if (Number.isFinite(sequence) && Number(sequence) > 0) {
@@ -1940,10 +1954,12 @@ export default function KitchenPage() {
             (map, entry) => {
               const sourceItem = entry.item as Item;
               const stepRank = resolveItemStepRank(sourceItem);
-              const stepLabel =
-                resolveFormulaStepLabelForItem(sourceItem) ||
-                SERVICE_STEP_LABELS[resolveItemCourse(sourceItem)] ||
-                "PLAT";
+              const explicitStep = resolveItemExplicitStep(sourceItem);
+              const stepLabel = explicitStep
+                ? `ÉTAPE ${explicitStep}`
+                : resolveFormulaStepLabelForItem(sourceItem) ||
+                  SERVICE_STEP_LABELS[resolveItemCourse(sourceItem)] ||
+                  "PLAT";
               const stepKey = `${stepRank}-${stepLabel}`;
               const existing = map.get(stepKey);
               if (existing) {
