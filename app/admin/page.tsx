@@ -670,7 +670,7 @@ function AdminContent() {
   const [formulaDishIdsFromLinks, setFormulaDishIdsFromLinks] = useState<Set<string>>(new Set());
   const [formulaDishIdsFromFormulasTable, setFormulaDishIdsFromFormulasTable] = useState<Set<string>>(new Set());
   const [formulaPriceByDishId, setFormulaPriceByDishId] = useState<Map<string, number>>(new Map());
-  const [formulasTableAvailable, setFormulasTableAvailable] = useState<boolean | null>(null);
+  const [, setFormulasTableAvailable] = useState<boolean | null>(null);
 
   const [formulaModalOpen, setFormulaModalOpen] = useState(false);
   const [formulaModalDish, setFormulaModalDish] = useState<DishItem | null>(null);
@@ -2346,9 +2346,10 @@ function AdminContent() {
         setFormulaDisplayById(displayByFormula);
         setFormulaDishIdsFromLinks(new Set(formulaIdSetForInit));
       }
-      hasFormulaCategoryLocal = formulasTableIsAvailable
-        ? formulaDishIdSetFromTable.size > 0
-        : nextDishes.some((dish) => readBooleanFlag((dish as unknown as { is_formula?: unknown }).is_formula, false));
+      hasFormulaCategoryLocal =
+        formulaDishIdSetFromTable.size > 0 ||
+        formulaIdSetForInit.size > 0 ||
+        nextDishes.some((dish) => readBooleanFlag((dish as unknown as { is_formula?: unknown }).is_formula, false));
       console.log("[admin.fetchFastEntryResources] dishes loaded", {
         restaurantId: currentRestaurantId,
         count: nextDishes.length,
@@ -2706,13 +2707,14 @@ function AdminContent() {
 
   const formulaParentDishIds = useMemo(() => {
     const ids = new Set<string>();
-    if (formulasTableAvailable) {
-      formulaDishIdsFromFormulasTable.forEach((id) => {
-        const normalizedId = String(id || "").trim();
-        if (normalizedId) ids.add(normalizedId);
-      });
-      return ids;
-    }
+    formulaDishIdsFromFormulasTable.forEach((id) => {
+      const normalizedId = String(id || "").trim();
+      if (normalizedId) ids.add(normalizedId);
+    });
+    formulaDishIdsFromLinks.forEach((id) => {
+      const normalizedId = String(id || "").trim();
+      if (normalizedId) ids.add(normalizedId);
+    });
     dishes.forEach((dish) => {
       const normalizedId = String(dish.id || "").trim();
       if (!normalizedId) return;
@@ -2720,13 +2722,13 @@ function AdminContent() {
       if (isFormula) ids.add(normalizedId);
     });
     return ids;
-  }, [formulasTableAvailable, formulaDishIdsFromFormulasTable, dishes]);
+  }, [formulaDishIdsFromFormulasTable, formulaDishIdsFromLinks, dishes]);
 
   const fetchFormulaDishes = () =>
     dishes.filter((dish) => {
       const id = String(dish.id || "").trim();
       const isFormula = readBooleanFlag((dish as unknown as { is_formula?: unknown }).is_formula, false);
-      return id && formulaParentDishIds.has(id) && isFormula;
+      return id && (isFormula || formulaParentDishIds.has(id));
     });
 
   const formulaDishes = fetchFormulaDishes();
@@ -4229,7 +4231,7 @@ function AdminContent() {
   const resolveFormulaStepStateForOrder = (order: Order) => {
     const formulaItems = parseItems(order.items).filter((item) => isFormulaOrderItem(item));
     if (formulaItems.length === 0) {
-      return { currentStep: "", nextStep: "", isCurrentStepServed: false };
+      return { currentStep: "", nextStep: "", isCurrentStepCompleted: false };
     }
 
     const availableSteps = new Set(formulaItems.flatMap((item) => resolveItemCourses(item)));
@@ -4238,11 +4240,13 @@ function AdminContent() {
       SERVICE_STEP_SEQUENCE.find((step) => availableSteps.has(step)) ||
       "";
     if (!currentStep) {
-      return { currentStep: "", nextStep: "", isCurrentStepServed: false };
+      return { currentStep: "", nextStep: "", isCurrentStepCompleted: false };
     }
 
     const itemsOfCurrentStep = formulaItems.filter((item) => resolveItemCourse(item) === currentStep);
-    const isCurrentStepServed = itemsOfCurrentStep.length > 0 && itemsOfCurrentStep.every((item) => isItemServed(item));
+    const isCurrentStepCompleted =
+      itemsOfCurrentStep.length > 0 &&
+      itemsOfCurrentStep.every((item) => isItemServed(item) || getItemPrepStatus(item) === "ready");
 
     const currentIndex = SERVICE_STEP_SEQUENCE.indexOf(
       currentStep as (typeof SERVICE_STEP_SEQUENCE)[number]
@@ -4258,7 +4262,7 @@ function AdminContent() {
       }
     }
 
-    return { currentStep, nextStep, isCurrentStepServed };
+    return { currentStep, nextStep, isCurrentStepCompleted };
   };
 
   const tableStatusRows = useMemo(() => {
@@ -4321,13 +4325,13 @@ function AdminContent() {
 
         const formulaActionOrder =
           tableOrders.find((order) => {
-            const { nextStep, isCurrentStepServed } = resolveFormulaStepStateForOrder(order);
+            const { nextStep, isCurrentStepCompleted } = resolveFormulaStepStateForOrder(order);
             if (!nextStep) return false;
-            return isCurrentStepServed;
+            return isCurrentStepCompleted;
           }) || null;
-        const formulaNextServiceStep = formulaActionOrder
-          ? resolveFormulaStepStateForOrder(formulaActionOrder).nextStep
-          : "";
+        const formulaState = formulaActionOrder ? resolveFormulaStepStateForOrder(formulaActionOrder) : null;
+        const formulaCurrentServiceStep = formulaState?.currentStep || "";
+        const formulaNextServiceStep = formulaState?.nextStep || "";
 
         return {
           tableNumber,
@@ -4335,6 +4339,7 @@ function AdminContent() {
           waitingMinutes,
           count: tableOrders.length,
           formulaActionOrder,
+          formulaCurrentServiceStep,
           formulaNextServiceStep,
         };
       })
@@ -4404,14 +4409,18 @@ function AdminContent() {
       const currentStepState = resolveFormulaStepStateForOrder(order);
       const currentStep = currentStepState.currentStep || normalizeServiceStep(order.service_step);
       const hasFormulaItems = currentItems.some((item) => isFormulaOrderItem(item));
-      const nextItems = hasFormulaItems
+      let nextItems = hasFormulaItems
         ? currentItems.map((item) => {
             if (!isFormulaOrderItem(item)) return item;
             if (currentStep && resolveItemCourse(item) !== currentStep) return item;
-            if (!isItemServed(item)) return item;
+            const isCurrentItemCompleted = isItemServed(item) || getItemPrepStatus(item) === "ready";
+            if (!isCurrentItemCompleted) return item;
 
             const nextSequence = resolveNextFormulaSequenceForItem(item);
-            if (!Number.isFinite(nextSequence) || Number(nextSequence) <= 0) return item;
+            if (!Number.isFinite(nextSequence) || Number(nextSequence) <= 0) {
+              if (isItemServed(item)) return item;
+              return { ...(item || {}), status: "served" };
+            }
             const normalizedNextSequence = Math.max(1, Math.trunc(Number(nextSequence)));
             const nextFormulaEntry = resolveFormulaEntryForSequence(item, normalizedNextSequence);
             const nextDishId = String(nextFormulaEntry?.dish_id ?? nextFormulaEntry?.dishId ?? item.dish_id ?? item.id ?? "").trim();
@@ -4451,13 +4460,33 @@ function AdminContent() {
             };
           })
         : currentItems;
+
+      if (hasFormulaItems) {
+        nextItems = nextItems.map((item) => {
+          if (!isFormulaOrderItem(item)) return item;
+          if (resolveItemCourse(item) !== normalizedNext) return item;
+          if (isItemServed(item)) return item;
+          if (isItemReady(item)) return item;
+          const rawStatus = String((item as unknown as Record<string, unknown>).status ?? "").trim().toLowerCase();
+          if (rawStatus === "pending") return item;
+          return { ...(item || {}), status: "pending" };
+        });
+      }
+
       const hasAnyAdvancedFormulaItem =
         hasFormulaItems &&
         nextItems.some((item, index) => {
           if (!isFormulaOrderItem(item)) return false;
-          const previous = currentItems[index];
-          return Number((item as unknown as Record<string, unknown>).formula_current_sequence ?? 0) !==
-            Number((previous as unknown as Record<string, unknown>)?.formula_current_sequence ?? 0);
+          const previous = currentItems[index] as unknown as Record<string, unknown> | undefined;
+          const current = item as unknown as Record<string, unknown>;
+          const sequenceChanged =
+            Number(current.formula_current_sequence ?? current.formulaCurrentSequence ?? 0) !==
+            Number(previous?.formula_current_sequence ?? previous?.formulaCurrentSequence ?? 0);
+          const statusChanged = String(current.status ?? "").trim() !== String(previous?.status ?? "").trim();
+          const dishChanged =
+            String(current.dish_id ?? current.id ?? "").trim() !==
+            String(previous?.dish_id ?? previous?.id ?? "").trim();
+          return sequenceChanged || statusChanged || dishChanged;
         });
       const nextStatus = hasFormulaItems ? deriveOrderStatusFromItems(nextItems) : order.status;
 
@@ -5251,10 +5280,16 @@ function AdminContent() {
                         onClick={() => void handleSendNextServiceStep(row.formulaActionOrder as Order, row.formulaNextServiceStep)}
                         className="mt-2 w-full border-2 border-black bg-orange-200 px-2 py-2 text-xs font-black text-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none disabled:opacity-50 disabled:cursor-not-allowed"
                       >
-                        Entrées terminées / Envoyer la suite
-                        {SERVICE_STEP_LABELS[row.formulaNextServiceStep]
-                          ? ` (${SERVICE_STEP_LABELS[row.formulaNextServiceStep]})`
-                          : ""}
+                        {(() => {
+                          const currentStepIndex = SERVICE_STEP_SEQUENCE.indexOf(
+                            row.formulaCurrentServiceStep as (typeof SERVICE_STEP_SEQUENCE)[number]
+                          );
+                          const currentStepLabel = currentStepIndex >= 0 ? `Étape ${currentStepIndex + 1}` : "Étape";
+                          const nextStepLabel = SERVICE_STEP_LABELS[row.formulaNextServiceStep]
+                            ? ` (${SERVICE_STEP_LABELS[row.formulaNextServiceStep]})`
+                            : "";
+                          return `${currentStepLabel} terminée -> Envoyer suite${nextStepLabel}`;
+                        })()}
                       </button>
                     ) : null}
                   </div>

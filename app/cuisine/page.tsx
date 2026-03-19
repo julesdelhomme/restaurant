@@ -306,18 +306,57 @@ export default function KitchenPage() {
     return [];
   };
 
+  const normalizeStepValue = (value: unknown) => {
+    const raw = Number(value);
+    if (!Number.isFinite(raw) || raw <= 0) return null;
+    return Math.max(1, Math.trunc(raw));
+  };
+  const resolveServiceStepRank = (step: unknown) => {
+    const normalized = normalizeServiceStep(step);
+    const index = SERVICE_STEP_SEQUENCE.indexOf(normalized as (typeof SERVICE_STEP_SEQUENCE)[number]);
+    return index >= 0 ? index + 1 : 99;
+  };
+  const resolveItemStepRank = (item: Item) => {
+    const record = item as unknown as Record<string, unknown>;
+    const candidates: unknown[] = [
+      record.step,
+      record.sequence,
+      record.formula_current_sequence,
+      record.formulaCurrentSequence,
+      (item as { step?: unknown }).step,
+      (item as { sequence?: unknown }).sequence,
+    ];
+    for (const candidate of candidates) {
+      const normalized = normalizeStepValue(candidate);
+      if (normalized != null) return normalized;
+    }
+    const formulaSequence = normalizeStepValue(resolveFormulaSequenceForItem(item));
+    if (formulaSequence != null) return formulaSequence;
+    return resolveServiceStepRank(resolveItemCourse(item));
+  };
+  const sortKitchenItemsByStep = (items: Item[]) =>
+    [...items].sort((a, b) => {
+      const stepDiff = resolveItemStepRank(a) - resolveItemStepRank(b);
+      if (stepDiff !== 0) return stepDiff;
+      const aOrderItemId = normalizeEntityId((a as unknown as Record<string, unknown>).order_item_id ?? a.id);
+      const bOrderItemId = normalizeEntityId((b as unknown as Record<string, unknown>).order_item_id ?? b.id);
+      return aOrderItemId.localeCompare(bOrderItemId, "fr", { numeric: true, sensitivity: "base" });
+    });
+
   const getKitchenItems = (order: Order) => {
-    const items = getOrderItems(order).filter((item: any) => isKitchenCourse(item));
+    const items = sortKitchenItemsByStep(getOrderItems(order).filter((item: any) => isKitchenCourse(item)));
     if (items.length === 0) return [];
     const step = resolveOrderServiceStep(order, items as Item[]);
     if (!step) return items;
-    return items.filter((item) => resolveItemCourse(item as Item) === step);
+    return sortKitchenItemsByStep(items.filter((item) => resolveItemCourse(item as Item) === step));
   };
   const hasPendingKitchenItems = (order: Order) => getKitchenItems(order).some((item) => !isItemReady(item));
   const getServedOrReadyKitchenItems = (order: Order) =>
-    getOrderItems(order)
+    sortKitchenItemsByStep(
+      getOrderItems(order)
       .filter((item) => isKitchenCourse(item))
-      .filter((item) => getItemStatus(item as Item) === "ready");
+      .filter((item) => getItemStatus(item as Item) === "ready")
+    );
 
   const normalizeEntityId = (value: unknown) => String(value ?? "").trim();
   const repairUtf8Text = (value: unknown) => {
@@ -1472,7 +1511,7 @@ export default function KitchenPage() {
         return false;
       }
       const sinceIso = new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString();
-      let ordersResult = await supabase
+      const ordersResult = await supabase
         .from("orders")
         .select("*")
         .eq("restaurant_id", restaurantId)
@@ -1817,9 +1856,29 @@ export default function KitchenPage() {
         items: kitchenItems.map((item, idx) => ({ orderId: order.id, item: item as Item, idx })),
       });
     });
-    return [...map.values()].sort(
-      (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-    );
+    return [...map.values()]
+      .map((group) => ({
+        ...group,
+        items: [...group.items].sort((a, b) => {
+          const stepDiff = resolveItemStepRank(a.item) - resolveItemStepRank(b.item);
+          if (stepDiff !== 0) return stepDiff;
+          const orderDiff = String(a.orderId).localeCompare(String(b.orderId), "fr", { numeric: true, sensitivity: "base" });
+          if (orderDiff !== 0) return orderDiff;
+          return a.idx - b.idx;
+        }),
+      }))
+      .sort((a, b) => {
+        const tableA = Number(a.tableNumber);
+        const tableB = Number(b.tableNumber);
+        if (Number.isFinite(tableA) && Number.isFinite(tableB) && tableA !== tableB) {
+          return tableA - tableB;
+        }
+        const tableDiff = a.tableNumber.localeCompare(b.tableNumber, "fr", { numeric: true, sensitivity: "base" });
+        if (tableDiff !== 0) return tableDiff;
+        const stepDiff = resolveServiceStepRank(a.serviceStep) - resolveServiceStepRank(b.serviceStep);
+        if (stepDiff !== 0) return stepDiff;
+        return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+      });
   })();
   const handleManualPrint = () => {
     const targetOrder = priorityOrders[0] || readyHistoryOrders[0] || orders[0] || null;
