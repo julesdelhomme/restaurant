@@ -1936,13 +1936,39 @@ export default function KitchenPage() {
         {groupedPriorityOrders.map((group) => {
           const isSubmitting = readyGroupLoadingKey === group.groupKey;
           if (group.items.length === 0) return null;
-          const formulaTags = Array.from(
-            new Set(
-              group.items
-                .map(({ item }) => getFormulaDisplayTagForItem(item as Item))
-                .filter((value) => String(value || "").trim().length > 0)
-            )
+          const itemsByStep = group.items.reduce(
+            (map, entry) => {
+              const sourceItem = entry.item as Item;
+              const stepRank = resolveItemStepRank(sourceItem);
+              const stepLabel =
+                resolveFormulaStepLabelForItem(sourceItem) ||
+                SERVICE_STEP_LABELS[resolveItemCourse(sourceItem)] ||
+                "PLAT";
+              const stepKey = `${stepRank}-${stepLabel}`;
+              const existing = map.get(stepKey);
+              if (existing) {
+                existing.items.push(entry);
+                return map;
+              }
+              map.set(stepKey, {
+                stepKey,
+                stepRank,
+                stepLabel,
+                items: [entry],
+              });
+              return map;
+            },
+            new Map<
+              string,
+              {
+                stepKey: string;
+                stepRank: number;
+                stepLabel: string;
+                items: Array<{ orderId: string | number; item: Item; idx: number }>;
+              }
+            >()
           );
+          const orderedStepGroups = [...itemsByStep.values()].sort((a, b) => a.stepRank - b.stepRank);
 
           return (
             <div
@@ -1956,14 +1982,14 @@ export default function KitchenPage() {
                       T-{group.tableNumber}
                       {group.covers ? ` | 👥 ${group.covers}` : ""}
                     </h2>
-                    {formulaTags.length > 0 ? (
+                    {orderedStepGroups.length > 0 ? (
                       <div className="mt-1 flex flex-wrap items-center gap-1">
-                        {formulaTags.map((tag) => (
+                        {orderedStepGroups.map((stepGroup) => (
                           <span
-                            key={`${group.groupKey}-${tag}`}
+                            key={`${group.groupKey}-${stepGroup.stepKey}`}
                             className="inline-flex items-center rounded border-2 border-black bg-white px-2 py-1 text-[11px] font-black"
                           >
-                            {tag}
+                            {stepGroup.stepLabel}
                           </span>
                         ))}
                       </div>
@@ -1976,34 +2002,38 @@ export default function KitchenPage() {
                   <p className="text-sm text-gray-600">Arrivée: {formatTime(group.createdAt)}</p>
                 </div>
 
-                <div className="space-y-2 mb-4">
-                  {group.items.map(({ item, orderId, idx }) => {
-                    const finalDetails = getKitchenFinalDetails(item as Item);
-                    const formulaTag = getFormulaDisplayTagForItem(item as Item);
-                    return (
-                      <div key={`${String(orderId)}-${idx}-${String(item.dish_id || item.id || "")}`} className="bg-gray-100 p-2">
-                        <div className="font-bold text-lg">
-                          <span className="bg-black text-white px-2 mr-2 rounded">{item.quantity}x</span>
-                          <span translate="no" className="notranslate">
-                            {resolveKitchenDishName(item)}
-                          </span>
-                        </div>
-                        {formulaTag ? (
-                          <div className="mt-1 text-[11px] font-black text-red-700">
-                            {formulaTag}
-                          </div>
-                        ) : null}
-                        {finalDetails ? (
+                <div className="space-y-3 mb-4">
+                  {orderedStepGroups.map((stepGroup) => (
+                    <div key={`${group.groupKey}-${stepGroup.stepKey}`} className="space-y-2">
+                      <div className="text-[11px] font-black uppercase tracking-wide text-gray-700">{stepGroup.stepLabel}</div>
+                      {stepGroup.items.map(({ item, orderId, idx }) => {
+                        const sourceItem = item as Item;
+                        const finalDetails = getKitchenFinalDetails(sourceItem);
+                        const formulaTag = getFormulaDisplayTagForItem(sourceItem);
+                        return (
                           <div
-                            className="mt-1 text-xs italic text-gray-800 leading-tight"
-                            translate="no"
+                            key={`${String(orderId)}-${idx}-${String(sourceItem.dish_id || sourceItem.id || "")}`}
+                            className="bg-gray-100 p-2"
                           >
-                            <span className="notranslate">- {finalDetails}</span>
+                            <div className="font-bold text-lg">
+                              <span className="bg-black text-white px-2 mr-2 rounded">{sourceItem.quantity}x</span>
+                              <span translate="no" className="notranslate">
+                                {resolveKitchenDishName(sourceItem)}
+                              </span>
+                            </div>
+                            {formulaTag ? (
+                              <div className="mt-1 text-[11px] font-black text-red-700">{formulaTag}</div>
+                            ) : null}
+                            {finalDetails ? (
+                              <div className="mt-1 text-xs italic text-gray-800 leading-tight" translate="no">
+                                <span className="notranslate">- {finalDetails}</span>
+                              </div>
+                            ) : null}
                           </div>
-                        ) : null}
-                      </div>
-                    );
-                  })}
+                        );
+                      })}
+                    </div>
+                  ))}
                 </div>
               </div>
 
