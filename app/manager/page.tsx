@@ -118,6 +118,7 @@ const DEFAULT_SUGGESTION_LEADS: Record<string, string> = {
 const ALLERGEN_OPTIONS = ["Gluten", "Lactose", "Arachides", "\u0152ufs", "Lait", "Poisson", "Fruits de mer", "Soja", "S\u00e9same", "Moutarde", "C\u00e9leri"];
 const DEFAULT_ALLERGEN_TRANSLATIONS = DEFAULT_ALLERGEN_TRANSLATIONS_EXTENDED;
 const PREDEFINED_LANGUAGE_OPTIONS = PREDEFINED_LANGUAGE_OPTIONS_EXTENDED;
+const FORMULA_PARENT_STEP_KEY = "__formula_parent__";
 const MENU_FONT_OPTIONS = [
   "Inter",
   "Roboto",
@@ -3031,11 +3032,29 @@ export default function MenuManager() {
     let result: any = scopedRestaurantId
       ? await supabase
           .from("formula_dish_links")
-          .select("formula_dish_id,dish_id,restaurant_id,sequence,default_product_option_ids,formula_name,formula_image_url")
+          .select("formula_dish_id,formula_id,dish_id,restaurant_id,sequence,step,is_main,default_product_option_ids,formula_name,formula_image_url")
           .eq("restaurant_id", scopedRestaurantId)
       : await supabase
           .from("formula_dish_links")
-          .select("formula_dish_id,dish_id,restaurant_id,sequence,default_product_option_ids,formula_name,formula_image_url");
+          .select("formula_dish_id,formula_id,dish_id,restaurant_id,sequence,step,is_main,default_product_option_ids,formula_name,formula_image_url");
+
+    if (
+      result.error &&
+      (
+        hasMissingColumnError(result.error, "formula_id") ||
+        hasMissingColumnError(result.error, "step") ||
+        hasMissingColumnError(result.error, "is_main")
+      )
+    ) {
+      result = scopedRestaurantId
+        ? await supabase
+            .from("formula_dish_links")
+            .select("formula_dish_id,dish_id,restaurant_id,sequence,default_product_option_ids,formula_name,formula_image_url")
+            .eq("restaurant_id", scopedRestaurantId)
+        : await supabase
+            .from("formula_dish_links")
+            .select("formula_dish_id,dish_id,restaurant_id,sequence,default_product_option_ids,formula_name,formula_image_url");
+    }
 
     if (result.error && hasMissingColumnError(result.error, "default_product_option_ids")) {
       result = scopedRestaurantId
@@ -3094,12 +3113,12 @@ export default function MenuManager() {
     (result.data || []).forEach((row: unknown) => {
       if (!row || typeof row !== "object") return;
       const record = row as any;
-      const formulaId = String(record.formula_dish_id || "").trim();
+      const formulaId = String(record.formula_dish_id ?? record.formula_id ?? "").trim();
       const dishId = String(record.dish_id || "").trim();
       if (!formulaId || !dishId) return;
       if (!availableDishIds.has(formulaId) || !availableDishIds.has(dishId)) return;
-      const rawSequence = Number(record.sequence);
-      const sequence = Number.isFinite(rawSequence) ? Math.max(0, Math.trunc(rawSequence)) : undefined;
+      const rawSequence = Number(record.sequence ?? record.step);
+      const sequence = Number.isFinite(rawSequence) ? Math.max(1, Math.trunc(rawSequence)) : undefined;
       const formulaName = String(record.formula_name || "").trim();
       const formulaImageUrl = String(record.formula_image_url || "").trim();
       const rawDefaults = record.default_product_option_ids;
@@ -3886,9 +3905,18 @@ export default function MenuManager() {
     const currentDishId = String(dish.id || "").trim();
     const linkedFormulaIds = currentDishId ? formulaLinksByDishId.get(currentDishId) || [] : [];
     const linkedFormulaDishIds = currentDishId ? formulaLinksByFormulaId.get(currentDishId) || [] : [];
-    const linkedFormulaSequenceMap = currentDishId
+    const linkedFormulaSequenceBase = currentDishId
       ? Object.fromEntries(Array.from(formulaLinkSequenceByFormulaId.get(currentDishId) || new Map()).map(([k, v]) => [k, v]))
       : {};
+    const linkedFormulaSequenceMap = currentDishId
+      ? {
+          ...linkedFormulaSequenceBase,
+          [currentDishId]: (() => {
+            const saved = Number((linkedFormulaSequenceBase as Record<string, number>)[currentDishId]);
+            return Number.isFinite(saved) && saved > 0 ? Math.max(1, Math.trunc(saved)) : 1;
+          })(),
+        }
+      : linkedFormulaSequenceBase;
     const linkedFormulaDefaultOptions =
       currentDishId && formulaLinkDefaultOptionsByFormulaId.get(currentDishId)
         ? Object.fromEntries(formulaLinkDefaultOptionsByFormulaId.get(currentDishId) || [])
@@ -4587,8 +4615,8 @@ export default function MenuManager() {
     ).filter((formulaId) => formulaId);
     const normalizedFormulaSequenceByDish = Object.fromEntries(
       Object.entries(formData.formula_sequence_by_dish || {})
-        .map(([dishId, seq]) => [String(dishId).trim(), Math.max(0, Math.trunc(Number(seq) || 0))])
-        .filter(([dishId]) => normalizedFormulaDishIds.includes(String(dishId)))
+        .map(([dishId, seq]) => [String(dishId).trim(), Math.max(1, Math.trunc(Number(seq) || 1))])
+        .filter(([dishId]) => Boolean(String(dishId || "").trim()))
     );
     const parseFormulaCategoryIds = (value: unknown): string[] => {
       if (Array.isArray(value)) {
@@ -4639,8 +4667,11 @@ export default function MenuManager() {
     };
     type FormulaLinkInsertRow = {
       formula_dish_id: string | number;
+      formula_id?: string | number;
       dish_id: string | number;
       sequence: number;
+      step?: number;
+      is_main?: boolean;
       default_product_option_ids?: string[] | null;
       formula_name?: string | null;
       formula_image_url?: string | null;
@@ -4658,43 +4689,82 @@ export default function MenuManager() {
         restaurant_id: scopedRestaurantId || null,
       }));
       let insertLinksResult = await supabase.from("formula_dish_links").insert(rowsToInsert as never);
-      if (insertLinksResult.error && hasMissingColumnError(insertLinksResult.error, "default_product_option_ids")) {
-        rowsToInsert = stripColumn(rowsToInsert, "default_product_option_ids");
-        insertLinksResult = await supabase.from("formula_dish_links").insert(rowsToInsert as never);
-      }
-      if (insertLinksResult.error && hasMissingColumnError(insertLinksResult.error, "formula_name")) {
-        rowsToInsert = stripColumn(rowsToInsert, "formula_name");
-        insertLinksResult = await supabase.from("formula_dish_links").insert(rowsToInsert as never);
-      }
-      if (insertLinksResult.error && hasMissingColumnError(insertLinksResult.error, "formula_image_url")) {
-        rowsToInsert = stripColumn(rowsToInsert, "formula_image_url");
-        insertLinksResult = await supabase.from("formula_dish_links").insert(rowsToInsert as never);
-      }
-      if (insertLinksResult.error && hasMissingColumnError(insertLinksResult.error, "restaurant_id")) {
-        rowsToInsert = stripColumn(rowsToInsert, "restaurant_id");
-        insertLinksResult = await supabase.from("formula_dish_links").insert(rowsToInsert as never);
-      }
-      if (insertLinksResult.error && hasMissingColumnError(insertLinksResult.error, "sequence")) {
-        rowsToInsert = stripColumn(rowsToInsert, "sequence");
-        insertLinksResult = await supabase.from("formula_dish_links").insert(rowsToInsert as never);
-      }
-      if (insertLinksResult.error && hasMissingColumnError(insertLinksResult.error, "restaurant_id")) {
-        rowsToInsert = stripColumn(rowsToInsert, "restaurant_id");
-        insertLinksResult = await supabase.from("formula_dish_links").insert(rowsToInsert as never);
-      }
-      if (insertLinksResult.error && hasMissingColumnError(insertLinksResult.error, "default_product_option_ids")) {
-        rowsToInsert = stripColumn(rowsToInsert, "default_product_option_ids");
-        insertLinksResult = await supabase.from("formula_dish_links").insert(rowsToInsert as never);
-      }
-      if (insertLinksResult.error && hasMissingColumnError(insertLinksResult.error, "formula_name")) {
-        rowsToInsert = stripColumn(rowsToInsert, "formula_name");
-        insertLinksResult = await supabase.from("formula_dish_links").insert(rowsToInsert as never);
-      }
-      if (insertLinksResult.error && hasMissingColumnError(insertLinksResult.error, "formula_image_url")) {
-        rowsToInsert = stripColumn(rowsToInsert, "formula_image_url");
+      const optionalColumns = [
+        "formula_id",
+        "step",
+        "is_main",
+        "default_product_option_ids",
+        "formula_name",
+        "formula_image_url",
+        "restaurant_id",
+        "sequence",
+      ];
+      for (const column of optionalColumns) {
+        if (!insertLinksResult.error || !hasMissingColumnError(insertLinksResult.error, column)) continue;
+        rowsToInsert = stripColumn(rowsToInsert, column);
         insertLinksResult = await supabase.from("formula_dish_links").insert(rowsToInsert as never);
       }
       return insertLinksResult;
+    };
+    const updateFormulaSteps = async (params: {
+      formulaDishId: string;
+      componentDishIds: string[];
+      sequenceByDishId: Record<string, number>;
+      defaultOptionIdsByDishId: Record<string, string[]>;
+      formulaName: string;
+      formulaImageUrl: string;
+    }) => {
+      const normalizedFormulaDishId = String(params.formulaDishId || "").trim();
+      if (!normalizedFormulaDishId) return { error: null } as { error: any };
+      const parentStepFromSavedId = Number(params.sequenceByDishId[normalizedFormulaDishId]);
+      const parentStepFromDraft = Number(params.sequenceByDishId[FORMULA_PARENT_STEP_KEY]);
+      const parentStep =
+        Number.isFinite(parentStepFromSavedId) && parentStepFromSavedId > 0
+          ? Math.max(1, Math.trunc(parentStepFromSavedId))
+          : Number.isFinite(parentStepFromDraft) && parentStepFromDraft > 0
+            ? Math.max(1, Math.trunc(parentStepFromDraft))
+            : 1;
+      const componentDishIds = Array.from(
+        new Set(
+          params.componentDishIds
+            .map((value) => String(value || "").trim())
+            .filter((value) => Boolean(value) && value !== normalizedFormulaDishId)
+        )
+      );
+      const orderedDishIds = [normalizedFormulaDishId, ...componentDishIds];
+      const formulaName = String(params.formulaName || "").trim();
+      const formulaImageUrl = String(params.formulaImageUrl || "").trim();
+      const rows: FormulaLinkInsertRow[] = orderedDishIds.map((dishId) => {
+        const isMain = dishId === normalizedFormulaDishId;
+        const linkedDish = dishesById.get(String(dishId || "").trim());
+        const linkedCategoryId = String(linkedDish?.category_id || "").trim();
+        const overrideSequence = Number(params.sequenceByDishId[dishId]);
+        const inferredSequence = linkedCategoryId
+          ? normalizedFormulaCategorySequenceById.get(linkedCategoryId) ??
+            inferSequenceFromCategoryId(linkedCategoryId, normalizedFormulaCategorySequenceById.size + 1)
+          : 2;
+        const sequence = isMain
+          ? parentStep
+          : Number.isFinite(overrideSequence) && overrideSequence > 0
+            ? Math.max(1, Math.trunc(overrideSequence))
+            : inferredSequence;
+        const rawDefaultOptionIds = params.defaultOptionIdsByDishId[dishId] || [];
+        const defaultOptionIds = Array.from(
+          new Set(rawDefaultOptionIds.map((value) => String(value || "").trim()).filter(Boolean))
+        );
+        return {
+          formula_dish_id: normalizedFormulaDishId,
+          formula_id: normalizedFormulaDishId,
+          dish_id: dishId,
+          sequence: Math.max(1, Math.trunc(sequence)),
+          step: Math.max(1, Math.trunc(sequence)),
+          is_main: isMain,
+          default_product_option_ids: defaultOptionIds.length > 0 ? defaultOptionIds : null,
+          formula_name: formulaName || null,
+          formula_image_url: formulaImageUrl || null,
+        };
+      });
+      return insertFormulaLinks(rows);
     };
 
     const dishData = {
@@ -5054,7 +5124,6 @@ export default function MenuManager() {
 
         const formulaLinkMigrationHint = " Exécutez la migration add_formula_dish_links.sql.";
         if (formData.is_formula) {
-          const sanitizedFormulaDishIds = normalizedFormulaDishIds.filter((dishId) => dishId !== savedDishId);
           let deleteLinksResult = await supabase
             .from("formula_dish_links")
             .delete()
@@ -5066,32 +5135,15 @@ export default function MenuManager() {
             } else {
               alert(`Plat sauvegardé mais erreur de synchronisation formule: ${deleteLinksResult.error.message}`);
             }
-          } else if (sanitizedFormulaDishIds.length > 0) {
-            const linkRows = sanitizedFormulaDishIds.map((dishId) => {
-              const linkedDish = dishesById.get(String(dishId || "").trim());
-              const linkedCategoryId = String(linkedDish?.category_id || "").trim();
-              const overrideSequence = normalizedFormulaSequenceByDish[dishId];
-              const sequence =
-                Number.isFinite(overrideSequence) && overrideSequence != null
-                  ? Math.max(0, Math.trunc(Number(overrideSequence)))
-                  : linkedCategoryId
-                    ? normalizedFormulaCategorySequenceById.get(linkedCategoryId) ??
-                      inferSequenceFromCategoryId(linkedCategoryId, normalizedFormulaCategorySequenceById.size + 1)
-                    : 2;
-              const rawDefaultOptionIds = formData.formula_default_option_ids[dishId] || [];
-              const defaultOptionIds = Array.from(
-                new Set(rawDefaultOptionIds.map((value) => String(value || "").trim()).filter(Boolean))
-              );
-              return {
-                formula_dish_id: String(savedDishIdRaw || "").trim(),
-                dish_id: dishId,
-                sequence: Math.max(1, Math.trunc(sequence)),
-                default_product_option_ids: defaultOptionIds.length > 0 ? defaultOptionIds : null,
-                formula_name: String(formData.formula_name || "").trim() || null,
-                formula_image_url: String(formData.formula_image_url || "").trim() || null,
-              };
+          } else {
+            const insertLinksResult = await updateFormulaSteps({
+              formulaDishId: String(savedDishIdRaw || "").trim(),
+              componentDishIds: normalizedFormulaDishIds,
+              sequenceByDishId: normalizedFormulaSequenceByDish,
+              defaultOptionIdsByDishId: formData.formula_default_option_ids || {},
+              formulaName: String(formData.formula_name || "").trim(),
+              formulaImageUrl: String(formData.formula_image_url || "").trim(),
             });
-            const insertLinksResult = await insertFormulaLinks(linkRows);
             if (insertLinksResult.error) {
               console.warn("Erreur insertion formula_dish_links (formule):", insertLinksResult.error.message);
               if (String((insertLinksResult.error as { code?: string })?.code || "") === "42P01") {
@@ -5121,8 +5173,11 @@ export default function MenuManager() {
               const sequence = resolveDishSequenceForFormula(formulaCategoryIds, savedDishId);
               return {
                 formula_dish_id: formulaId,
+                formula_id: formulaId,
                 dish_id: String(savedDishIdRaw || "").trim(),
                 sequence: Math.max(1, Math.trunc(sequence)),
+                step: Math.max(1, Math.trunc(sequence)),
+                is_main: false,
               };
             });
             const insertLinksResult = await insertFormulaLinks(linkRows);
@@ -11727,6 +11782,38 @@ export default function MenuManager() {
                     )}
                   </div>
                   <div className="mt-4 border-t border-gray-200 pt-3">
+                    <label className="block mb-2 font-bold">Étape du plat principal (formule)</label>
+                    <p className="text-xs text-gray-600 mb-2">
+                      Le plat parent de la formule est toujours synchronisé avec un step.
+                    </p>
+                    <div className="inline-flex items-center gap-2 text-xs font-bold text-gray-700">
+                      <span>Étape</span>
+                      <select
+                        value={(() => {
+                          const formulaParentKey = String(editingDish?.id || "").trim() || FORMULA_PARENT_STEP_KEY;
+                          const raw = Number(formData.formula_sequence_by_dish?.[formulaParentKey]);
+                          return Number.isFinite(raw) && raw > 0 ? Math.max(1, Math.trunc(raw)) : 1;
+                        })()}
+                        onChange={(event) => {
+                          const formulaParentKey = String(editingDish?.id || "").trim() || FORMULA_PARENT_STEP_KEY;
+                          const nextValue = Math.max(1, Math.trunc(Number(event.target.value) || 1));
+                          setFormData((prev) => ({
+                            ...prev,
+                            formula_sequence_by_dish: {
+                              ...prev.formula_sequence_by_dish,
+                              [formulaParentKey]: nextValue,
+                            },
+                          }));
+                        }}
+                        className="h-8 rounded border border-gray-300 px-2 text-xs font-bold"
+                      >
+                        <option value={1}>ÉTAPE 1</option>
+                        <option value={2}>ÉTAPE 2</option>
+                        <option value={3}>ÉTAPE 3</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div className="mt-4 border-t border-gray-200 pt-3">
                     <label className="block mb-2 font-bold">Plats autorisés par catégorie</label>
                     <p className="text-xs text-gray-600 mb-2">
                       Si aucun plat n&apos;est coché pour une catégorie, tous les plats de cette catégorie seront proposés.
@@ -11756,7 +11843,11 @@ export default function MenuManager() {
                                     : [];
                                   const allowMulti = Boolean((dish as any).allow_multi_select);
                                   const selectedDefaultOptionIds = formData.formula_default_option_ids[dishId] || [];
-                                  const resolvedSequence = formData.formula_sequence_by_dish?.[dishId] ?? 0;
+                                  const rawSequence = Number(formData.formula_sequence_by_dish?.[dishId]);
+                                  const resolvedSequence =
+                                    Number.isFinite(rawSequence) && rawSequence > 0
+                                      ? Math.max(1, Math.trunc(rawSequence))
+                                      : 1;
                                   return (
                                     <div key={`formula-dish-${categoryId}-${dishId}`} className="flex flex-col gap-1 rounded hover:bg-gray-50 px-2 py-1">
                                       <label className="flex items-center gap-2 text-black font-bold">
@@ -11799,8 +11890,8 @@ export default function MenuManager() {
                                               value={resolvedSequence}
                                               onChange={(event) => {
                                                 const nextValue = Math.max(
-                                                  0,
-                                                  Math.trunc(Number(event.target.value) || 0)
+                                                  1,
+                                                  Math.trunc(Number(event.target.value) || 1)
                                                 );
                                                 setFormData((prev) => ({
                                                   ...prev,
@@ -11815,7 +11906,6 @@ export default function MenuManager() {
                                               <option value={1}>ÉTAPE 1</option>
                                               <option value={2}>ÉTAPE 2</option>
                                               <option value={3}>ÉTAPE 3</option>
-                                              <option value={0}>Service immédiat (Bar)</option>
                                             </select>
                                           </label>
                                         </div>
