@@ -2993,7 +2993,7 @@ export default function MenuManager() {
       result = await supabase
         .from("categories")
         .select("*")
-        .eq("id_restaurant", scopedRestaurantId)
+        .eq("restaurant_id", scopedRestaurantId)
         .order("sort_order", { ascending: true })
         .order("id", { ascending: true });
     }
@@ -3167,7 +3167,7 @@ export default function MenuManager() {
       result = await supabase
         .from("dishes")
         .select("*")
-        .eq("id_restaurant", scopedRestaurantId)
+        .eq("restaurant_id", scopedRestaurantId)
         .order("category_id", { ascending: true })
         .order("id", { ascending: true });
     }
@@ -3415,7 +3415,7 @@ export default function MenuManager() {
           relatedOrders = await supabase
             .from("orders")
             .select("id")
-            .eq("id_restaurant", scopedRestaurantId)
+            .eq("restaurant_id", scopedRestaurantId)
             .gte("created_at", sevenDaysAgoIso)
             .order("created_at", { ascending: false })
             .limit(400);
@@ -3468,7 +3468,7 @@ export default function MenuManager() {
         .from("dishes")
         .select("*")
         .eq("active", false)
-        .eq("id_restaurant", scopedRestaurantId);
+        .eq("restaurant_id", scopedRestaurantId);
     }
 
     if (result.error) {
@@ -3498,7 +3498,7 @@ export default function MenuManager() {
       result = await supabase
         .from("subcategories")
         .select("*")
-        .eq("id_restaurant", scopedRestaurantId)
+        .eq("restaurant_id", scopedRestaurantId)
         .order("category_id", { ascending: true })
         .order("name_fr", { ascending: true });
     }
@@ -3538,7 +3538,7 @@ export default function MenuManager() {
       result = await supabase
         .from("sides_library")
         .select("*")
-        .eq("id_restaurant", scopedRestaurantId)
+        .eq("restaurant_id", scopedRestaurantId)
         .order("id", { ascending: true });
     }
 
@@ -3569,7 +3569,7 @@ export default function MenuManager() {
       primaryQuery = await supabase
         .from("table_assignments")
         .select("table_number,pin_code")
-        .eq("id_restaurant", scopedRestaurantId)
+        .eq("restaurant_id", scopedRestaurantId)
         .order("table_number", { ascending: true });
     }
 
@@ -3588,7 +3588,7 @@ export default function MenuManager() {
       fallbackQuery = await supabase
         .from("table_assignments")
         .select("table_number,pin")
-        .eq("id_restaurant", scopedRestaurantId)
+        .eq("restaurant_id", scopedRestaurantId)
         .order("table_number", { ascending: true });
     }
 
@@ -3631,7 +3631,7 @@ export default function MenuManager() {
           String((data as { message?: string })?.message || "").toLowerCase().includes("column"))
       ) {
         response = await fetch(
-          `${supabaseUrl}/rest/v1/orders?select=*&order=created_at.desc&id_restaurant=eq.${encodeURIComponent(scopedRestaurantId)}`,
+          `${supabaseUrl}/rest/v1/orders?select=*&order=created_at.desc&restaurant_id=eq.${encodeURIComponent(scopedRestaurantId)}`,
           {
             headers: {
               apikey: supabaseKey,
@@ -4326,7 +4326,7 @@ export default function MenuManager() {
           .from("dishes")
           .update(payload as never)
           .eq("id", dish.id)
-          .eq("id_restaurant", scopedRestaurantId);
+          .eq("restaurant_id", scopedRestaurantId);
         error = fallback.error;
       }
       if (error) {
@@ -4398,7 +4398,7 @@ export default function MenuManager() {
         const firstError = await response.clone().json().catch(() => ({}));
         if (String((firstError as { code?: string })?.code || "") === "42703") {
           response = await fetch(
-            `${supabaseUrl}/rest/v1/dishes?id=eq.${dishToDelete.id}&id_restaurant=eq.${encodeURIComponent(scopedRestaurantId)}`,
+            `${supabaseUrl}/rest/v1/dishes?id=eq.${dishToDelete.id}&restaurant_id=eq.${encodeURIComponent(scopedRestaurantId)}`,
             {
               method: "DELETE",
               headers: {
@@ -4804,7 +4804,7 @@ export default function MenuManager() {
           const firstError = await response.clone().json().catch(() => ({}));
           if (String((firstError as { code?: string })?.code || "") === "42703") {
             response = await fetch(
-              `${supabaseUrl}/rest/v1/dishes?id=eq.${editingDish.id}&id_restaurant=eq.${encodeURIComponent(scopedRestaurantId)}`,
+              `${supabaseUrl}/rest/v1/dishes?id=eq.${editingDish.id}&restaurant_id=eq.${encodeURIComponent(scopedRestaurantId)}`,
               {
                 method: "PATCH",
                 headers: {
@@ -4926,7 +4926,7 @@ export default function MenuManager() {
             .from("dishes")
             .select("id")
             .eq("name", formData.name_fr)
-            .eq("id_restaurant", scopedRestaurantId)
+            .eq("restaurant_id", scopedRestaurantId)
             .order("id", { ascending: false })
             .limit(1);
           if (!fallbackByLegacyColumn.error && Array.isArray(fallbackByLegacyColumn.data) && fallbackByLegacyColumn.data[0]) {
@@ -5850,7 +5850,7 @@ export default function MenuManager() {
           .from("subcategories")
           .update(payload)
           .eq("id", editingSubCategoryId)
-          .eq("id_restaurant", scopedRestaurantId);
+          .eq("restaurant_id", scopedRestaurantId);
         error = legacyUpdate.error as { message?: string; code?: string } | null;
       }
     } else {
@@ -5859,7 +5859,7 @@ export default function MenuManager() {
       if (error && String(error.code || "") === "42703") {
         const legacyPayload = {
           category_id: selectedCategoryId,
-          id_restaurant: scopedRestaurantId,
+          restaurant_id: scopedRestaurantId,
           name_fr: nameFr,
           name_en: buildI18nToken(subCategoryI18n),
           name_es: (subCategoryI18n.es || "").trim() || null,
@@ -5916,7 +5916,7 @@ export default function MenuManager() {
           .from("categories")
           .update(payload)
           .eq("id", editingCategoryId)
-          .eq("id_restaurant", scopedRestaurantId);
+          .eq("restaurant_id", scopedRestaurantId);
         error = legacyUpdate.error as { message?: string; code?: string } | null;
       }
     } else {
@@ -5924,7 +5924,7 @@ export default function MenuManager() {
       error = insertResult.error as { message?: string; code?: string } | null;
       if (error && String(error.code || "") === "42703") {
         const legacyPayload = {
-          id_restaurant: scopedRestaurantId,
+          restaurant_id: scopedRestaurantId,
           name_fr: categoryForm.name_fr.trim(),
           name_en: buildI18nToken(categoryI18n),
           name_es: (categoryI18n.es || "").trim() || null,
@@ -5952,7 +5952,7 @@ export default function MenuManager() {
 
     let { error } = await supabase.from("categories").delete().eq("id", id).eq("restaurant_id", scopedRestaurantId);
     if (error && String((error as { code?: string })?.code || "") === "42703") {
-      const legacyDelete = await supabase.from("categories").delete().eq("id", id).eq("id_restaurant", scopedRestaurantId);
+      const legacyDelete = await supabase.from("categories").delete().eq("id", id).eq("restaurant_id", scopedRestaurantId);
       error = legacyDelete.error;
     }
     if (error) {
@@ -5979,7 +5979,7 @@ export default function MenuManager() {
         .from("categories")
         .update({ destination })
         .eq("id", id)
-        .eq("id_restaurant", scopedRestaurantId);
+        .eq("restaurant_id", scopedRestaurantId);
       error = legacyUpdate.error;
     }
 
@@ -6010,7 +6010,7 @@ export default function MenuManager() {
         .from("categories")
         .update({ sort_order: sortOrder })
         .eq("id", id)
-        .eq("id_restaurant", scopedRestaurantId);
+        .eq("restaurant_id", scopedRestaurantId);
       error = legacyUpdate.error;
     }
 
@@ -6039,7 +6039,7 @@ export default function MenuManager() {
         .from("subcategories")
         .delete()
         .eq("id", id)
-        .eq("id_restaurant", scopedRestaurantId);
+        .eq("restaurant_id", scopedRestaurantId);
       error = legacyDelete.error;
     }
     if (error) {
@@ -6074,7 +6074,7 @@ export default function MenuManager() {
     let { error } = await supabase.from("sides_library").insert([payload]);
     if (error && String((error as { code?: string })?.code || "") === "42703") {
       const legacyPayload = {
-        id_restaurant: scopedRestaurantId,
+        restaurant_id: scopedRestaurantId,
         name_fr: newSide.name_fr.trim(),
         name_en: buildI18nToken(i18n),
         name_es: (i18n.es || "").trim() || null,
@@ -6137,7 +6137,7 @@ export default function MenuManager() {
         .from("sides_library")
         .update(payload)
         .eq("id", editingSideId)
-        .eq("id_restaurant", scopedRestaurantId);
+        .eq("restaurant_id", scopedRestaurantId);
       error = legacyUpdate.error;
     }
     if (error) {
@@ -6156,7 +6156,7 @@ export default function MenuManager() {
 
     let { error } = await supabase.from("sides_library").delete().eq("id", id).eq("restaurant_id", scopedRestaurantId);
     if (error && String((error as { code?: string })?.code || "") === "42703") {
-      const legacyDelete = await supabase.from("sides_library").delete().eq("id", id).eq("id_restaurant", scopedRestaurantId);
+      const legacyDelete = await supabase.from("sides_library").delete().eq("id", id).eq("restaurant_id", scopedRestaurantId);
       error = legacyDelete.error;
     }
     if (error) {

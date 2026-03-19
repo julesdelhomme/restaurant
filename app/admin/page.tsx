@@ -328,7 +328,7 @@ type FastOrderLine = {
 };
 
 const DISH_SELECT_BASE = "id,name,price,category_id,restaurant_id";
-const DISH_SELECT_WITH_OPTIONS = `${DISH_SELECT_BASE},description,description_fr,description_en,description_es,description_de,ask_cooking,selected_sides,sides,has_sides,max_options,extras,supplement,supplements,options,selected_options`;
+const DISH_SELECT_WITH_OPTIONS = `${DISH_SELECT_BASE},formula_price,is_formula,formula_category_ids,allow_multi_select,description,description_fr,description_en,description_es,description_de,ask_cooking,selected_sides,sides,has_sides,max_options,extras,supplement,supplements,options,selected_options`;
 
 interface ParsedDishOptions {
   sideIds: Array<string | number>;
@@ -786,18 +786,11 @@ function AdminContent() {
         return;
       }
 
-      let scopedQuery = await supabase
+      const scopedQuery = await supabase
         .from("orders")
         .select("*")
         .eq("restaurant_id", currentRestaurantId)
         .order("created_at", { ascending: true });
-      if (scopedQuery.error && currentRestaurantId && String((scopedQuery.error as { code?: string }).code || "") === "42703") {
-        scopedQuery = await supabase
-          .from("orders")
-          .select("*")
-          .eq("id_restaurant", currentRestaurantId)
-          .order("created_at", { ascending: true });
-      }
 
       if (scopedQuery.error) {
         logFetchOrdersError("Erreur fetchOrders:", scopedQuery.error);
@@ -836,17 +829,7 @@ function AdminContent() {
       .eq("restaurant_id", currentRestaurantId)
       .order("created_at", { ascending: false })
       .limit(50);
-    let { data, error } = await query;
-    if (error && currentRestaurantId && String((error as { code?: string }).code || "") === "42703") {
-      const fallback = await supabase
-        .from("notifications")
-        .select("*")
-        .eq("id_restaurant", currentRestaurantId)
-        .order("created_at", { ascending: false })
-        .limit(50);
-      data = fallback.data;
-      error = fallback.error;
-    }
+    const { data, error } = await query;
 
     if (error) {
       const errMsg = String((error as { message?: string } | null)?.message || "").toLowerCase();
@@ -888,22 +871,11 @@ function AdminContent() {
       setActiveTables([]);
       return;
     }
-    let { data, error } = await supabase
+    const { data, error } = await supabase
       .from("table_assignments")
       .select("*")
       .eq("restaurant_id", currentRestaurantId)
       .order("table_number", { ascending: true });
-    if (error && currentRestaurantId) {
-      const idRestaurantFallback = await supabase
-        .from("table_assignments")
-        .select("*")
-        .eq("id_restaurant", currentRestaurantId)
-        .order("table_number", { ascending: true });
-      if (!idRestaurantFallback.error) {
-        data = idRestaurantFallback.data;
-        error = null;
-      }
-    }
     if (error) {
       console.error("Erreur fetchActiveTables:", error);
       setActiveTables([]);
@@ -2600,7 +2572,16 @@ function AdminContent() {
 
   const fastLines = [...fastBaseLines, ...fastOptionLines];
 
-  const fastTotal = fastLines.reduce((sum, line) => sum + line.unitPrice * line.quantity, 0);
+  const resolveFastLineUnitPrice = (line: FastOrderLine) => {
+    const isFormulaLine = Boolean(line.isFormula || line.formulaDishId || (line.formulaSelections || []).length > 0);
+    if (isFormulaLine) {
+      const formulaPrice = Number(line.formulaUnitPrice);
+      if (Number.isFinite(formulaPrice) && formulaPrice > 0) return formulaPrice;
+    }
+    const unitPrice = Number(line.unitPrice || 0);
+    return Number.isFinite(unitPrice) ? unitPrice : 0;
+  };
+  const fastTotal = fastLines.reduce((sum, line) => sum + resolveFastLineUnitPrice(line) * line.quantity, 0);
   const fastItemCount = fastLines.reduce((sum, line) => sum + line.quantity, 0);
   const tableSelectOptions = Array.from(
     new Set([
@@ -3294,6 +3275,34 @@ function AdminContent() {
           .map((value) => Math.max(1, Math.trunc(value)));
         const formulaCurrentSequence =
           formulaSequenceValues.length > 0 ? Math.min(...formulaSequenceValues) : null;
+        const formulaPayload =
+          isFormulaLine && formulaDishName
+            ? {
+                name: formulaDishName,
+                price: Number((formulaUnitPrice != null ? formulaUnitPrice : unitPrice).toFixed(2)),
+                items: formulaSelections
+                  .map((selection) => {
+                    const dishLabel = String(selection.dishName || "").trim();
+                    if (!dishLabel) return null;
+                    const selectedSides = Array.isArray(selection.selectedSides) ? selection.selectedSides.filter(Boolean) : [];
+                    const selectedOptions = Array.isArray(selection.selectedOptionNames)
+                      ? selection.selectedOptionNames.filter(Boolean)
+                      : [];
+                    const selectedCooking = String(selection.selectedCooking || "").trim();
+                    const options: Record<string, unknown> = {};
+                    if (selectedCooking) options.cuisson = selectedCooking;
+                    if (selectedSides.length === 1) options.accompagnement = selectedSides[0];
+                    if (selectedSides.length > 1) options.accompagnements = selectedSides;
+                    if (selectedOptions.length === 1) options.option = selectedOptions[0];
+                    if (selectedOptions.length > 1) options.options = selectedOptions;
+                    return {
+                      dish: dishLabel,
+                      options,
+                    };
+                  })
+                  .filter(Boolean),
+              }
+            : null;
         if (!line.dishId || !line.dishName || !Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(unitPrice)) {
           return null;
         }
@@ -3341,6 +3350,7 @@ function AdminContent() {
           formula_unit_price: formulaUnitPrice,
           formula_current_sequence: formulaCurrentSequence,
           formula_items: formulaItemsPayload.length > 0 ? formulaItemsPayload : null,
+          formula: formulaPayload,
           special_request: String(line.specialRequest || "").trim(),
           instructions: buildLineInstructions(line),
           status: "pending",
@@ -3522,18 +3532,39 @@ function AdminContent() {
     [serviceVisibleOrders]
   );
 
-  const resolveNextFormulaServiceStepForOrder = (order: Order) => {
-    const nonServedItems = parseItems(order.items).filter((item) => !isItemServed(item));
-    const hasFormulaItems = nonServedItems.some((item) => isFormulaOrderItem(item));
-    if (!hasFormulaItems) return "";
-    const computedNextServiceStep = resolveNextServiceStep(order, nonServedItems);
-    if (computedNextServiceStep) return computedNextServiceStep;
-    const currentStep = normalizeServiceStep(order.service_step) || "entree";
+  const resolveFormulaStepStateForOrder = (order: Order) => {
+    const formulaItems = parseItems(order.items).filter((item) => isFormulaOrderItem(item));
+    if (formulaItems.length === 0) {
+      return { currentStep: "", nextStep: "", isCurrentStepServed: false };
+    }
+
+    const availableSteps = new Set(formulaItems.flatMap((item) => resolveItemCourses(item)));
+    const currentStep =
+      normalizeServiceStep(order.service_step) ||
+      SERVICE_STEP_SEQUENCE.find((step) => availableSteps.has(step)) ||
+      "";
+    if (!currentStep) {
+      return { currentStep: "", nextStep: "", isCurrentStepServed: false };
+    }
+
+    const itemsOfCurrentStep = formulaItems.filter((item) => resolveItemCourses(item).includes(currentStep));
+    const isCurrentStepServed = itemsOfCurrentStep.length > 0 && itemsOfCurrentStep.every((item) => isItemServed(item));
+
     const currentIndex = SERVICE_STEP_SEQUENCE.indexOf(
       currentStep as (typeof SERVICE_STEP_SEQUENCE)[number]
     );
-    if (currentIndex < 0 || currentIndex >= SERVICE_STEP_SEQUENCE.length - 1) return "";
-    return SERVICE_STEP_SEQUENCE[currentIndex + 1];
+    let nextStep = "";
+    if (currentIndex >= 0 && currentIndex < SERVICE_STEP_SEQUENCE.length - 1) {
+      for (let index = currentIndex + 1; index < SERVICE_STEP_SEQUENCE.length; index += 1) {
+        const candidate = SERVICE_STEP_SEQUENCE[index];
+        if (availableSteps.has(candidate)) {
+          nextStep = candidate;
+          break;
+        }
+      }
+    }
+
+    return { currentStep, nextStep, isCurrentStepServed };
   };
 
   const tableStatusRows = useMemo(() => {
@@ -3596,13 +3627,12 @@ function AdminContent() {
 
         const formulaActionOrder =
           tableOrders.find((order) => {
-            const nextStep = resolveNextFormulaServiceStepForOrder(order);
+            const { nextStep, isCurrentStepServed } = resolveFormulaStepStateForOrder(order);
             if (!nextStep) return false;
-            const progress = getOrderItemProgress(order);
-            return progress.readyItems.length > 0;
+            return isCurrentStepServed;
           }) || null;
         const formulaNextServiceStep = formulaActionOrder
-          ? resolveNextFormulaServiceStepForOrder(formulaActionOrder)
+          ? resolveFormulaStepStateForOrder(formulaActionOrder).nextStep
           : "";
 
         return {
@@ -3615,7 +3645,7 @@ function AdminContent() {
         };
       })
       .sort((a, b) => a.tableNumber - b.tableNumber);
-  }, [orders, waitClockMs, resolveNextFormulaServiceStepForOrder]);
+  }, [orders, waitClockMs]);
 
   const pendingNotifications = useMemo(
     () => serviceNotifications.filter((n) => !n.status || String(n.status).toLowerCase() === "pending"),
@@ -3671,10 +3701,36 @@ function AdminContent() {
     if (!normalizedNext) return;
     const orderId = String(order.id || "").trim();
     if (!orderId) return;
+
+    const currentItems = parseItems(order.items);
+    const hasFormulaItems = currentItems.some((item) => isFormulaOrderItem(item));
+    const nextItems = hasFormulaItems
+      ? currentItems.map((item) =>
+          isFormulaOrderItem(item) && isItemServed(item)
+            ? { ...(item || {}), status: "pending" }
+            : item
+        )
+      : currentItems;
+    const nextStatus = hasFormulaItems ? deriveOrderStatusFromItems(nextItems) : order.status;
+
     setOrders((prev) =>
-      prev.map((row) => (String(row.id) === orderId ? { ...row, service_step: normalizedNext } : row))
+      prev.map((row) =>
+        String(row.id) === orderId
+          ? {
+              ...row,
+              service_step: normalizedNext,
+              items: hasFormulaItems ? nextItems : row.items,
+              status: hasFormulaItems ? nextStatus : row.status,
+            }
+          : row
+      )
     );
-    const { error } = await supabase.from("orders").update({ service_step: normalizedNext }).eq("id", orderId);
+    const updatePayload: Record<string, unknown> = { service_step: normalizedNext };
+    if (hasFormulaItems) {
+      updatePayload.items = nextItems;
+      updatePayload.status = nextStatus;
+    }
+    const { error } = await supabase.from("orders").update(updatePayload).eq("id", orderId);
     if (error) {
       console.error("Erreur update service_step:", error);
       await fetchOrders();
@@ -4486,6 +4542,7 @@ function AdminContent() {
                     const selectedDishIdForDefaults = selectedDishForCategory
                       ? String(selectedDishForCategory.id || "").trim()
                       : "";
+                    const formulaOptionsPanelId = `formula-options-${categoryId}`;
                     const rawDefaultOptionIdsForSelectedDish = selectedDishIdForDefaults
                       ? formulaDefaultOptionsByDishId.get(selectedDishIdForDefaults) || []
                       : [];
@@ -4547,6 +4604,23 @@ function AdminContent() {
                                               selectedProductOptionIds: nextDefaultOptionIds,
                                             },
                                           }));
+                                          const hasNestedFormulaOptions =
+                                            loadedConfig.productOptions.length > 0 ||
+                                            loadedConfig.hasRequiredSides ||
+                                            loadedConfig.askCooking;
+                                          if (hasNestedFormulaOptions) {
+                                            setFormulaModalItemDetailsOpen((prev) => ({
+                                              ...prev,
+                                              [optionId]: true,
+                                            }));
+                                            if (typeof window !== "undefined") {
+                                              window.requestAnimationFrame(() => {
+                                                document
+                                                  .getElementById(formulaOptionsPanelId)
+                                                  ?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+                                              });
+                                            }
+                                          }
                                         })();
                                       }}
                                       className={`flex-1 text-left px-3 py-2 rounded border-2 font-black ${
@@ -4591,7 +4665,7 @@ function AdminContent() {
                           </div>
                         )}
                         {selectedDishForCategory && formulaDishConfig ? (
-                          <div className="mt-3 space-y-3 border-t border-black/20 pt-3">
+                          <div id={formulaOptionsPanelId} className="mt-3 space-y-3 border-t border-black/20 pt-3">
                             {formulaDishConfig.productOptions.length > 0 ? (
                               <div>
                                 <div className="text-xs font-black uppercase tracking-wide mb-2">

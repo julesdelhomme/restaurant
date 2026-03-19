@@ -3456,13 +3456,6 @@ export default function MenuDigital() {
           .from("subcategories")
           .select("*")
           .order("id", { ascending: true });
-    if (subRowsResult.error && scopedRestaurantId && String((subRowsResult.error as { code?: string })?.code || "") === "42703") {
-      subRowsResult = await supabase
-        .from("subcategories")
-        .select("*")
-        .eq("id_restaurant", scopedRestaurantId)
-        .order("id", { ascending: true });
-    }
     if (subRowsResult.error && !scopedRestaurantId) {
       subRowsResult = await supabase
         .from("subcategories")
@@ -3760,13 +3753,6 @@ export default function MenuDigital() {
           .from("sides_library")
           .select("*")
           .order("id", { ascending: true });
-    if (sideRowsResult.error && scopedRestaurantId && String((sideRowsResult.error as { code?: string })?.code || "") === "42703") {
-      sideRowsResult = await supabase
-        .from("sides_library")
-        .select("*")
-        .eq("id_restaurant", scopedRestaurantId)
-        .order("id", { ascending: true });
-    }
     if (sideRowsResult.error && !scopedRestaurantId) {
       sideRowsResult = await supabase
         .from("sides_library")
@@ -3789,16 +3775,6 @@ export default function MenuDigital() {
       : await supabase
           .from("table_assignments")
           .select("table_number,pin_code");
-    if (
-      tableAssignmentResult.error &&
-      scopedRestaurantId &&
-      String((tableAssignmentResult.error as { code?: string })?.code || "") === "42703"
-    ) {
-      tableAssignmentResult = await supabase
-        .from("table_assignments")
-        .select("table_number,pin_code")
-        .eq("id_restaurant", scopedRestaurantId);
-    }
     if (tableAssignmentResult.error && !scopedRestaurantId) {
       tableAssignmentResult = await supabase
         .from("table_assignments")

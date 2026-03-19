@@ -1419,14 +1419,6 @@ export default function KitchenPage() {
         .eq("restaurant_id", restaurantId)
         .gt("created_at", sinceIso)
         .order("created_at", { ascending: true });
-      if (ordersResult.error && String((ordersResult.error as { code?: string })?.code || "") === "42703") {
-        ordersResult = await supabase
-          .from("orders")
-          .select("*")
-          .eq("id_restaurant", restaurantId)
-          .gt("created_at", sinceIso)
-          .order("created_at", { ascending: true });
-      }
       const { data: rawOrders, error } = ordersResult;
 
       if (error) {
