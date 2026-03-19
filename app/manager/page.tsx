@@ -119,6 +119,7 @@ const ALLERGEN_OPTIONS = ["Gluten", "Lactose", "Arachides", "\u0152ufs", "Lait",
 const DEFAULT_ALLERGEN_TRANSLATIONS = DEFAULT_ALLERGEN_TRANSLATIONS_EXTENDED;
 const PREDEFINED_LANGUAGE_OPTIONS = PREDEFINED_LANGUAGE_OPTIONS_EXTENDED;
 const FORMULA_PARENT_STEP_KEY = "__formula_parent__";
+const FORMULA_DIRECT_SEND_SEQUENCE = 4;
 const MENU_FONT_OPTIONS = [
   "Inter",
   "Roboto",
@@ -11784,7 +11785,7 @@ export default function MenuManager() {
                   <div className="mt-4 border-t border-gray-200 pt-3">
                     <label className="block mb-2 font-bold">Étape du plat principal (formule)</label>
                     <p className="text-xs text-gray-600 mb-2">
-                      Le plat parent de la formule est toujours synchronisé avec un step.
+                      Le plat parent de la formule est toujours synchronisé avec un step. L&apos;option Envoi Direct force un départ immédiat vers le Bar/Caisse.
                     </p>
                     <div className="inline-flex items-center gap-2 text-xs font-bold text-gray-700">
                       <span>Étape</span>
@@ -11810,6 +11811,7 @@ export default function MenuManager() {
                         <option value={1}>ÉTAPE 1</option>
                         <option value={2}>ÉTAPE 2</option>
                         <option value={3}>ÉTAPE 3</option>
+                        <option value={FORMULA_DIRECT_SEND_SEQUENCE}>ENVOI DIRECT (BAR/CAISSE)</option>
                       </select>
                     </div>
                   </div>
@@ -11906,6 +11908,7 @@ export default function MenuManager() {
                                               <option value={1}>ÉTAPE 1</option>
                                               <option value={2}>ÉTAPE 2</option>
                                               <option value={3}>ÉTAPE 3</option>
+                                              <option value={FORMULA_DIRECT_SEND_SEQUENCE}>ENVOI DIRECT (BAR/CAISSE)</option>
                                             </select>
                                           </label>
                                         </div>
