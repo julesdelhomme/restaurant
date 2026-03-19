@@ -672,8 +672,10 @@ function AdminContent() {
   const [formulaModalError, setFormulaModalError] = useState("");
   const [formulaModalItemDetailsOpen, setFormulaModalItemDetailsOpen] = useState<Record<string, boolean>>({});
   const [formulaResolvedDishById, setFormulaResolvedDishById] = useState<Record<string, DishItem>>({});
+  const [formulaOptionModalState, setFormulaOptionModalState] = useState<{ categoryId: string; dishId: string } | null>(null);
   const [readyAlertOrderIds, setReadyAlertOrderIds] = useState<Record<string, boolean>>({});
   const [hasReadyTabAlert, setHasReadyTabAlert] = useState(false);
+  const [sendingNextStepOrderIds, setSendingNextStepOrderIds] = useState<Record<string, boolean>>({});
   const [waitClockMs, setWaitClockMs] = useState(() => Date.now());
   const fastEntryInitializedRef = useRef(false);
   const selectedCategoryInitializedRef = useRef(false);
@@ -1259,10 +1261,53 @@ function AdminContent() {
     });
     return Array.from(new Set(values)).sort((a, b) => a - b);
   };
+  const resolveCurrentFormulaSequenceForItem = (item: Item) => {
+    const record = item as unknown as Record<string, unknown>;
+    const rawCurrent = Number(
+      record.formula_current_sequence ?? record.formulaCurrentSequence ?? record.sequence
+    );
+    if (Number.isFinite(rawCurrent) && rawCurrent > 0) return Math.max(1, Math.trunc(rawCurrent));
+    const sequences = resolveFormulaSequenceListForItem(item);
+    if (sequences.length === 0) return null;
+    return sequences[0];
+  };
+  const resolveNextFormulaSequenceForItem = (item: Item) => {
+    const currentSequence = resolveCurrentFormulaSequenceForItem(item);
+    if (!Number.isFinite(currentSequence)) return null;
+    const sequences = resolveFormulaSequenceListForItem(item);
+    return sequences.find((sequence) => sequence > Number(currentSequence)) || null;
+  };
+  const resolveFormulaEntryForSequence = (item: Item, sequence: number) => {
+    const record = item as unknown as Record<string, unknown>;
+    const sources = [
+      record.formula_items,
+      record.formulaItems,
+      record.selected_options,
+      record.selectedOptions,
+      record.options,
+    ];
+    for (const source of sources) {
+      const entries = parseFormulaEntryList(source);
+      for (const entry of entries) {
+        const kind = normalizeLookupText(entry.kind ?? entry.type ?? entry.group ?? "");
+        const isFormulaEntry =
+          kind === "formula" ||
+          kind.includes("formula") ||
+          entry.formula_dish_id != null ||
+          entry.sequence != null;
+        if (!isFormulaEntry) continue;
+        const rawSequence = Number(entry.sequence ?? entry.service_step_sequence ?? entry.step);
+        if (!Number.isFinite(rawSequence) || rawSequence <= 0) continue;
+        const normalizedSequence = Math.max(1, Math.trunc(rawSequence));
+        if (normalizedSequence === sequence) return entry;
+      }
+    }
+    return null;
+  };
   const resolveItemCourse = (item: Item) => {
-    const formulaSequences = resolveFormulaSequenceListForItem(item);
-    if (formulaSequences.length > 0) {
-      const fromSequence = resolveCourseFromSequence(formulaSequences[0]);
+    const currentFormulaSequence = resolveCurrentFormulaSequenceForItem(item);
+    if (Number.isFinite(currentFormulaSequence) && Number(currentFormulaSequence) > 0) {
+      const fromSequence = resolveCourseFromSequence(currentFormulaSequence);
       if (fromSequence) return fromSequence;
     }
     const record = item as unknown as Record<string, unknown>;
@@ -1740,6 +1785,50 @@ function AdminContent() {
     });
     return hasMissingRequiredOptions;
   })();
+
+  const formulaOptionModalCategoryId = String(formulaOptionModalState?.categoryId || "").trim();
+  const formulaOptionModalDishId = String(formulaOptionModalState?.dishId || "").trim();
+  const formulaOptionModalDish = formulaOptionModalDishId
+    ? resolveFormulaDishRecord(dishById.get(formulaOptionModalDishId))
+    : null;
+  const formulaOptionModalConfig = formulaOptionModalDish ? getFormulaDishConfig(formulaOptionModalDish) : null;
+  const formulaOptionModalDetails = formulaOptionModalCategoryId
+    ? getFormulaSelectionDetails(formulaOptionModalCategoryId)
+    : emptyFormulaSelectionDetails;
+  const formulaOptionModalAllowMulti = Boolean(
+    (formulaOptionModalDish as unknown as { allow_multi_select?: unknown } | null)?.allow_multi_select
+  );
+  const formulaOptionModalAvailableOptionIds = new Set(
+    (formulaOptionModalConfig?.productOptions || [])
+      .map((option) => String(option.id || "").trim())
+      .filter(Boolean)
+  );
+  const formulaOptionModalDefaultOptionIds = (formulaOptionModalDishId
+    ? formulaDefaultOptionsByDishId.get(formulaOptionModalDishId) || []
+    : []
+  ).filter((id) => formulaOptionModalAvailableOptionIds.has(String(id || "").trim()));
+  const formulaOptionModalOpen = Boolean(
+    formulaOptionModalCategoryId &&
+      formulaOptionModalDishId &&
+      formulaOptionModalDish &&
+      formulaOptionModalConfig &&
+      (
+        formulaOptionModalConfig.productOptions.length > 0 ||
+        formulaOptionModalConfig.hasRequiredSides ||
+        formulaOptionModalConfig.askCooking
+      )
+  );
+  const formulaOptionModalMissingRequired = Boolean(
+    formulaOptionModalConfig &&
+      (
+        (formulaOptionModalConfig.productOptions.length > 0 &&
+          formulaOptionModalDetails.selectedProductOptionIds.length === 0) ||
+        (formulaOptionModalConfig.hasRequiredSides &&
+          formulaOptionModalDetails.selectedSides.length === 0) ||
+        (formulaOptionModalConfig.askCooking &&
+          !String(formulaOptionModalDetails.selectedCooking || "").trim())
+      )
+  );
 
   useEffect(() => {
     if (!formulaModalDish || !formulaModalSourceDish) return;
@@ -2690,6 +2779,7 @@ function AdminContent() {
     setFormulaModalError("");
     setFormulaModalItemDetailsOpen({});
     setFormulaResolvedDishById({});
+    setFormulaOptionModalState(null);
   };
 
   const openFormulaModal = (formula: DishItem, sourceDish?: DishItem | null) => {
@@ -2703,6 +2793,7 @@ function AdminContent() {
     setFormulaModalSelectionDetails({});
     setFormulaModalError("");
     setFormulaModalItemDetailsOpen({});
+    setFormulaOptionModalState(null);
     setFormulaResolvedDishById(() => {
       const next: Record<string, DishItem> = {};
       const formulaId = String(sourceFormula.id || "").trim();
@@ -2725,6 +2816,60 @@ function AdminContent() {
       setFormulaResolvedDishById((prev) => ({ ...prev, [dishId]: loadedDish }));
     }
     return loadedDish;
+  };
+
+  const openFormulaItemOptionsModal = async (
+    categoryId: string,
+    optionDish: DishItem,
+    resetSelectionDetails = true
+  ) => {
+    const normalizedCategoryId = String(categoryId || "").trim();
+    const optionId = String(optionDish.id || "").trim();
+    if (!normalizedCategoryId || !optionId) return;
+
+    setFormulaModalError("");
+    setFormulaModalSelections((prev) => ({ ...prev, [normalizedCategoryId]: optionId }));
+
+    const optionDishResolved = resolveFormulaDishRecord(optionDish) || optionDish;
+    const loadedDish = (await ensureFormulaDishDetails(optionDishResolved)) || optionDishResolved;
+    const loadedConfig = getFormulaDishConfig(loadedDish);
+    const rawDefaultOptionIds = formulaDefaultOptionsByDishId.get(optionId) || [];
+    const allowedOptionIds = new Set(
+      loadedConfig.productOptions.map((option) => String(option.id || "").trim()).filter(Boolean)
+    );
+    const normalizedDefaults = rawDefaultOptionIds.filter((id) =>
+      allowedOptionIds.has(String(id || "").trim())
+    );
+    const allowMultiDefaults = Boolean(
+      (loadedDish as unknown as { allow_multi_select?: unknown }).allow_multi_select
+    );
+    const nextDefaultOptionIds = allowMultiDefaults ? normalizedDefaults : normalizedDefaults.slice(0, 1);
+
+    setFormulaModalSelectionDetails((prev) => {
+      const current = prev[normalizedCategoryId];
+      if (!resetSelectionDetails && current) {
+        return prev;
+      }
+      return {
+        ...prev,
+        [normalizedCategoryId]: {
+          selectedSideIds: [],
+          selectedSides: [],
+          selectedCooking: "",
+          selectedProductOptionIds: nextDefaultOptionIds,
+        },
+      };
+    });
+
+    const hasNestedFormulaOptions =
+      loadedConfig.productOptions.length > 0 ||
+      loadedConfig.hasRequiredSides ||
+      loadedConfig.askCooking;
+    if (hasNestedFormulaOptions) {
+      setFormulaOptionModalState({ categoryId: normalizedCategoryId, dishId: optionId });
+    } else {
+      setFormulaOptionModalState(null);
+    }
   };
 
   const openOptionsModal = async (dish: DishItem) => {
@@ -2765,6 +2910,10 @@ function AdminContent() {
 
   const handleAddFormulaLine = async () => {
     if (!formulaModalDish) return;
+    if (formulaOptionModalOpen) {
+      setFormulaModalError("Validez les options du plat sélectionné avant d'ajouter la formule.");
+      return;
+    }
     const missingCategory = normalizedFormulaCategoryIds.find((categoryId) => {
       const normalizedCategoryId = String(categoryId || "").trim();
       if (!normalizedCategoryId) return false;
@@ -3547,7 +3696,7 @@ function AdminContent() {
       return { currentStep: "", nextStep: "", isCurrentStepServed: false };
     }
 
-    const itemsOfCurrentStep = formulaItems.filter((item) => resolveItemCourses(item).includes(currentStep));
+    const itemsOfCurrentStep = formulaItems.filter((item) => resolveItemCourse(item) === currentStep);
     const isCurrentStepServed = itemsOfCurrentStep.length > 0 && itemsOfCurrentStep.every((item) => isItemServed(item));
 
     const currentIndex = SERVICE_STEP_SEQUENCE.indexOf(
@@ -3701,39 +3850,91 @@ function AdminContent() {
     if (!normalizedNext) return;
     const orderId = String(order.id || "").trim();
     if (!orderId) return;
+    if (sendingNextStepOrderIds[orderId]) return;
 
-    const currentItems = parseItems(order.items);
-    const hasFormulaItems = currentItems.some((item) => isFormulaOrderItem(item));
-    const nextItems = hasFormulaItems
-      ? currentItems.map((item) =>
-          isFormulaOrderItem(item) && isItemServed(item)
-            ? { ...(item || {}), status: "pending" }
-            : item
+    setSendingNextStepOrderIds((prev) => ({ ...prev, [orderId]: true }));
+
+    try {
+      const currentItems = parseItems(order.items);
+      const currentStepState = resolveFormulaStepStateForOrder(order);
+      const currentStep = currentStepState.currentStep || normalizeServiceStep(order.service_step);
+      const hasFormulaItems = currentItems.some((item) => isFormulaOrderItem(item));
+      const nextItems = hasFormulaItems
+        ? currentItems.map((item) => {
+            if (!isFormulaOrderItem(item)) return item;
+            if (currentStep && resolveItemCourse(item) !== currentStep) return item;
+            if (!isItemServed(item)) return item;
+
+            const nextSequence = resolveNextFormulaSequenceForItem(item);
+            if (!Number.isFinite(nextSequence) || Number(nextSequence) <= 0) return item;
+            const normalizedNextSequence = Math.max(1, Math.trunc(Number(nextSequence)));
+            const nextFormulaEntry = resolveFormulaEntryForSequence(item, normalizedNextSequence);
+            const nextDishId = String(nextFormulaEntry?.dish_id ?? nextFormulaEntry?.dishId ?? item.dish_id ?? item.id ?? "").trim();
+            const nextDishName = String(
+              nextFormulaEntry?.dish_name ??
+                nextFormulaEntry?.dish_name_fr ??
+                nextFormulaEntry?.dishName ??
+                nextFormulaEntry?.name ??
+                nextFormulaEntry?.value ??
+                item.name
+            ).trim();
+            const nextCategoryLabel = String(nextFormulaEntry?.category_label ?? nextFormulaEntry?.categoryLabel ?? item.category ?? item.categorie ?? "").trim();
+            const currentItemCategoryId = (item as unknown as Record<string, unknown>).category_id ?? null;
+            const nextCategoryId = nextFormulaEntry?.category_id ?? nextFormulaEntry?.categoryId ?? currentItemCategoryId;
+
+            return {
+              ...(item || {}),
+              id: nextDishId || item.id,
+              dish_id: nextDishId || item.dish_id,
+              name: nextDishName || item.name,
+              name_fr: nextDishName || item.name_fr,
+              category: nextCategoryLabel || item.category,
+              categorie: nextCategoryLabel || item.categorie,
+              category_id: nextCategoryId,
+              formula_current_sequence: normalizedNextSequence,
+              formulaCurrentSequence: normalizedNextSequence,
+              status: "pending",
+            };
+          })
+        : currentItems;
+      const hasAnyAdvancedFormulaItem =
+        hasFormulaItems &&
+        nextItems.some((item, index) => {
+          if (!isFormulaOrderItem(item)) return false;
+          const previous = currentItems[index];
+          return Number((item as unknown as Record<string, unknown>).formula_current_sequence ?? 0) !==
+            Number((previous as unknown as Record<string, unknown>)?.formula_current_sequence ?? 0);
+        });
+      const nextStatus = hasFormulaItems ? deriveOrderStatusFromItems(nextItems) : order.status;
+
+      setOrders((prev) =>
+        prev.map((row) =>
+          String(row.id) === orderId
+            ? {
+                ...row,
+                service_step: normalizedNext,
+                items: hasFormulaItems && hasAnyAdvancedFormulaItem ? nextItems : row.items,
+                status: hasFormulaItems && hasAnyAdvancedFormulaItem ? nextStatus : row.status,
+              }
+            : row
         )
-      : currentItems;
-    const nextStatus = hasFormulaItems ? deriveOrderStatusFromItems(nextItems) : order.status;
-
-    setOrders((prev) =>
-      prev.map((row) =>
-        String(row.id) === orderId
-          ? {
-              ...row,
-              service_step: normalizedNext,
-              items: hasFormulaItems ? nextItems : row.items,
-              status: hasFormulaItems ? nextStatus : row.status,
-            }
-          : row
-      )
-    );
-    const updatePayload: Record<string, unknown> = { service_step: normalizedNext };
-    if (hasFormulaItems) {
-      updatePayload.items = nextItems;
-      updatePayload.status = nextStatus;
-    }
-    const { error } = await supabase.from("orders").update(updatePayload).eq("id", orderId);
-    if (error) {
-      console.error("Erreur update service_step:", error);
-      await fetchOrders();
+      );
+      const updatePayload: Record<string, unknown> = { service_step: normalizedNext };
+      if (hasFormulaItems && hasAnyAdvancedFormulaItem) {
+        updatePayload.items = nextItems;
+        updatePayload.status = nextStatus;
+      }
+      const { error } = await supabase.from("orders").update(updatePayload).eq("id", orderId);
+      if (error) {
+        console.error("Erreur update service_step:", error);
+        await fetchOrders();
+      }
+    } finally {
+      setSendingNextStepOrderIds((prev) => {
+        const next = { ...prev };
+        delete next[orderId];
+        return next;
+      });
     }
   };
 
@@ -4481,8 +4682,9 @@ function AdminContent() {
                     {row.formulaActionOrder && row.formulaNextServiceStep ? (
                       <button
                         type="button"
+                        disabled={Boolean(sendingNextStepOrderIds[String((row.formulaActionOrder as Order).id || "")])}
                         onClick={() => void handleSendNextServiceStep(row.formulaActionOrder as Order, row.formulaNextServiceStep)}
-                        className="mt-2 w-full border-2 border-black bg-orange-200 px-2 py-2 text-xs font-black text-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none"
+                        className="mt-2 w-full border-2 border-black bg-orange-200 px-2 py-2 text-xs font-black text-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         Entrées terminées / Envoyer la suite
                         {SERVICE_STEP_LABELS[row.formulaNextServiceStep]
@@ -4567,7 +4769,6 @@ function AdminContent() {
                               const isSelected = selectedId === optionId;
                               const optionDishResolved = resolveFormulaDishRecord(optionDish) || optionDish;
                               const optionConfig = getFormulaDishConfig(optionDishResolved);
-                              const rawDefaultOptionIds = formulaDefaultOptionsByDishId.get(optionId) || [];
                               const isDetailsOpen = Boolean(formulaModalItemDetailsOpen[optionId]);
                               const optionDescription = getDishCleanDescription(optionDish);
                               return (
@@ -4576,52 +4777,11 @@ function AdminContent() {
                                     <button
                                       type="button"
                                       onClick={() => {
-                                        void (async () => {
-                                          setFormulaModalError("");
-                                          setFormulaModalSelections((prev) => ({ ...prev, [categoryId]: optionId }));
-                                          const loadedDish = (await ensureFormulaDishDetails(optionDishResolved)) || optionDishResolved;
-                                          const loadedConfig = getFormulaDishConfig(loadedDish);
-                                          const allowedOptionIds = new Set(
-                                            loadedConfig.productOptions
-                                              .map((option) => String(option.id || "").trim())
-                                              .filter(Boolean)
-                                          );
-                                          const normalizedDefaults = rawDefaultOptionIds.filter((id) =>
-                                            allowedOptionIds.has(String(id || "").trim())
-                                          );
-                                          const allowMultiDefaults = Boolean(
-                                            (loadedDish as unknown as { allow_multi_select?: unknown }).allow_multi_select
-                                          );
-                                          const nextDefaultOptionIds = allowMultiDefaults
-                                            ? normalizedDefaults
-                                            : normalizedDefaults.slice(0, 1);
-                                          setFormulaModalSelectionDetails((prev) => ({
-                                            ...prev,
-                                            [categoryId]: {
-                                              selectedSideIds: [],
-                                              selectedSides: [],
-                                              selectedCooking: "",
-                                              selectedProductOptionIds: nextDefaultOptionIds,
-                                            },
-                                          }));
-                                          const hasNestedFormulaOptions =
-                                            loadedConfig.productOptions.length > 0 ||
-                                            loadedConfig.hasRequiredSides ||
-                                            loadedConfig.askCooking;
-                                          if (hasNestedFormulaOptions) {
-                                            setFormulaModalItemDetailsOpen((prev) => ({
-                                              ...prev,
-                                              [optionId]: true,
-                                            }));
-                                            if (typeof window !== "undefined") {
-                                              window.requestAnimationFrame(() => {
-                                                document
-                                                  .getElementById(formulaOptionsPanelId)
-                                                  ?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-                                              });
-                                            }
-                                          }
-                                        })();
+                                        setFormulaModalItemDetailsOpen((prev) => ({
+                                          ...prev,
+                                          [optionId]: true,
+                                        }));
+                                        void openFormulaItemOptionsModal(categoryId, optionDishResolved, true);
                                       }}
                                       className={`flex-1 text-left px-3 py-2 rounded border-2 font-black ${
                                         isSelected ? "bg-black text-white border-black" : "bg-white text-black border-black"
@@ -4848,6 +5008,201 @@ function AdminContent() {
                 className="w-full h-12 bg-black text-white font-black border-2 border-black disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Ajouter la formule
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {formulaOptionModalOpen && formulaOptionModalDish && formulaOptionModalConfig ? (
+        <div className="fixed inset-0 z-[60] bg-black/70 flex items-center justify-center p-4">
+          <div className="w-full max-w-xl bg-white border-2 border-black rounded-lg max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b-2 border-black px-4 py-3">
+              <div>
+                <div className="text-xs uppercase font-black text-black/60">ProductOptionsModal</div>
+                <div className="text-lg font-black">{getDishName(formulaOptionModalDish)}</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setFormulaOptionModalState(null)}
+                className="h-9 w-9 border-2 border-black bg-white font-black"
+                aria-label="Fermer"
+              >
+                &times;
+              </button>
+            </div>
+
+            <div className="p-4 space-y-4">
+              {formulaOptionModalConfig.productOptions.length > 0 ? (
+                <div>
+                  <div className="text-xs font-black uppercase tracking-wide mb-2">{formulaOptionsLabel}</div>
+                  <div className="grid grid-cols-1 gap-2">
+                    {formulaOptionModalConfig.productOptions.map((option) => {
+                      const optionId = String(option.id || "").trim();
+                      if (!optionId) return null;
+                      const optionPrice = parsePriceNumber(option.price);
+                      const isPaidOption = optionPrice > 0;
+                      const isDefaultOption = formulaOptionModalDefaultOptionIds.includes(optionId);
+                      const isLocked = isPaidOption && !isDefaultOption;
+                      const selected = formulaOptionModalDetails.selectedProductOptionIds.includes(optionId);
+                      return (
+                        <label
+                          key={`formula-option-modal-option-${formulaOptionModalCategoryId}-${optionId}`}
+                          className={`flex items-center gap-2 text-sm font-bold ${isLocked ? "text-gray-400" : "text-black"}`}
+                        >
+                          <input
+                            type={formulaOptionModalAllowMulti ? "checkbox" : "radio"}
+                            name={`formula-option-modal-${formulaOptionModalCategoryId}`}
+                            checked={selected}
+                            disabled={isLocked}
+                            onChange={(event) => {
+                              if (isLocked) return;
+                              setFormulaModalError("");
+                              setFormulaModalSelectionDetails((prev) => {
+                                const current = prev[formulaOptionModalCategoryId] || {
+                                  selectedSideIds: [],
+                                  selectedSides: [],
+                                  selectedCooking: "",
+                                  selectedProductOptionIds: [],
+                                };
+                                const nextIds = formulaOptionModalAllowMulti
+                                  ? event.target.checked
+                                    ? [...current.selectedProductOptionIds, optionId]
+                                    : current.selectedProductOptionIds.filter((id) => id !== optionId)
+                                  : event.target.checked
+                                    ? [optionId]
+                                    : [];
+                                return {
+                                  ...prev,
+                                  [formulaOptionModalCategoryId]: {
+                                    ...current,
+                                    selectedProductOptionIds: Array.from(new Set(nextIds)),
+                                  },
+                                };
+                              });
+                            }}
+                          />
+                          <span>
+                            {String(option.name || "").trim()}
+                            {optionPrice > 0 ? ` (+${optionPrice.toFixed(2)}\u20AC)` : ""}
+                            {isLocked ? ` (${formulaOptionLockedLabel})` : ""}
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : null}
+
+              {formulaOptionModalConfig.hasRequiredSides ? (
+                <div>
+                  <div className="text-xs font-black uppercase tracking-wide mb-2">
+                    Accompagnements ({Math.min(formulaOptionModalConfig.maxSides, formulaOptionModalDetails.selectedSides.length)}/{formulaOptionModalConfig.maxSides})
+                  </div>
+                  {formulaOptionModalConfig.sideOptions.length === 0 ? (
+                    <div className="text-xs font-bold text-red-600">Aucun accompagnement configuré.</div>
+                  ) : (
+                    <div className="grid grid-cols-1 gap-2">
+                      {formulaOptionModalConfig.sideOptions.map((sideLabel) => {
+                        const sideId = sideIdByAlias.get(normalizeLookupText(sideLabel)) || sideLabel;
+                        const checked = formulaOptionModalDetails.selectedSideIds.includes(sideId);
+                        return (
+                          <label
+                            key={`formula-option-modal-side-${formulaOptionModalCategoryId}-${sideId}`}
+                            className="flex items-center gap-2 text-sm font-bold"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={(event) => {
+                                setFormulaModalError("");
+                                setFormulaModalSelectionDetails((prev) => {
+                                  const current = prev[formulaOptionModalCategoryId] || {
+                                    selectedSideIds: [],
+                                    selectedSides: [],
+                                    selectedCooking: "",
+                                    selectedProductOptionIds: [],
+                                  };
+                                  const maxSides = formulaOptionModalConfig.maxSides;
+                                  const nextPairs = current.selectedSideIds.map((id, index) => ({
+                                    id,
+                                    label: current.selectedSides[index] || id,
+                                  }));
+                                  const exists = nextPairs.some((entry) => entry.id === sideId);
+                                  const canAdd = nextPairs.length < maxSides;
+                                  const updatedPairs = event.target.checked
+                                    ? exists
+                                      ? nextPairs
+                                      : canAdd
+                                        ? [...nextPairs, { id: sideId, label: sideLabel }]
+                                        : nextPairs
+                                    : nextPairs.filter((entry) => entry.id !== sideId);
+                                  return {
+                                    ...prev,
+                                    [formulaOptionModalCategoryId]: {
+                                      ...current,
+                                      selectedSideIds: updatedPairs.map((entry) => entry.id),
+                                      selectedSides: updatedPairs.map((entry) => entry.label),
+                                    },
+                                  };
+                                });
+                              }}
+                            />
+                            <span>{sideLabel}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              ) : null}
+
+              {formulaOptionModalConfig.askCooking ? (
+                <div>
+                  <div className="text-xs font-black uppercase tracking-wide mb-2">Cuisson</div>
+                  <div className="grid grid-cols-1 gap-2">
+                    {COOKING_CHOICES.map((cookingLabel) => (
+                      <label
+                        key={`formula-option-modal-cooking-${formulaOptionModalCategoryId}-${cookingLabel}`}
+                        className="flex items-center gap-2 text-sm font-bold"
+                      >
+                        <input
+                          type="radio"
+                          name={`formula-option-modal-cooking-${formulaOptionModalCategoryId}`}
+                          checked={formulaOptionModalDetails.selectedCooking === cookingLabel}
+                          onChange={() => {
+                            setFormulaModalError("");
+                            setFormulaModalSelectionDetails((prev) => {
+                              const current = prev[formulaOptionModalCategoryId] || {
+                                selectedSideIds: [],
+                                selectedSides: [],
+                                selectedCooking: "",
+                                selectedProductOptionIds: [],
+                              };
+                              return {
+                                ...prev,
+                                [formulaOptionModalCategoryId]: {
+                                  ...current,
+                                  selectedCooking: cookingLabel,
+                                },
+                              };
+                            });
+                          }}
+                        />
+                        <span>{cookingLabel}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              <button
+                type="button"
+                onClick={() => setFormulaOptionModalState(null)}
+                disabled={formulaOptionModalMissingRequired}
+                className="w-full h-11 border-2 border-black bg-black text-white font-black disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Valider ce plat de formule
               </button>
             </div>
           </div>

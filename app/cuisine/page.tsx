@@ -413,6 +413,12 @@ export default function KitchenPage() {
   const resolveFormulaSequenceForItem = (item: Item) => {
     if (!isFormulaItem(item)) return null;
     const record = item as unknown as Record<string, unknown>;
+    const directCurrent = Number(
+      record.formula_current_sequence ?? record.formulaCurrentSequence ?? record.sequence
+    );
+    if (Number.isFinite(directCurrent) && directCurrent > 0) {
+      return Math.max(1, Math.trunc(directCurrent));
+    }
     const targetDishId = normalizeEntityId(
       record.dish_id ??
         record.id ??
@@ -449,6 +455,37 @@ export default function KitchenPage() {
       }
     }
     return fallbackSequence;
+  };
+  const resolveFormulaEntryForCurrentSequence = (item: Item) => {
+    if (!isFormulaItem(item)) return null;
+    const currentSequence = resolveFormulaSequenceForItem(item);
+    if (!Number.isFinite(currentSequence) || Number(currentSequence) <= 0) return null;
+    const normalizedCurrent = Math.max(1, Math.trunc(Number(currentSequence)));
+    const record = item as unknown as Record<string, unknown>;
+    const sources = [
+      record.formula_items,
+      record.formulaItems,
+      record.selected_options,
+      record.selectedOptions,
+      record.options,
+    ];
+    for (const source of sources) {
+      const entries = parseFormulaEntryList(source);
+      for (const entry of entries) {
+        const kind = normalizeLookupText(entry.kind ?? entry.type ?? entry.group ?? "");
+        const isFormulaEntry =
+          kind === "formula" ||
+          kind.includes("formula") ||
+          entry.formula_dish_id != null ||
+          entry.sequence != null;
+        if (!isFormulaEntry) continue;
+        const rawSequence = Number(entry.sequence ?? entry.service_step_sequence ?? entry.step);
+        if (!Number.isFinite(rawSequence) || rawSequence <= 0) continue;
+        const entrySequence = Math.max(1, Math.trunc(rawSequence));
+        if (entrySequence === normalizedCurrent) return entry;
+      }
+    }
+    return null;
   };
   const resolveItemCourse = (item: Item) => {
     const record = item as unknown as Record<string, unknown>;
@@ -637,6 +674,18 @@ export default function KitchenPage() {
 
   const resolveKitchenDishName = (item: Item) => {
     const itemAsRecord = item as Record<string, unknown>;
+    const currentFormulaEntry = resolveFormulaEntryForCurrentSequence(item);
+    if (currentFormulaEntry) {
+      const fromFormulaEntry = keepStaffFrenchLabel(
+        currentFormulaEntry.dish_name_fr ??
+          currentFormulaEntry.dish_name ??
+          currentFormulaEntry.dishName ??
+          currentFormulaEntry.value ??
+          currentFormulaEntry.label_fr ??
+          ""
+      );
+      if (fromFormulaEntry && !isUuidLike(fromFormulaEntry)) return fromFormulaEntry;
+    }
     const nestedDish =
       itemAsRecord.dish && typeof itemAsRecord.dish === "object"
         ? (itemAsRecord.dish as Record<string, unknown>)
@@ -821,6 +870,7 @@ export default function KitchenPage() {
       }
       return text;
     };
+    const formulaSequenceForNotes = isFormulaItem(item) ? resolveFormulaSequenceForItem(item) : null;
     const extractOptionValuesByKind = (value: unknown, kinds: Array<"side" | "cooking" | "option">) => {
       const result: Record<"side" | "cooking" | "option", string[]> = { side: [], cooking: [], option: [] };
       const entries = Array.isArray(value)
@@ -848,7 +898,16 @@ export default function KitchenPage() {
         }
 
         const rec = entry as Record<string, unknown>;
+        const source = normalizeLookupText(rec.source || "");
         const kind = normalizeLookupText(rec.kind || rec.type || rec.key || rec.group || rec.category || "");
+        if (Number.isFinite(formulaSequenceForNotes) && Number(formulaSequenceForNotes) > 0 && (source === "formula" || kind.includes("formula"))) {
+          const rawEntrySequence = Number(rec.sequence ?? rec.service_step_sequence ?? rec.step);
+          if (Number.isFinite(rawEntrySequence) && rawEntrySequence > 0) {
+            const normalizedEntrySequence = Math.max(1, Math.trunc(rawEntrySequence));
+            const normalizedFormulaSequence = Math.max(1, Math.trunc(Number(formulaSequenceForNotes)));
+            if (normalizedEntrySequence !== normalizedFormulaSequence) return;
+          }
+        }
         const rawValues = toRawChoiceList(
           rec.values ?? rec.value ?? rec.selected ?? rec.selection ?? rec.choice ?? rec.option ?? rec
         );
