@@ -5120,11 +5120,11 @@ const formulaParentDishIds = useMemo(() => {
           <div className="text-sm font-bold">Articles: {fastItemCount}</div>
           <div className="text-sm font-bold">Total: {fastTotal.toFixed(2)}&euro;</div>
         </div>
-        {formulas?.length > 0 ? (
+        {formulaUi?.length > 0 ? (
   <div className="mb-4 rounded border-2 border-black bg-amber-50 p-3">
     <div className="font-black mb-2 text-black">Formules</div>
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-      {formulas.map((formula) => (
+      {formulaUi.map((formula) => (
         <button
           key={formula.formula_id}
           onClick={() => handleFormulaClick(formula)}
@@ -5132,7 +5132,7 @@ const formulaParentDishIds = useMemo(() => {
         >
           <span className="font-bold text-black">{formula.formula_name}</span>
           <span className="font-black text-emerald-600">
-            {formula.dishes?.price || 0}€
+            {formula.dishes?.[0]?.price || 0}€
           </span>
         </button>
       ))}
