@@ -229,17 +229,20 @@ type DishItem = {
   name?: string | null;
   nom?: string | null;
   image_url?: string | null;
+  formulaImage?: string | null;  // NEW: for formula display image
   description?: string | null;
   description_fr?: string | null;
   description_en?: string | null;
   description_es?: string | null;
   description_de?: string | null;
   name_fr?: string | null;
+  formulaName?: string | null;   // NEW: formula display name
   category_id?: string | number | null;
   category?: string | null;
   categorie?: string | null;
   price?: number | string | null;
   formula_price?: number | string | null;
+  formulaPrice?: number | null;  // NEW: computed formula price
   is_formula?: boolean | null;
   formula_category_ids?: Array<string | number> | string | null;
   active?: boolean | null;
@@ -307,6 +310,14 @@ type FormulaDishLink = {
   defaultProductOptionIds?: string[];
   formulaName?: string;
   formulaImageUrl?: string;
+};
+
+type FormulaDisplay = {
+  id: string;
+  name: string;
+  price: number;
+  imageUrl: string;
+  formulaLinks: FormulaDishLink[];
 };
 
 type FastOrderLine = {
@@ -666,10 +677,11 @@ function AdminContent() {
   const [modalCooking, setModalCooking] = useState("");
   const [modalKitchenComment, setModalKitchenComment] = useState("");
 
-  const [formulaLinksByFormulaId, setFormulaLinksByFormulaId] = useState<Map<string, FormulaDishLink[]>>(new Map());
+const [formulaLinksByFormulaId, setFormulaLinksByFormulaId] = useState<Map<string, FormulaDishLink[]>>(new Map());
   const [formulaLinksByDishId, setFormulaLinksByDishId] = useState<Map<string, FormulaDishLink[]>>(new Map());
   const [formulaDisplayById, setFormulaDisplayById] = useState<Map<string, { name?: string; imageUrl?: string }>>(new Map());
   const [formulaDishIdsFromLinks, setFormulaDishIdsFromLinks] = useState<Set<string>>(new Set());
+  const [formulaDisplays, setFormulaDisplays] = useState<FormulaDisplay[]>([]);
   // const [formulaDishIdsFromFormulasTable, setFormulaDishIdsFromFormulasTable] = useState<Set<string>>(new Set());
   const [formulaPriceByDishId, setFormulaPriceByDishId] = useState<Map<string, number>>(new Map());
 // const [, setFormulasTableAvailable] = useState<boolean | null>(null);
@@ -1137,23 +1149,37 @@ function AdminContent() {
     return parsePriceNumber(dish.price);
   };
 
-  const getFormulaPackPrice = (dish: DishItem) => {
-    const formulaId = String(dish.id || "").trim();
-    const formulaTablePrice = formulaPriceByDishId.get(formulaId);
-    if (Number.isFinite(formulaTablePrice) && Number(formulaTablePrice) > 0) {
-      return Number(Number(formulaTablePrice).toFixed(2));
-    }
-    const formulaPrice = parsePriceNumber((dish as unknown as { formula_price?: unknown }).formula_price);
-    if (Number.isFinite(formulaPrice) && formulaPrice > 0) return formulaPrice;
-    const regularPrice = parsePriceNumber(dish.price);
-    return Number.isFinite(regularPrice) && regularPrice > 0 ? regularPrice : 0;
-  };
+const getFormulaPackPrice = (dish: DishItem) => {
+  // NEW: Prioritize formulaDisplays price
+  const formulaDisplay = formulaDisplays.find(fd => String(fd.id) === String(dish.id));
+  if (formulaDisplay && Number.isFinite(formulaDisplay.price) && formulaDisplay.price > 0) {
+    return formulaDisplay.price;
+  }
+  
+  const formulaId = String(dish.id || "").trim();
+  const formulaTablePrice = formulaPriceByDishId.get(formulaId);
+  if (Number.isFinite(formulaTablePrice) && Number(formulaTablePrice) > 0) {
+    return Number(Number(formulaTablePrice).toFixed(2));
+  }
+  const formulaPrice = parsePriceNumber((dish as unknown as { formula_price?: unknown }).formula_price);
+  if (Number.isFinite(formulaPrice) && formulaPrice > 0) return formulaPrice;
+  const formulaDisplayPrice = (dish as any).formulaPrice;
+  if (Number.isFinite(formulaDisplayPrice) && formulaDisplayPrice > 0) return formulaDisplayPrice;
+  const regularPrice = parsePriceNumber(dish.price);
+  return Number.isFinite(regularPrice) && regularPrice > 0 ? regularPrice : 0;
+};
 
-  const getFormulaDisplayName = (dish: DishItem) => {
-    const formulaId = String(dish.id || "").trim();
-    const display = formulaDisplayById.get(formulaId);
-    return String(display?.name || "").trim() || getDishName(dish);
-  };
+const getFormulaDisplayName = (dish: DishItem) => {
+  // NEW: Prioritize formulaDisplays name
+  const formulaDisplay = formulaDisplays.find(fd => String(fd.id) === String(dish.id));
+  if (formulaDisplay && formulaDisplay.name) {
+    return formulaDisplay.name;
+  }
+  
+  const formulaId = String(dish.id || "").trim();
+  const display = formulaDisplayById.get(formulaId);
+  return String((dish as any).formulaName || display?.name || "").trim() || getDishName(dish);
+};
 
   const getDishRawDescription = (dish: DishItem) =>
     String(dish.description_fr || dish.description || dish.description_en || dish.description_es || dish.description_de || "").trim();
@@ -2376,6 +2402,90 @@ function AdminContent() {
         };
       }
 
+      // NEW: Fetch distinct formulas with price/image
+      let formulaQueryResult = { data: null, error: null };
+      const restaurantIdParam = currentRestaurantId || null;
+      let formulaQuery = supabase
+        .from("formula_dish_links")
+        .select(`
+          formula_id,
+          formula_dish_id,
+          formula_name,
+          formula_image_url,
+          step,
+          is_main,
+          dishes!formula_dish_id(price, image_url),
+          main_dish:image_url
+        `);
+      if (restaurantIdParam) formulaQuery = formulaQuery.eq("restaurant_id", restaurantIdParam);
+      formulaQuery = formulaQuery.order("formula_id", { ascending: true }).order("step", { ascending: true });
+      let formulaPrimary = await formulaQuery;
+      formulaQueryResult = {
+        data: formulaPrimary.data,
+        error: formulaPrimary.error,
+      };
+
+      if (formulaQueryResult.error && String(formulaQueryResult.error.code || "") === "42703") {
+        // Fallback: basic query without main_dish JOIN
+        formulaQuery = supabase
+          .from("formula_dish_links")
+          .select("formula_id, formula_dish_id, formula_name, formula_image_url, step, is_main, dishes:formula_dish_id(price, image_url)")
+          .eq("restaurant_id", restaurantIdParam || "")
+          .order("formula_id", { ascending: true }).order("step", { ascending: true });
+        const formulaFallback = await formulaQuery;
+        formulaQueryResult = {
+          data: formulaFallback.data,
+          error: formulaFallback.error,
+        };
+      }
+
+      const formulaDisplaysMap = new Map<string, FormulaDisplay>();
+      if (formulaQueryResult.data && Array.isArray(formulaQueryResult.data)) {
+        const linksByFormula = new Map<string, FormulaDishLink[]>();
+        formulaQueryResult.data.forEach((row: any) => {
+          const formulaId = String(row.formula_id || row.formula_dish_id || "").trim();
+          if (!formulaId) return;
+          
+          // Build link record
+          const dishId = String(row.dish_id || "").trim();
+          const step = Number(row.step || 1);
+          const isMain = Boolean(row.is_main);
+          const link: FormulaDishLink = {
+            formulaDishId: formulaId,
+            dishId: dishId || formulaId,
+            sequence: step,
+            step,
+            isMain,
+          };
+          
+          const existingLinks = linksByFormula.get(formulaId) || [];
+          if (!existingLinks.some(l => l.dishId === link.dishId)) {
+            existingLinks.push(link);
+          }
+          linksByFormula.set(formulaId, existingLinks);
+
+          // Update display for this formula
+          let display = formulaDisplaysMap.get(formulaId);
+          if (!display) {
+            const price = Number(row.dishes?.price || 0);
+            let imageUrl = String(row.formula_image_url || "").trim();
+            if (!imageUrl) {
+              imageUrl = String(row.dishes?.image_url || "").trim();
+            }
+            display = {
+              id: formulaId,
+              name: String(row.formula_name || `Formule ${formulaId.slice(-4)}`).trim() || "Formule",
+              price,
+              imageUrl,
+              formulaLinks: [],
+            };
+            formulaDisplaysMap.set(formulaId, display);
+          }
+          display.formulaLinks = linksByFormula.get(formulaId) || [];
+        });
+      }
+      setFormulaDisplays(Array.from(formulaDisplaysMap.values()));
+
       if (linksResult.error) {
         console.warn("formula_dish_links fetch failed (admin):", linksResult.error.message || linksResult.error);
         setFormulaLinksByFormulaId(new Map());
@@ -2799,23 +2909,24 @@ function AdminContent() {
     setServiceNotifications((prev) => prev.filter((row) => String(row.id) !== String(notificationId)));
   };
 
-  const formulaParentDishIds = useMemo(() => {
-    const ids = new Set<string>();
-    dishes.forEach((dish) => {
-      if (!readBooleanFlag((dish as unknown as { is_formula?: unknown }).is_formula, false)) return;
-      const normalizedId = String(dish.id || "").trim();
-      if (normalizedId) ids.add(normalizedId);
-    });
-    return ids;
-  }, [dishes]);
+const formulaParentDishIds = useMemo(() => {
+  const ids = new Set<string>();
+  dishes.forEach((dish) => {
+    if (!readBooleanFlag((dish as unknown as { is_formula?: unknown }).is_formula, false)) return;
+    const normalizedId = String(dish.id || "").trim();
+    if (normalizedId) ids.add(normalizedId);
+  });
+  return ids;
+}, [dishes]);
 
-  const fetchFormulaDishes = () =>
-    dishes.filter((dish) => {
+  const formulaDishesFromFlags = useMemo(
+    () => dishes.filter((dish) => {
       const id = String(dish.id || "").trim();
       return id && formulaParentDishIds.has(id);
-    });
+    }),
+    [dishes, formulaParentDishIds]
+  );
 
-  const formulaDishes = fetchFormulaDishes();
   const categoriesForFastEntryBase =
     categories.length > 0
       ? categories.map((category) => {
@@ -2838,22 +2949,38 @@ function AdminContent() {
     ? selectedCategory
     : categoriesForFastEntry[0]?.key || "";
 
-  const fastEntryDishes =
-    !effectiveSelectedFastCategoryKey
-      ? dishes
-      : effectiveSelectedFastCategoryKey === FORMULAS_CATEGORY_KEY
-        ? formulaDishes
-        : dishes.filter(
-            (dish) =>
-              normalizeCategoryKey(getDishCategoryLabel(dish)) === effectiveSelectedFastCategoryKey &&
-              !formulaParentDishIds.has(String(dish.id || "").trim())
-          );
-  const visibleFastEntryDishes =
-    effectiveSelectedFastCategoryKey === FORMULAS_CATEGORY_KEY
-      ? fastEntryDishes
-      : fastEntryDishes.length > 0
-        ? fastEntryDishes
-        : dishes;
+  const fastEntryDishes = useMemo(() => {
+    if (!effectiveSelectedFastCategoryKey) return dishes;
+    
+    if (effectiveSelectedFastCategoryKey === FORMULAS_CATEGORY_KEY) {
+      // NEW: Use formulaDisplays instead of flag-based filtering
+      return formulaDisplays.map((fd) => {
+        const baseDish = dishes.find((dish) => String(dish.id) === fd.id);
+        return {
+          ... (baseDish || {
+            id: fd.id,
+            name: fd.name,
+            name_fr: fd.name,
+            price: fd.price,
+            image_url: fd.imageUrl,
+            category: "Formules",
+          }),
+          formulaName: fd.name,
+          formulaPrice: fd.price,
+          formulaImage: fd.imageUrl,
+          isFormulaDisplay: true as const,
+        } as DishItem;
+      });
+    }
+
+    return dishes.filter(
+      (dish) =>
+        normalizeCategoryKey(getDishCategoryLabel(dish)) === effectiveSelectedFastCategoryKey &&
+        !formulaParentDishIds.has(String(dish.id || "").trim())
+    );
+  }, [effectiveSelectedFastCategoryKey, dishes, formulaDisplays, formulaParentDishIds]);
+
+  const visibleFastEntryDishes = fastEntryDishes;
 
   const fastBaseLines = (() => {
     const lines: FastOrderLine[] = [];
