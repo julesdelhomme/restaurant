@@ -5120,11 +5120,11 @@ const formulaParentDishIds = useMemo(() => {
           <div className="text-sm font-bold">Articles: {fastItemCount}</div>
           <div className="text-sm font-bold">Total: {fastTotal.toFixed(2)}&euro;</div>
         </div>
-        {formulaUi?.length > 0 ? (
+        {(formulaQueryResult?.data && formulaQueryResult.data.length > 0) ? (
   <div className="mb-4 rounded border-2 border-black bg-amber-50 p-3">
     <div className="font-black mb-2 text-black">Formules</div>
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-      {formulaUi.map((formula) => (
+      {formulaQueryResult.data.map((formula: any) => (
         <button
           key={formula.formula_id}
           onClick={() => handleFormulaClick(formula)}
