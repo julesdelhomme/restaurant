@@ -183,6 +183,7 @@ type Order = {
   status: string;
   created_at: string;
   service_step?: string | null;
+  current_step?: number | null;
   covers?: number | null;
   guest_count?: number | null;
   customer_count?: number | null;
@@ -1226,6 +1227,111 @@ function AdminContent() {
     if (sequence < 0) return false;
     return Math.max(1, sequence) >= FORMULA_DIRECT_SEND_SEQUENCE;
   };
+  const mapSequenceToOrderStep = (value: unknown) => {
+    const sequence = normalizeFormulaStepValue(value, true);
+    if (sequence == null) return null;
+    if (isDirectFormulaSequence(sequence)) return 0;
+    if (sequence <= 1) return 1;
+    if (sequence === 2) return 2;
+    return 3;
+  };
+  const resolveOrderStepForPayloadItem = (item: Record<string, unknown>) => {
+    const explicit = mapSequenceToOrderStep(
+      item.step ?? item.sequence ?? item.formula_current_sequence ?? item.formulaCurrentSequence
+    );
+    if (explicit != null) return explicit;
+    const destination = String(item.destination || "").trim().toLowerCase();
+    if (destination === "bar") return 0;
+    const categoryId = item.category_id ?? item.categoryId ?? null;
+    if (item.is_drink === true || isDrink(item as unknown as Item)) return 0;
+    const resolvedDestination = resolveDestinationForCategory(categoryId, String(item.category || item.categorie || ""));
+    if (resolvedDestination === "bar") return 0;
+    const categoryLabel = normalizeLookupText(String(item.category || item.categorie || ""));
+    if (/(entree|starter|appetizer)/.test(categoryLabel)) return 1;
+    if (/(dessert|sweet|sucre|postre)/.test(categoryLabel)) return 3;
+    return 2;
+  };
+  const normalizeFormulaItemsForOrderPayload = <T extends Record<string, unknown>>(items: T[]) => {
+    const normalized = items.map((entry) => {
+      const current = { ...entry } as T;
+      const step = resolveOrderStepForPayloadItem(current as Record<string, unknown>);
+      const currentRecord = current as Record<string, unknown>;
+      currentRecord.step = step;
+      currentRecord.sequence = step;
+      return current;
+    });
+
+    const byFormulaInstance = new Map<string, number[]>();
+    normalized.forEach((entry, index) => {
+      const record = entry as Record<string, unknown>;
+      const formulaDishId = String(
+        record.formula_dish_id ?? record.formulaDishId ?? record.formula_id ?? record.formulaId ?? ""
+      ).trim();
+      const isFormulaItem = readBooleanFlag(record.is_formula, false) || Boolean(formulaDishId);
+      if (!isFormulaItem || !formulaDishId) return;
+      const explicitInstance = String(record.formula_instance_id ?? record.formulaInstanceId ?? "").trim();
+      const key = explicitInstance || formulaDishId;
+      const list = byFormulaInstance.get(key) || [];
+      list.push(index);
+      byFormulaInstance.set(key, list);
+    });
+
+    byFormulaInstance.forEach((indexes) => {
+      if (indexes.length === 0) return;
+      const pickParentIndex = () => {
+        for (const index of indexes) {
+          const rec = normalized[index] as Record<string, unknown>;
+          if (readBooleanFlag(rec.is_formula_parent ?? rec.isFormulaParent, false)) return index;
+        }
+        for (const index of indexes) {
+          const rec = normalized[index] as Record<string, unknown>;
+          if (readBooleanFlag(rec.is_main ?? rec.isMain, false)) return index;
+        }
+        for (const index of indexes) {
+          const rec = normalized[index] as Record<string, unknown>;
+          if (parsePriceNumber(rec.price) > 0 || parsePriceNumber(rec.formula_unit_price) > 0) return index;
+        }
+        return indexes[0];
+      };
+      const parentIndex = pickParentIndex();
+      const parent = normalized[parentIndex] as Record<string, unknown>;
+      const parentUnitPrice =
+        parsePriceNumber(parent.price) > 0 ? parsePriceNumber(parent.price) : parsePriceNumber(parent.formula_unit_price);
+      parent.is_formula = true;
+      parent.is_formula_parent = true;
+      parent.price = parentUnitPrice;
+      parent.base_price = parentUnitPrice;
+      parent.unit_total_price = parentUnitPrice;
+      parent.formula_unit_price = parentUnitPrice;
+
+      indexes.forEach((index) => {
+        if (index === parentIndex) return;
+        const child = normalized[index] as Record<string, unknown>;
+        child.is_formula = true;
+        child.is_formula_parent = false;
+        child.price = 0;
+        child.base_price = 0;
+        child.unit_total_price = 0;
+        child.formula_unit_price = 0;
+      });
+    });
+
+    return normalized;
+  };
+  const resolveInitialCurrentStepFromItems = (items: Array<Record<string, unknown>>) => {
+    const values = items
+      .map((item) => Number(item.step))
+      .filter((value) => Number.isFinite(value))
+      .map((value) => Math.trunc(value));
+    const positive = values.filter((value) => value > 0);
+    if (positive.length > 0) return Math.min(...positive);
+    return 0;
+  };
+  const resolveLegacyServiceStepFromCurrentStep = (currentStep: number) => {
+    if (currentStep >= 3) return "dessert";
+    if (currentStep <= 1) return "entree";
+    return "plat";
+  };
   const resolveFormulaSelectionDestination = (
     selection: Pick<FormulaSelection, "sequence" | "destination" | "categoryId" | "categoryLabel">,
     dish: DishItem | null | undefined
@@ -2255,7 +2361,83 @@ function AdminContent() {
         formulasTableIsAvailable = false;
       } else {
         formulasTableIsAvailable = true;
-        applyFormulasRows((formulasResult.data || []) as unknown[]);
+        const formulasRows = (formulasResult.data || []) as unknown[];
+        applyFormulasRows(formulasRows);
+        const virtualFormulaDishes = formulasRows
+          .map((row) => {
+            if (!row || typeof row !== "object") return null;
+            const record = row as Record<string, unknown>;
+            const formulaDishId = String(
+              record.formula_dish_id ??
+                record.formulaDishId ??
+                record.formula_id ??
+                record.formulaId ??
+                record.dish_id ??
+                record.dishId ??
+                record.id ??
+                ""
+            ).trim();
+            if (!formulaDishId) return null;
+            const formulaName = String(
+              record.formula_name ?? record.formulaName ?? record.name_fr ?? record.name ?? `Formule #${formulaDishId}`
+            ).trim();
+            const formulaPrice = parsePriceNumber(
+              record.formula_price ?? record.formulaPrice ?? record.price ?? record.unit_price ?? record.amount
+            );
+            return {
+              id: formulaDishId,
+              name: formulaName,
+              name_fr: formulaName,
+              category: FORMULAS_CATEGORY_KEY,
+              categorie: FORMULAS_CATEGORY_KEY,
+              category_id: FORMULAS_CATEGORY_KEY,
+              price: formulaPrice > 0 ? formulaPrice : 0,
+              formula_price: formulaPrice > 0 ? formulaPrice : 0,
+              is_formula: true,
+              active: true,
+            } as DishItem;
+          })
+          .filter((row): row is DishItem => Boolean(row));
+        if (virtualFormulaDishes.length > 0) {
+          const byDishId = new Map<string, DishItem>();
+          nextDishes.forEach((dish) => {
+            const key = String(dish.id || "").trim();
+            if (key) byDishId.set(key, dish);
+          });
+          virtualFormulaDishes.forEach((formulaDish) => {
+            const key = String(formulaDish.id || "").trim();
+            if (!key) return;
+            const existing = byDishId.get(key);
+            if (existing) {
+              byDishId.set(key, {
+                ...existing,
+                is_formula: true,
+                formula_price:
+                  parsePriceNumber((existing as Record<string, unknown>).formula_price) > 0
+                    ? parsePriceNumber((existing as Record<string, unknown>).formula_price)
+                    : parsePriceNumber(formulaDish.formula_price),
+                name_fr: String(existing.name_fr || existing.name || formulaDish.name_fr || "").trim() || formulaDish.name_fr,
+                name: String(existing.name || existing.name_fr || formulaDish.name || "").trim() || formulaDish.name,
+              });
+              return;
+            }
+            byDishId.set(key, formulaDish);
+          });
+          nextDishes = Array.from(byDishId.values());
+          setDishes(nextDishes);
+          setActiveDishNames(
+            new Set(
+              nextDishes
+                .filter((dish) => {
+                  const record = dish as unknown as { active?: unknown };
+                  if (record.active == null) return true;
+                  return readBooleanFlag(record.active, true);
+                })
+                .map((dish) => String((dish as { name?: unknown })?.name || "").trim().toLowerCase())
+                .filter(Boolean)
+            )
+          );
+        }
       }
       setFormulasTableAvailable(formulasTableIsAvailable);
       setFormulaDishIdsFromFormulasTable(new Set(formulaDishIdSetFromTable));
@@ -3640,10 +3822,13 @@ function AdminContent() {
     }
 
     const items: Item[] = fastLines
-      .flatMap((line) => {
+      .flatMap((line, lineIndex) => {
         const quantity = Number(line.quantity || 0);
         const rawUnitPrice = Number(line.unitPrice || 0);
         const formulaDishId = String(line.formulaDishId || "").trim() || null;
+        const formulaInstanceId = formulaDishId
+          ? `admin:${tableNumber}:${lineIndex}:${formulaDishId}`
+          : null;
         const formulaDishName = String(line.formulaDishName || "").trim() || null;
         const formulaSelections = Array.isArray(line.formulaSelections) ? line.formulaSelections : [];
         const resolveSelectionDestination = (selection: FormulaSelection): "cuisine" | "bar" => {
@@ -4007,6 +4192,8 @@ function AdminContent() {
               formula_dish_id: formulaDishId,
               formula_dish_name: formulaDishName,
               formula_unit_price: resolvedFormulaLinePrice,
+              formula_instance_id: formulaInstanceId,
+              is_formula_parent: index === formulaMainItemIndex,
               formula_current_sequence: entrySequence,
               sequence: entrySequence,
               step: entrySequence,
@@ -4065,6 +4252,9 @@ function AdminContent() {
           formula_dish_id: formulaDishId,
           formula_dish_name: formulaDishName,
           formula_unit_price: formulaUnitPrice,
+          formula_instance_id: formulaInstanceId,
+          is_formula_parent: Boolean(formulaDishId),
+          is_formula: Boolean(formulaDishId),
           formula_current_sequence: formulaCurrentSequence,
           formula_items: formulaItemsPayload.length > 0 ? formulaItemsPayload : null,
           formula: formulaPayload,
@@ -4080,7 +4270,23 @@ function AdminContent() {
       return;
     }
 
-    const totalPrice = Number(fastTotal.toFixed(2));
+    const normalizedItems = normalizeFormulaItemsForOrderPayload(
+      items as Array<Record<string, unknown>>
+    ) as Item[];
+    normalizedItems.forEach((item) => {
+      if ((item as Record<string, unknown>).formula_dish_id || (item as Record<string, unknown>).is_formula) {
+        console.log("DEBUG FORMULE:", item);
+      }
+    });
+    const currentStep = resolveInitialCurrentStepFromItems(
+      normalizedItems as Array<Record<string, unknown>>
+    );
+    const totalPrice = Number(
+      normalizedItems.reduce(
+        (sum, item) => sum + parsePriceNumber((item as Record<string, unknown>).price) * Math.max(1, Number(item.quantity || 1)),
+        0
+      ).toFixed(2)
+    );
     const resolvedRestaurantId = String(restaurantId || scopedRestaurantId || "").trim();
     if (!resolvedRestaurantId) {
       setFastMessage("ID restaurant manquant dans l'URL.");
@@ -4093,10 +4299,11 @@ function AdminContent() {
       covers: sessionCovers,
       guest_count: sessionCovers,
       customer_count: sessionCovers,
-      items: items,
+      items: normalizedItems,
       total_price: totalPrice,
       status: "pending",
-      service_step: "entree",
+      service_step: resolveLegacyServiceStepFromCurrentStep(currentStep || 1),
+      current_step: currentStep > 0 ? currentStep : 1,
     };
     const payloadWithoutId = [{
       restaurant_id: payload.restaurant_id,
@@ -4104,10 +4311,11 @@ function AdminContent() {
       covers: payload.covers,
       guest_count: payload.guest_count,
       customer_count: payload.customer_count,
-      items: items,
+      items: normalizedItems,
       total_price: payload.total_price,
       status: "pending",
-      service_step: "entree",
+      service_step: payload.service_step,
+      current_step: payload.current_step,
     }];
     const forcedOrderId = crypto.randomUUID();
 
@@ -4125,7 +4333,8 @@ function AdminContent() {
         items: payload.items,
         total_price: payload.total_price,
         status: "pending",
-        service_step: "entree",
+        service_step: payload.service_step,
+        current_step: payload.current_step,
       },
       {
         id: forcedOrderId,
@@ -4136,7 +4345,8 @@ function AdminContent() {
         items: payload.items,
         total_price: payload.total_price,
         status: "pending",
-        service_step: "entree",
+        service_step: payload.service_step,
+        current_step: payload.current_step,
       },
       {
         id: forcedOrderId,
@@ -4146,7 +4356,8 @@ function AdminContent() {
         items: payload.items,
         total_price: payload.total_price,
         status: "pending",
-        service_step: "entree",
+        service_step: payload.service_step,
+        current_step: payload.current_step,
       },
       {
         id: forcedOrderId,
@@ -4155,7 +4366,17 @@ function AdminContent() {
         items: payload.items,
         total_price: payload.total_price,
         status: "pending",
-        service_step: "entree",
+        service_step: payload.service_step,
+        current_step: payload.current_step,
+      },
+      {
+        id: forcedOrderId,
+        restaurant_id: payload.restaurant_id,
+        table_number: payload.table_number,
+        items: payload.items,
+        total_price: payload.total_price,
+        status: "pending",
+        service_step: payload.service_step,
       },
     ];
     let insertError: { message?: string; code?: string; details?: string; hint?: string } | null = null;
@@ -4280,8 +4501,27 @@ function AdminContent() {
     if (!Number.isFinite(fallback) || Number(fallback) <= 0) return null;
     return Math.max(1, Math.trunc(Number(fallback)));
   };
+  const resolveOrderCurrentStep = (order: Order) => {
+    const direct = normalizeFormulaStepValue(
+      (order as unknown as Record<string, unknown>).current_step ??
+        (order as unknown as Record<string, unknown>).currentStep,
+      true
+    );
+    if (direct != null) return direct;
+    const fromService = normalizeServiceStep(order.service_step);
+    if (fromService === "entree") return 1;
+    if (fromService === "plat") return 2;
+    if (fromService === "dessert") return 3;
+    const steps = parseItems(order.items)
+      .map((item) => resolveWorkflowStepForItem(item))
+      .filter((value): value is number => Number.isFinite(value));
+    const positive = steps.filter((value) => value > 0);
+    if (positive.length > 0) return Math.min(...positive);
+    return 0;
+  };
 
   const checkStepFinished = (order: Order) => {
+    if (resolveOrderCurrentStep(order) !== 1) return false;
     const formulaItems = parseItems(order.items).filter((item) => isFormulaOrderItem(item));
     if (formulaItems.length === 0) return false;
     const stepOneItems = formulaItems.filter((item) => resolveWorkflowStepForItem(item) === 1);
@@ -4414,56 +4654,22 @@ function AdminContent() {
     return activeEntries.filter((entry) => isItemReady(entry.item));
   };
 
-  const handleSendNextServiceStep = async (order: Order, nextStep: string, nextSequence: number | null = null) => {
-    const normalizedNext = normalizeServiceStep(nextStep);
-    if (!normalizedNext) return;
+  const handleSendNextServiceStep = async (order: Order, nextStep: number) => {
+    const normalizedNextStep = normalizeFormulaStepValue(nextStep, true);
+    if (normalizedNextStep == null || normalizedNextStep <= 0) return;
     const orderId = String(order.id || "").trim();
     if (!orderId) return;
     if (sendingNextStepOrderIds[orderId]) return;
 
-    const normalizedNextSequence =
-      Number.isFinite(nextSequence) && Number(nextSequence) > 0
-        ? Math.max(1, Math.trunc(Number(nextSequence)))
-        : (() => {
-            const stepIndex = SERVICE_STEP_SEQUENCE.indexOf(normalizedNext as (typeof SERVICE_STEP_SEQUENCE)[number]);
-            return stepIndex >= 0 ? stepIndex + 1 : null;
-          })();
-    if (!normalizedNextSequence) return;
-
     setSendingNextStepOrderIds((prev) => ({ ...prev, [orderId]: true }));
 
     try {
-      const currentItems = parseItems(order.items);
-      const hasFormulaItems = currentItems.some((item) => isFormulaOrderItem(item));
-      if (!hasFormulaItems) return;
-
-      const nextItems = currentItems.map((item) => {
-        if (!isFormulaOrderItem(item)) return item;
-        const sequence = resolveCurrentFormulaSequenceForItem(item);
-        if (!Number.isFinite(sequence) || Number(sequence) <= 0) return item;
-        const normalizedSequence = Math.max(1, Math.trunc(Number(sequence)));
-        if (normalizedSequence !== normalizedNextSequence) return item;
-        if (!isItemWaitingForNextStep(item)) return item;
-        return { ...(item || {}), status: "pending" };
-      });
-
-      const hasAnyAdvancedFormulaItem = nextItems.some(
-        (item, index) =>
-          String((item as Record<string, unknown>).status ?? "").trim() !==
-          String(((currentItems[index] as unknown as Record<string, unknown> | undefined)?.status) ?? "").trim()
-      );
-      if (!hasAnyAdvancedFormulaItem) return;
-
-      const nextStatus = deriveOrderStatusFromItems(nextItems);
-
       setOrders((prev) =>
         prev.map((row) =>
           String(row.id) === orderId
             ? {
                 ...row,
-                service_step: normalizedNext,
-                items: nextItems,
-                status: nextStatus,
+                current_step: normalizedNextStep,
               }
             : row
         )
@@ -4471,13 +4677,11 @@ function AdminContent() {
       const { error } = await supabase
         .from("orders")
         .update({
-          service_step: normalizedNext,
-          items: nextItems,
-          status: nextStatus,
+          current_step: normalizedNextStep,
         })
         .eq("id", orderId);
       if (error) {
-        console.error("Erreur update service_step:", error);
+        console.error("Erreur update current_step:", error);
         await fetchOrders();
       }
     } finally {
@@ -5245,10 +5449,10 @@ function AdminContent() {
                       <button
                         type="button"
                         disabled={Boolean(sendingNextStepOrderIds[String((row.formulaActionOrder as Order).id || "")])}
-                        onClick={() => void handleSendNextServiceStep(row.formulaActionOrder as Order, "plat", 2)}
-                        className="mt-2 w-full border-2 border-black bg-orange-200 px-2 py-2 text-xs font-black text-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none disabled:opacity-50 disabled:cursor-not-allowed"
+                        onClick={() => void handleSendNextServiceStep(row.formulaActionOrder as Order, 2)}
+                        className="mt-2 w-full border-2 border-black bg-orange-500 px-3 py-3 text-sm font-black uppercase text-white shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none disabled:opacity-50 disabled:cursor-not-allowed"
                       >
-                        Lancer l&apos;étape 2
+                        ENVOYER ÉTAPE 2
                       </button>
                     ) : null}
                   </div>

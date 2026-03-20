@@ -731,6 +731,12 @@ function getItemNotes(item: OrderItem) {
 function calcLineBreakdown(item: OrderItem) {
   const quantity = Math.max(1, Number(item.quantity) || 1);
   const record = item as Record<string, unknown>;
+  const readBoolean = (value: unknown) => {
+    if (typeof value === "boolean") return value;
+    const normalized = String(value || "").trim().toLowerCase();
+    if (!normalized) return false;
+    return ["true", "1", "yes", "oui", "on"].includes(normalized);
+  };
   const isFormulaItem = Boolean(
     record.formula_dish_id ??
       record.formulaDishId ??
@@ -747,7 +753,12 @@ function calcLineBreakdown(item: OrderItem) {
   const formulaUnitPrice = formulaUnitCandidates
     .map((value) => parsePriceNumber(value))
     .find((value) => value > 0) || 0;
-  if (isFormulaItem && formulaUnitPrice > 0) {
+  const isFormulaParent =
+    readBoolean(record.is_formula_parent ?? record.isFormulaParent ?? record.is_main ?? record.isMain) ||
+    parsePriceNumber(record.price) > 0 ||
+    parsePriceNumber(record.base_price) > 0 ||
+    parsePriceNumber(record.unit_total_price) > 0;
+  if (isFormulaItem && formulaUnitPrice > 0 && isFormulaParent) {
     const unitTotal = formulaUnitPrice;
     return {
       quantity,

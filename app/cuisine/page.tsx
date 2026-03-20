@@ -47,6 +47,8 @@ type Item = {
   formula_name?: string | null;
   formula_dish_name?: string | null;
   formula_current_sequence?: number | null;
+  step?: number | null;
+  sequence?: number | null;
   selected_side_label_fr?: string | null;
   selected_side_label?: string | null;
   selected_side_label_pt?: string | null;
@@ -64,6 +66,7 @@ type Order = {
   status: string;
   created_at: string;
   service_step?: string | null;
+  current_step?: number | null;
   covers?: number | null;
   guest_count?: number | null;
   customer_count?: number | null;
@@ -294,6 +297,10 @@ export default function KitchenPage() {
         formula_current_sequence: Number.isFinite(Number(row?.formula_current_sequence))
           ? Number(row?.formula_current_sequence)
           : null,
+        step: normalizeStepValue(
+          row?.step ?? row?.sequence ?? row?.formula_current_sequence ?? row?.formulaCurrentSequence,
+          true
+        ),
       } as Item;
     });
   };
@@ -354,9 +361,9 @@ export default function KitchenPage() {
   const getKitchenItems = (order: Order) => {
     const items = sortKitchenItemsByStep(getOrderItems(order).filter((item: any) => isKitchenCourse(item)));
     if (items.length === 0) return [];
-    const step = resolveOrderServiceStep(order, items as Item[]);
-    if (!step) return items;
-    return sortKitchenItemsByStep(items.filter((item) => resolveItemCourse(item as Item) === step));
+    const currentStep = resolveOrderCurrentStep(order, items as Item[]);
+    if (!Number.isFinite(currentStep) || Number(currentStep) <= 0) return items;
+    return sortKitchenItemsByStep(items.filter((item) => resolveItemStepRank(item as Item) === Number(currentStep)));
   };
   const hasPendingKitchenItems = (order: Order) => getKitchenItems(order).some((item) => !isItemReady(item));
   const getServedOrReadyKitchenItems = (order: Order) =>
@@ -561,6 +568,33 @@ export default function KitchenPage() {
     if (normalized && availableSteps.has(normalized)) return normalized;
     const fallback = SERVICE_STEP_SEQUENCE.find((step) => availableSteps.has(step));
     return fallback || normalized || "";
+  };
+  const resolveOrderCurrentStep = (order: Order, items: Item[]) => {
+    const direct = normalizeStepValue(
+      (order as unknown as Record<string, unknown>).current_step ??
+        (order as unknown as Record<string, unknown>).currentStep,
+      true
+    );
+    if (direct != null) return direct;
+    const normalizedServiceStep = normalizeServiceStep(order.service_step);
+    if (normalizedServiceStep === "entree") return 1;
+    if (normalizedServiceStep === "plat") return 2;
+    if (normalizedServiceStep === "dessert") return 3;
+    const explicitSteps = items
+      .map((item) => resolveItemExplicitStep(item))
+      .filter((value): value is number => Number.isFinite(value));
+    const positive = explicitSteps.filter((value) => value > 0);
+    if (positive.length > 0) return Math.min(...positive);
+    const fallbackStep = resolveOrderServiceStep(order, items);
+    if (fallbackStep === "entree") return 1;
+    if (fallbackStep === "plat") return 2;
+    if (fallbackStep === "dessert") return 3;
+    return 1;
+  };
+  const resolveServiceStepFromCurrentStep = (currentStep: number) => {
+    if (currentStep >= 3) return "dessert";
+    if (currentStep <= 1) return "entree";
+    return "plat";
   };
   const resolveNextServiceStep = (order: Order, items: Item[]) => {
     const foodItems = items.filter((item) => isKitchenCourse(item) && !isItemReady(item));
@@ -1703,38 +1737,37 @@ export default function KitchenPage() {
 
       const currentItems = getOrderItems(targetOrder as Order);
       if (currentItems.length === 0) return;
-      const currentStep = resolveOrderServiceStep(targetOrder, currentItems);
+      const kitchenItems = currentItems.filter((item) => isKitchenCourse(item));
+      const currentStep = resolveOrderCurrentStep(targetOrder, kitchenItems as Item[]);
+      const persistedCurrentStep = Number.isFinite(currentStep) && Number(currentStep) > 0 ? Number(currentStep) : 1;
       const nextItems = currentItems.map((item) => {
         if (!isKitchenCourse(item)) return item;
-        const matchesCurrentStep = currentStep ? resolveItemCourse(item) === currentStep : true;
+        const matchesCurrentStep = resolveItemStepRank(item) === persistedCurrentStep;
         if (matchesCurrentStep) {
           return setItemStatus(item, "ready");
         }
         return item;
       });
       const nextStatus = deriveOrderStatusFromItems(nextItems);
-      const nextServiceStep = resolveOrderServiceStep(targetOrder, nextItems);
-      const persistedServiceStep =
-        normalizeServiceStep(nextServiceStep) ||
-        normalizeServiceStep(targetOrder.service_step) ||
-        "entree";
+      const persistedServiceStep = resolveServiceStepFromCurrentStep(persistedCurrentStep);
       const orderUpdatePayload = {
         items: nextItems,
         status: nextStatus,
         service_step: persistedServiceStep,
+        current_step: persistedCurrentStep,
       };
 
       let updateResult = await supabase
         .from("orders")
         .update(orderUpdatePayload)
         .eq("id", orderId)
-        .select("id,status,service_step,items");
+        .select("id,status,service_step,current_step,items");
       if (updateResult.error && nextStatus === "ready") {
         const fallback = await supabase
           .from("orders")
           .update({ ...orderUpdatePayload, status: "pret" })
           .eq("id", orderId)
-          .select("id,status,service_step,items");
+          .select("id,status,service_step,current_step,items");
         updateResult = fallback;
       }
 
@@ -1753,6 +1786,7 @@ export default function KitchenPage() {
             items: nextItems,
             status: nextStatus,
             service_step: persistedServiceStep,
+            current_step: persistedCurrentStep,
           };
         })
       );
