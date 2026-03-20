@@ -2218,22 +2218,12 @@ const getFormulaDisplayName = (dish: DishItem) => {
     return detailParts.length > 0 ? `Détails: ${detailParts.join(" | ")}` : "";
   };
 
-  const fetchFastEntryResources = async (
-    restaurantScope: string | number | null = restaurantId || scopedRestaurantId || null
-  ) => {
-    const currentRestaurantId = String(restaurantScope ?? "").trim();
-    console.log("ID utilisé:", currentRestaurantId, "[admin.fetchFastEntryResources]");
-    if (!currentRestaurantId) {
-      setCategories([]);
-      setDishes([]);
-      setSidesLibrary([]);
-      setTableNumbers([]);
-      setFormulaLinksByFormulaId(new Map());
-      setFormulaLinksByDishId(new Map());
-      setFormulaDisplayById(new Map());
-      setFormulaPriceByDishId(new Map());
-      return;
-    }
+  const fetchFastEntryResources = async () => {
+    const activeRestaurantId = '58c20c3b Ascending: true });
+        
+        formulaQueryResult = await formulaQuery;
+      }
+
     const categoriesBaseQuery = supabase.from("categories").select("*").order("id", { ascending: true });
     const dishesBaseQuery = supabase.from("dishes").select(DISH_SELECT_WITH_OPTIONS).order("id", { ascending: true });
     const sidesBaseQuery = supabase.from("sides_library").select("*").order("id", { ascending: true });
