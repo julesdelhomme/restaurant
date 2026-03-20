@@ -1139,21 +1139,18 @@ function AdminContent() {
 
   const getFormulaPackPrice = (dish: DishItem) => {
     const formulaId = String(dish.id || "").trim();
-    const formulaPrice = parsePriceNumber(dish.price);
-    return Number.isFinite(formulaPrice) && formulaPrice > 0 ? formulaPrice : 0;
-  };
     const formulaTablePrice = formulaPriceByDishId.get(formulaId);
     if (Number.isFinite(formulaTablePrice) && Number(formulaTablePrice) > 0) {
       return Number(Number(formulaTablePrice).toFixed(2));
     }
     const formulaPrice = parsePriceNumber((dish as unknown as { formula_price?: unknown }).formula_price);
     if (Number.isFinite(formulaPrice) && formulaPrice > 0) return formulaPrice;
-    return 0;
+    const regularPrice = parsePriceNumber(dish.price);
+    return Number.isFinite(regularPrice) && regularPrice > 0 ? regularPrice : 0;
   };
 
   const getFormulaDisplayName = (dish: DishItem) => {
-    return getDishName(dish);
-  };
+    const formulaId = String(dish.id || "").trim();
     const display = formulaDisplayById.get(formulaId);
     return String(display?.name || "").trim() || getDishName(dish);
   };
