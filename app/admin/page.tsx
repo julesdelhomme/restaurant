@@ -2402,76 +2402,83 @@ const getFormulaDisplayName = (dish: DishItem) => {
         };
       }
 
-      // NEW: Fetch distinct formulas with price/image
-      let formulaQueryResult = { data: null, error: null };
-      const restaurantIdParam = currentRestaurantId || null;
-      let formulaQuery = supabase
-        .from("formula_dish_links")
-        .select(`
-          formula_id,
-          formula_dish_id,
-          formula_name,
-          formula_image_url,
-          step,
-          is_main,
-          dishes!formula_dish_id(price, image_url),
-          main_dish:image_url
-        `);
-      if (restaurantIdParam) formulaQuery = formulaQuery.eq("restaurant_id", restaurantIdParam);
-      formulaQuery = formulaQuery.order("formula_id", { ascending: true }).order("step", { ascending: true });
-      let formulaPrimary = await formulaQuery;
-      formulaQueryResult = {
-        data: formulaPrimary.data,
-        error: formulaPrimary.error,
-      };
-
-      if (formulaQueryResult.error && String(formulaQueryResult.error.code || "") === "42703") {
-        // Fallback: basic query without main_dish JOIN
-        formulaQuery = supabase
-          .from("formula_dish_links")
-          .select("formula_id, formula_dish_id, formula_name, formula_image_url, step, is_main, dishes:formula_dish_id(price, image_url)")
-          .eq("restaurant_id", restaurantIdParam || "")
-          .order("formula_id", { ascending: true }).order("step", { ascending: true });
-        const formulaFallback = await formulaQuery;
-        formulaQueryResult = {
-          data: formulaFallback.data,
-          error: formulaFallback.error,
-        };
+      // FIXED: Fetch distinct formulas with price/image (TS-safe)
+      interface QueryResult<T = unknown> {
+        data: T[] | null;
+        error: any | null;
       }
 
+      let formulaQueryResult: QueryResult = { data: null, error: null };
+      if (currentRestaurantId) {
+        // Primary: full JOIN query
+        let formulaQuery = supabase
+          .from("formula_dish_links")
+          .select("formula_id, formula_dish_id, formula_name, formula_image_url, step, is_main, dishes:formula_dish_id(price, image_url)")
+          .eq("restaurant_id", currentRestaurantId)
+          .order("formula_id", { ascending: true })
+          .order("step", { ascending: true });
+        let formulaPrimary = await formulaQuery;
+        formulaQueryResult = { data: formulaPrimary.data || null, error: formulaPrimary.error };
+
+        // Fallback if schema error
+        if (formulaQueryResult.error && String(formulaQueryResult.error.code || "") === "42703") {
+          formulaQuery = supabase
+            .from("formula_dish_links")
+            .select("formula_id, formula_dish_id, formula_name, formula_image_url, step, is_main")
+            .eq("restaurant_id", currentRestaurantId)
+            .order("formula_id", { ascending: true })
+            .order("step", { ascending: true });
+          const formulaFallback = await formulaQuery;
+          formulaQueryResult = { data: formulaFallback.data || null, error: formulaFallback.error };
+        }
+      }
+
+      // Process results into formulaDisplays
       const formulaDisplaysMap = new Map<string, FormulaDisplay>();
       if (formulaQueryResult.data && Array.isArray(formulaQueryResult.data)) {
+        const dishById = new Map<string, {price: number; image_url: string}>();
+        // Extract dish data for price/image
+        formulaQueryResult.data.forEach((row: any) => {
+          const dishId = String(row.formula_dish_id || "").trim();
+          if (dishId && row.dishes && row.dishes.length > 0) {
+            const dishInfo = row.dishes[0];
+            dishById.set(dishId, {
+              price: Number(dishInfo.price || 0),
+              image_url: String(dishInfo.image_url || "").trim()
+            });
+          }
+        });
+
         const linksByFormula = new Map<string, FormulaDishLink[]>();
         formulaQueryResult.data.forEach((row: any) => {
           const formulaId = String(row.formula_id || row.formula_dish_id || "").trim();
           if (!formulaId) return;
-          
-          // Build link record
-          const dishId = String(row.dish_id || "").trim();
-          const step = Number(row.step || 1);
+
+          const dishId = String(row.dish_id || row.formula_dish_id || "").trim();
+          const step = Number(row.step || row.sequence || 1);
           const isMain = Boolean(row.is_main);
           const link: FormulaDishLink = {
             formulaDishId: formulaId,
-            dishId: dishId || formulaId,
+            dishId,
             sequence: step,
             step,
             isMain,
           };
-          
-          const existingLinks = linksByFormula.get(formulaId) || [];
-          if (!existingLinks.some(l => l.dishId === link.dishId)) {
-            existingLinks.push(link);
-          }
-          linksByFormula.set(formulaId, existingLinks);
 
-          // Update display for this formula
+          const existing = linksByFormula.get(formulaId) || [];
+          if (!existing.some(l => l.dishId === link.dishId)) {
+            existing.push(link);
+          }
+          linksByFormula.set(formulaId, existing);
+
+          // Build/update display
           let display = formulaDisplaysMap.get(formulaId);
           if (!display) {
-            const price = Number(row.dishes?.price || 0);
+            const dishInfo = dishById.get(formulaId);
+            const price = Number(dishInfo?.price || 0);
             let imageUrl = String(row.formula_image_url || "").trim();
-            if (!imageUrl) {
-              imageUrl = String(row.dishes?.image_url || "").trim();
-            }
+            if (!imageUrl && dishInfo) imageUrl = dishInfo.image_url;
+
             display = {
               id: formulaId,
               name: String(row.formula_name || `Formule ${formulaId.slice(-4)}`).trim() || "Formule",
@@ -2485,6 +2492,7 @@ const getFormulaDisplayName = (dish: DishItem) => {
         });
       }
       setFormulaDisplays(Array.from(formulaDisplaysMap.values()));
+
 
       if (linksResult.error) {
         console.warn("formula_dish_links fetch failed (admin):", linksResult.error.message || linksResult.error);
