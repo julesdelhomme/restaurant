@@ -2204,10 +2204,7 @@ function AdminContent() {
       setFormulaLinksByFormulaId(new Map());
       setFormulaLinksByDishId(new Map());
       setFormulaDisplayById(new Map());
-      setFormulaDishIdsFromLinks(new Set());
-      setFormulaDishIdsFromFormulasTable(new Set());
       setFormulaPriceByDishId(new Map());
-      setFormulasTableAvailable(null);
       return;
     }
     const categoriesBaseQuery = supabase.from("categories").select("*").order("id", { ascending: true });
@@ -2458,8 +2455,6 @@ function AdminContent() {
       console.error("DEBUG_SQL_TOTAL:", dishesError);
       const message = (dishesError as { message?: string } | null)?.message || "Erreur fetch dishes (admin)";
       console.error("Erreur fetch dishes (admin):", message);
-      setFormulasTableAvailable(null);
-      setFormulaDishIdsFromFormulasTable(new Set());
       setFormulaPriceByDishId(new Map());
     }
     if (!sidesQuery.error) setSidesLibrary((sidesQuery.data || []) as SideLibraryItem[]);
