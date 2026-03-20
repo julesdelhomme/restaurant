@@ -5120,20 +5120,18 @@ const formulaParentDishIds = useMemo(() => {
           <div className="text-sm font-bold">Articles: {fastItemCount}</div>
           <div className="text-sm font-bold">Total: {fastTotal.toFixed(2)}&euro;</div>
         </div>
-        {(formulaQueryResult?.data && formulaQueryResult.data.length > 0) ? (
+       {dishes.filter(d => d.is_formula).length > 0 ? (
   <div className="mb-4 rounded border-2 border-black bg-amber-50 p-3">
     <div className="font-black mb-2 text-black">Formules</div>
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-      {formulaQueryResult.data.map((formula: any) => (
+      {dishes.filter(d => d.is_formula).map((formula) => (
         <button
-          key={formula.formula_id}
-          onClick={() => handleFormulaClick(formula)}
+          key={formula.id}
+          onClick={() => handleDishClick(formula)}
           className="flex items-center justify-between rounded border-2 border-black bg-white p-3 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-y-0.5 active:shadow-none"
         >
-          <span className="font-bold text-black">{formula.formula_name}</span>
-          <span className="font-black text-emerald-600">
-            {formula.dishes?.[0]?.price || 0}€
-          </span>
+          <span className="font-bold text-black">{formula.name}</span>
+          <span className="font-black text-emerald-600">{formula.price}€</span>
         </button>
       ))}
     </div>
