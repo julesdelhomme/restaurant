@@ -2941,12 +2941,14 @@ const formulaParentDishIds = useMemo(() => {
     ? selectedCategory
     : categoriesForFastEntry[0]?.key || "";
 
-  const fastEntryDishes = useMemo(() => {
+      const fastEntryDishes = useMemo(() => {
     if (!effectiveSelectedFastCategoryKey) return dishes;
     
     if (effectiveSelectedFastCategoryKey === FORMULAS_CATEGORY_KEY) {
-      // NEW: Use formulaDisplays instead of flag-based filtering
-      return formulaDisplays.map((fd) => {
+      // Filter ONLY formula_dish_links entries - NO Burger/legacy
+      return formulaDisplays
+        .filter(fd => formulaLinksByFormulaId.has(fd.id)) // MUST have links
+        .map((fd) => {
         const baseDish = dishes.find((dish) => String(dish.id) === fd.id);
         return {
           ... (baseDish || {
@@ -2965,12 +2967,14 @@ const formulaParentDishIds = useMemo(() => {
       });
     }
 
+    // Regular categories: EXCLUDE all formulas (incl Burger Alsacien)
     return dishes.filter(
       (dish) =>
         normalizeCategoryKey(getDishCategoryLabel(dish)) === effectiveSelectedFastCategoryKey &&
-        !formulaParentDishIds.has(String(dish.id || "").trim())
+        !formulaParentDishIds.has(String(dish.id || "").trim()) &&
+        !formulaLinksByFormulaId.has(String(dish.id || "").trim())
     );
-  }, [effectiveSelectedFastCategoryKey, dishes, formulaDisplays, formulaParentDishIds]);
+  }, [effectiveSelectedFastCategoryKey, dishes, formulaDisplays, formulaParentDishIds, formulaLinksByFormulaId]);
 
   const visibleFastEntryDishes = fastEntryDishes;
 

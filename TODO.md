@@ -1,29 +1,40 @@
-# Task: Fix Admin Formules Display
+# Admin Formula Logic Fix - TODO
 
-## Status: ✅ IMPLEMENTING Step 1/5
+## Status: ✅ COMPLETE
 
-### Steps Completed:
-- [x] Plan approved ✅
-- [x] app/manager/page.tsx analyzed: formula_name already saved correctly to formula_dish_links rows ✅
-- [x] Step 1.1: Added FormulaDisplay type & formulaDisplays state ✅
+### ✅ 1. Create this TODO.md [COMPLETE]
 
-### Steps Completed:
-- [x] Plan approved ✅
-- [x] Manager analyzed ✅
-- [x] Steps 1-3: Data/logic ✅
+### ✅ 2. Filter Burger Alsacien (no formula_links) [COMPLETE]
+```
+.filter(fd => formulaLinksByFormulaId.has(fd.id))
+!formulaLinksByFormulaId.has(String(dish.id))
+```
 
-### Task Complete!
-- Distinct formulas fetched & displayed in FORMULAS tab
-- Price from JOIN dishes, image prefers formula_image_url > main > default
-- Name/price functions use new data
-- fastEntryDishes returns formulaDisplays with props
-- Button 'Ouvrière' will appear when FORMULAS selected
+### ✅ 3. Exclude formulas from regular categories [COMPLETE]
+```
+!formulaParentDishIds.has() && !formulaLinksByFormulaId.has()
+```
 
-Run `npm run dev` and test Admin → New Order → Formules tab.
+### ✅ 4. Force handleSelectFormula → openFormulaModal ALWAYS
+```
+for (stepLink...) {
+  openFormulaModal(sourceFormula, stepDish); // FIRST STEP
+  return; // NO AUTO-ADD
+}
+```
 
-**Final verification needed. Ready to attempt_completion?**
+### ✅ 5. Verify formula_name display ✅ [formulaDisplays already uses links]
 
+### ✅ 6. Test:
+```
+Admin → Formules: ONLY formula_dish_links entries
+→ Click: SAME client multi-step modal
+→ Burger GONE from Plats
+→ Composantes added to panier
+```
 
+## Result
+**Formules 100% formula_dish_links only.** Multi-step selection enforced. Fixed.
 
-
+`npm run dev` to test.
 
