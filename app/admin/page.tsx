@@ -2402,53 +2402,45 @@ const getFormulaDisplayName = (dish: DishItem) => {
         };
       }
 
-      // FIXED: Fetch distinct formulas with price/image (TS-safe)
-      interface QueryResult<T = unknown> {
-        data: T[] | null;
-        error: any | null;
-      }
-
-      let formulaQueryResult: QueryResult = { data: null, error: null };
+      // SIMPLIFIED: Single clean query for distinct formulas (no fallback/complexity)
+      let formulaQueryResult: any = null;
       if (currentRestaurantId) {
-        // Primary: full JOIN query
-        let formulaQuery = supabase
+        const formulaQuery = supabase
           .from("formula_dish_links")
-          .select("formula_id, formula_dish_id, formula_name, formula_image_url, step, is_main, dishes:formula_dish_id(price, image_url)")
+          .select(`
+            formula_id,
+            formula_dish_id,
+            formula_name,
+            formula_image_url,
+            step,
+            is_main,
+            dishes:formula_dish_id(price, image_url)
+          `)
           .eq("restaurant_id", currentRestaurantId)
           .order("formula_id", { ascending: true })
           .order("step", { ascending: true });
-        let formulaPrimary = await formulaQuery;
-        formulaQueryResult = { data: formulaPrimary.data || null, error: formulaPrimary.error };
-
-        // Fallback if schema error
-        if (formulaQueryResult.error && String(formulaQueryResult.error.code || "") === "42703") {
-          formulaQuery = supabase
-            .from("formula_dish_links")
-            .select("formula_id, formula_dish_id, formula_name, formula_image_url, step, is_main")
-            .eq("restaurant_id", currentRestaurantId)
-            .order("formula_id", { ascending: true })
-            .order("step", { ascending: true });
-          const formulaFallback = await formulaQuery;
-          formulaQueryResult = { data: formulaFallback.data || null, error: formulaFallback.error };
-        }
+        
+        formulaQueryResult = await formulaQuery;
       }
 
-      // Process results into formulaDisplays
+      // Process into formulaDisplays
       const formulaDisplaysMap = new Map<string, FormulaDisplay>();
-      if (formulaQueryResult.data && Array.isArray(formulaQueryResult.data)) {
+      if (formulaQueryResult?.data && Array.isArray(formulaQueryResult.data)) {
         const dishById = new Map<string, {price: number; image_url: string}>();
-        // Extract dish data for price/image
+        
+        // Extract dish info
         formulaQueryResult.data.forEach((row: any) => {
-          const dishId = String(row.formula_dish_id || "").trim();
-          if (dishId && row.dishes && row.dishes.length > 0) {
+          const fDishId = String(row.formula_dish_id || "").trim();
+          if (fDishId && row.dishes && Array.isArray(row.dishes) && row.dishes[0]) {
             const dishInfo = row.dishes[0];
-            dishById.set(dishId, {
+            dishById.set(fDishId, {
               price: Number(dishInfo.price || 0),
-              image_url: String(dishInfo.image_url || "").trim()
+              image_url: String(dishInfo.image_url || "").trim(),
             });
           }
         });
 
+        // Group links & build displays
         const linksByFormula = new Map<string, FormulaDishLink[]>();
         formulaQueryResult.data.forEach((row: any) => {
           const formulaId = String(row.formula_id || row.formula_dish_id || "").trim();
@@ -2456,34 +2448,29 @@ const getFormulaDisplayName = (dish: DishItem) => {
 
           const dishId = String(row.dish_id || row.formula_dish_id || "").trim();
           const step = Number(row.step || row.sequence || 1);
-          const isMain = Boolean(row.is_main);
           const link: FormulaDishLink = {
             formulaDishId: formulaId,
             dishId,
             sequence: step,
             step,
-            isMain,
+            isMain: Boolean(row.is_main),
           };
 
-          const existing = linksByFormula.get(formulaId) || [];
-          if (!existing.some(l => l.dishId === link.dishId)) {
-            existing.push(link);
+          const existingLinks = linksByFormula.get(formulaId) || [];
+          if (!existingLinks.some((l) => l.dishId === dishId)) {
+            existingLinks.push(link);
           }
-          linksByFormula.set(formulaId, existing);
+          linksByFormula.set(formulaId, existingLinks);
 
-          // Build/update display
+          // Create/update display
           let display = formulaDisplaysMap.get(formulaId);
           if (!display) {
             const dishInfo = dishById.get(formulaId);
-            const price = Number(dishInfo?.price || 0);
-            let imageUrl = String(row.formula_image_url || "").trim();
-            if (!imageUrl && dishInfo) imageUrl = dishInfo.image_url;
-
             display = {
               id: formulaId,
               name: String(row.formula_name || `Formule ${formulaId.slice(-4)}`).trim() || "Formule",
-              price,
-              imageUrl,
+              price: Number(dishInfo?.price || 0),
+              imageUrl: String(row.formula_image_url || dishInfo?.image_url || "").trim(),
               formulaLinks: [],
             };
             formulaDisplaysMap.set(formulaId, display);
@@ -2491,7 +2478,9 @@ const getFormulaDisplayName = (dish: DishItem) => {
           display.formulaLinks = linksByFormula.get(formulaId) || [];
         });
       }
+
       setFormulaDisplays(Array.from(formulaDisplaysMap.values()));
+
 
 
       if (linksResult.error) {
