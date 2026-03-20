@@ -5120,28 +5120,25 @@ const formulaParentDishIds = useMemo(() => {
           <div className="text-sm font-bold">Articles: {fastItemCount}</div>
           <div className="text-sm font-bold">Total: {fastTotal.toFixed(2)}&euro;</div>
         </div>
-
-        {formulaDishes.length > 0 ? (
-          <div className="mb-4 rounded border-2 border-black bg-amber-50 p-3">
-            <div className="font-black mb-2 text-black">Formules</div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {formulaDishes.map((formula) => (
-                <button
-                  key={`fast-formula-${formula.id}`}
-                  type="button"
-                  onClick={() => void handleSelectFormula(formula)}
-                  className="w-full text-left px-3 py-3 rounded-lg border-2 border-black bg-white font-black text-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]"
-                >
-                  <div className="text-[11px] uppercase tracking-wide text-black/70">Composer</div>
-                  <div className="text-base">
-                    {getFormulaDisplayName(formula)} - {getFormulaPackPrice(formula).toFixed(2)} &euro;
-                  </div>
-                </button>
-              ))}
-            </div>
-          </div>
-        ) : null}
-
+        {formulas?.length > 0 ? (
+  <div className="mb-4 rounded border-2 border-black bg-amber-50 p-3">
+    <div className="font-black mb-2 text-black">Formules</div>
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+      {formulas.map((formula) => (
+        <button
+          key={formula.formula_id}
+          onClick={() => handleFormulaClick(formula)}
+          className="flex items-center justify-between rounded border-2 border-black bg-white p-3 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-y-0.5 active:shadow-none"
+        >
+          <span className="font-bold text-black">{formula.formula_name}</span>
+          <span className="font-black text-emerald-600">
+            {formula.dishes?.price || 0}€
+          </span>
+        </button>
+      ))}
+    </div>
+  </div>
+) : null}
         <div className="mb-4 flex flex-wrap gap-2">
           {categoriesForFastEntry.map((category) => (
             <button
