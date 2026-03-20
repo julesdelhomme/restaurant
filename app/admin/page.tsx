@@ -2917,13 +2917,7 @@ const formulaParentDishIds = useMemo(() => {
   return ids;
 }, [dishes]);
 
-  const formulaDishesFromFlags = useMemo(
-    () => dishes.filter((dish) => {
-      const id = String(dish.id || "").trim();
-      return id && formulaParentDishIds.has(id);
-    }),
-    [dishes, formulaParentDishIds]
-  );
+
 
   const categoriesForFastEntryBase =
     categories.length > 0
