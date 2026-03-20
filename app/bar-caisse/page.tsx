@@ -417,6 +417,26 @@ function deriveOrderStatusFromItems(items: OrderItem[]): string {
   return "pending";
 }
 
+function resolveOrderCurrentStep(order: Order): number {
+  const direct = Number((order as any).current_step ?? (order as any).currentStep);
+  if (Number.isFinite(direct)) return Math.max(1, Math.trunc(direct));
+  const items = parseItems(order.items);
+  const stepCandidates = items
+    .map((item: any) => Number(item.step ?? item.sequence ?? item.formula_current_sequence))
+    .filter((value: number) => Number.isFinite(value) && value > 0);
+  return stepCandidates.length > 0 ? Math.min(...stepCandidates) : 1;
+}
+
+function checkStepFinished(order: Order): boolean {
+  const currentStep = resolveOrderCurrentStep(order);
+  if (currentStep !== 1) return false;
+  const items = parseItems(order.items);
+  const step1Items = items.filter((item: any) => Number(item.step ?? item.sequence ?? 0) === 1);
+  const step2Items = items.filter((item: any) => Number(item.step ?? item.sequence ?? 0) === 2);
+  if (step1Items.length === 0 || step2Items.length === 0) return false;
+  return step1Items.every((item: any) => getItemPrepStatus(item) === "ready");
+}
+
 function orderHasPendingDrinkItems(
   order: Order,
   categoryDestinationById: Record<string, "cuisine" | "bar">,

@@ -2214,14 +2214,22 @@ function AdminContent() {
     const sidesBaseQuery = supabase.from("sides_library").select("*").order("id", { ascending: true });
     const tablesBaseQuery = supabase.from("table_assignments").select("table_number").order("table_number", { ascending: true });
 
+    let primaryDishesQuery;
+    try {
+      primaryDishesQuery = await dishesBaseQuery.eq("restaurant_id", currentRestaurantId);
+    } catch {
+      primaryDishesQuery = await dishesBaseQuery;
+    }
+
     const relationExtraTables = ["dish_options", "dish_extras", "dish_supplements"] as const;
     const queryResults = await Promise.all([
       categoriesBaseQuery.eq("restaurant_id", currentRestaurantId),
-      dishesBaseQuery.eq("restaurant_id", currentRestaurantId),
+      Promise.resolve(primaryDishesQuery),
       sidesBaseQuery.eq("restaurant_id", currentRestaurantId),
       tablesBaseQuery.eq("restaurant_id", currentRestaurantId),
     ]);
-    const [categoriesQuery, primaryDishesQuery, sidesQuery, tablesQuery] = queryResults;
+    const [categoriesQuery, primaryDishesQueryRes, sidesQuery, tablesQuery] = queryResults;
+    primaryDishesQuery = primaryDishesQueryRes;
 
     const nextCategories = !categoriesQuery.error ? ((categoriesQuery.data || []) as CategoryItem[]) : [];
     let nextDishes = !primaryDishesQuery.error ? ((primaryDishesQuery.data || []) as DishItem[]) : [];
@@ -2232,7 +2240,6 @@ function AdminContent() {
       const minimalQuery = await supabase
         .from("dishes")
         .select(minimalSelect)
-        .eq("restaurant_id", currentRestaurantId)
         .order("id", { ascending: true });
 
       if (!minimalQuery.error) {
@@ -2340,17 +2347,25 @@ function AdminContent() {
         error: null,
       };
       let formulasQuery = supabase.from("formulas").select("*");
-      if (currentRestaurantId) formulasQuery = formulasQuery.eq("restaurant_id", currentRestaurantId);
-      const formulasPrimary = await formulasQuery;
-      formulasResult = {
-        data: (formulasPrimary.data as unknown[] | null) ?? null,
-        error: formulasPrimary.error as { code?: string; message?: string } | null,
-      };
-      if (formulasResult.error && String(formulasResult.error.code || "") === "42703") {
+      try {
+        if (currentRestaurantId) formulasQuery = formulasQuery.eq("restaurant_id", currentRestaurantId);
+        const formulasPrimary = await formulasQuery;
+        formulasResult = {
+          data: (formulasPrimary.data as unknown[] | null) ?? null,
+          error: formulasPrimary.error as { code?: string; message?: string } | null,
+        };
+      } catch {
         const fallback = await supabase.from("formulas").select("*");
         formulasResult = {
           data: (fallback.data as unknown[] | null) ?? null,
           error: fallback.error as { code?: string; message?: string } | null,
+        };
+      }
+      if (formulasResult.error && String(formulasResult.error.code || "") === "42703") {
+        const fallback2 = await supabase.from("formulas").select("*");
+        formulasResult = {
+          data: (fallback2.data as unknown[] | null) ?? null,
+          error: fallback2.error as { code?: string; message?: string } | null,
         };
       }
       if (formulasResult.error) {

@@ -359,11 +359,21 @@ export default function KitchenPage() {
     });
 
   const getKitchenItems = (order: Order) => {
-    const items = sortKitchenItemsByStep(getOrderItems(order).filter((item: any) => isKitchenCourse(item)));
-    if (items.length === 0) return [];
-    const currentStep = resolveOrderCurrentStep(order, items as Item[]);
-    if (!Number.isFinite(currentStep) || Number(currentStep) <= 0) return items;
-    return sortKitchenItemsByStep(items.filter((item) => resolveItemStepRank(item as Item) === Number(currentStep)));
+    let items = getOrderItems(order).filter((item: any) => isKitchenCourse(item));
+    items = items.map((item: Item) => {
+      // Assign explicit step if missing
+      if (resolveItemExplicitStep(item) == null) {
+        const courseStep = resolveServiceStepRank(resolveItemCourse(item));
+        return { ...item, step: courseStep, sequence: courseStep };
+      }
+      return item;
+    });
+    const sortedItems = sortKitchenItemsByStep(items);
+    if (sortedItems.length === 0) return [];
+    const currentStep = resolveOrderCurrentStep(order, sortedItems);
+    if (!Number.isFinite(currentStep) || Number(currentStep) <= 0) return sortedItems;
+    // Strict filter: exact step match
+    return sortedItems.filter((item) => resolveItemStepRank(item) === Number(currentStep));
   };
   const hasPendingKitchenItems = (order: Order) => getKitchenItems(order).some((item) => !isItemReady(item));
   const getServedOrReadyKitchenItems = (order: Order) =>
