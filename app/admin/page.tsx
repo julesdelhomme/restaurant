@@ -670,9 +670,9 @@ function AdminContent() {
   const [formulaLinksByDishId, setFormulaLinksByDishId] = useState<Map<string, FormulaDishLink[]>>(new Map());
   const [formulaDisplayById, setFormulaDisplayById] = useState<Map<string, { name?: string; imageUrl?: string }>>(new Map());
   const [formulaDishIdsFromLinks, setFormulaDishIdsFromLinks] = useState<Set<string>>(new Set());
-  const [formulaDishIdsFromFormulasTable, setFormulaDishIdsFromFormulasTable] = useState<Set<string>>(new Set());
+  // const [formulaDishIdsFromFormulasTable, setFormulaDishIdsFromFormulasTable] = useState<Set<string>>(new Set());
   const [formulaPriceByDishId, setFormulaPriceByDishId] = useState<Map<string, number>>(new Map());
-  const [, setFormulasTableAvailable] = useState<boolean | null>(null);
+// const [, setFormulasTableAvailable] = useState<boolean | null>(null);
 
   const [formulaModalOpen, setFormulaModalOpen] = useState(false);
   const [formulaModalDish, setFormulaModalDish] = useState<DishItem | null>(null);
@@ -1139,6 +1139,9 @@ function AdminContent() {
 
   const getFormulaPackPrice = (dish: DishItem) => {
     const formulaId = String(dish.id || "").trim();
+    const formulaPrice = parsePriceNumber(dish.price);
+    return Number.isFinite(formulaPrice) && formulaPrice > 0 ? formulaPrice : 0;
+  };
     const formulaTablePrice = formulaPriceByDishId.get(formulaId);
     if (Number.isFinite(formulaTablePrice) && Number(formulaTablePrice) > 0) {
       return Number(Number(formulaTablePrice).toFixed(2));
@@ -1149,7 +1152,8 @@ function AdminContent() {
   };
 
   const getFormulaDisplayName = (dish: DishItem) => {
-    const formulaId = String(dish.id || "").trim();
+    return getDishName(dish);
+  };
     const display = formulaDisplayById.get(formulaId);
     return String(display?.name || "").trim() || getDishName(dish);
   };
@@ -2342,121 +2346,7 @@ function AdminContent() {
           }
         });
       };
-      let formulasResult: { data: unknown[] | null; error: { code?: string; message?: string } | null } = {
-        data: null,
-        error: null,
-      };
-      let formulasQuery = supabase.from("formulas").select("*");
-      try {
-        if (currentRestaurantId) formulasQuery = formulasQuery.eq("restaurant_id", currentRestaurantId);
-        const formulasPrimary = await formulasQuery;
-        formulasResult = {
-          data: (formulasPrimary.data as unknown[] | null) ?? null,
-          error: formulasPrimary.error as { code?: string; message?: string } | null,
-        };
-      } catch {
-        const fallback = await supabase.from("formulas").select("*");
-        formulasResult = {
-          data: (fallback.data as unknown[] | null) ?? null,
-          error: fallback.error as { code?: string; message?: string } | null,
-        };
-      }
-      if (formulasResult.error && String(formulasResult.error.code || "") === "42703") {
-        const fallback2 = await supabase.from("formulas").select("*");
-        formulasResult = {
-          data: (fallback2.data as unknown[] | null) ?? null,
-          error: fallback2.error as { code?: string; message?: string } | null,
-        };
-      }
-      if (formulasResult.error) {
-        const code = String(formulasResult.error.code || "").trim();
-        if (code !== "42P01") {
-          console.warn("formulas fetch failed (admin):", formulasResult.error.message || formulasResult.error);
-        }
-        formulasTableIsAvailable = false;
-      } else {
-        formulasTableIsAvailable = true;
-        const formulasRows = (formulasResult.data || []) as unknown[];
-        applyFormulasRows(formulasRows);
-        const virtualFormulaDishes = formulasRows
-          .map((row) => {
-            if (!row || typeof row !== "object") return null;
-            const record = row as Record<string, unknown>;
-            const formulaDishId = String(
-              record.formula_dish_id ??
-                record.formulaDishId ??
-                record.formula_id ??
-                record.formulaId ??
-                record.dish_id ??
-                record.dishId ??
-                record.id ??
-                ""
-            ).trim();
-            if (!formulaDishId) return null;
-            const formulaName = String(
-              record.formula_name ?? record.formulaName ?? record.name_fr ?? record.name ?? `Formule #${formulaDishId}`
-            ).trim();
-            const formulaPrice = parsePriceNumber(
-              record.formula_price ?? record.formulaPrice ?? record.price ?? record.unit_price ?? record.amount
-            );
-            return {
-              id: formulaDishId,
-              name: formulaName,
-              name_fr: formulaName,
-              category: FORMULAS_CATEGORY_KEY,
-              categorie: FORMULAS_CATEGORY_KEY,
-              category_id: FORMULAS_CATEGORY_KEY,
-              price: formulaPrice > 0 ? formulaPrice : 0,
-              formula_price: formulaPrice > 0 ? formulaPrice : 0,
-              is_formula: true,
-              active: true,
-            } as DishItem;
-          })
-          .filter((row): row is DishItem => Boolean(row));
-        if (virtualFormulaDishes.length > 0) {
-          const byDishId = new Map<string, DishItem>();
-          nextDishes.forEach((dish) => {
-            const key = String(dish.id || "").trim();
-            if (key) byDishId.set(key, dish);
-          });
-          virtualFormulaDishes.forEach((formulaDish) => {
-            const key = String(formulaDish.id || "").trim();
-            if (!key) return;
-            const existing = byDishId.get(key);
-            if (existing) {
-              byDishId.set(key, {
-                ...existing,
-                is_formula: true,
-                formula_price:
-                  parsePriceNumber((existing as Record<string, unknown>).formula_price) > 0
-                    ? parsePriceNumber((existing as Record<string, unknown>).formula_price)
-                    : parsePriceNumber(formulaDish.formula_price),
-                name_fr: String(existing.name_fr || existing.name || formulaDish.name_fr || "").trim() || formulaDish.name_fr,
-                name: String(existing.name || existing.name_fr || formulaDish.name || "").trim() || formulaDish.name,
-              });
-              return;
-            }
-            byDishId.set(key, formulaDish);
-          });
-          nextDishes = Array.from(byDishId.values());
-          setDishes(nextDishes);
-          setActiveDishNames(
-            new Set(
-              nextDishes
-                .filter((dish) => {
-                  const record = dish as unknown as { active?: unknown };
-                  if (record.active == null) return true;
-                  return readBooleanFlag(record.active, true);
-                })
-                .map((dish) => String((dish as { name?: unknown })?.name || "").trim().toLowerCase())
-                .filter(Boolean)
-            )
-          );
-        }
-      }
-      setFormulasTableAvailable(formulasTableIsAvailable);
-      setFormulaDishIdsFromFormulasTable(new Set(formulaDishIdSetFromTable));
-      setFormulaPriceByDishId(new Map(formulaPriceMapFromTable));
+// Removed deprecated "formulas" table query - using formula_dish_links only
       const formulaIdSetForInit = new Set<string>();
 
       let linksResult: { data: unknown[] | null; error: { code?: string; message?: string } | null } = {
@@ -2625,7 +2515,7 @@ function AdminContent() {
       .on("postgres_changes", { event: "*", schema: "public", table: "categories" }, () => void fetchFastEntryResources())
       .on("postgres_changes", { event: "*", schema: "public", table: "dishes" }, () => void fetchFastEntryResources())
       .on("postgres_changes", { event: "*", schema: "public", table: "formula_dish_links" }, () => void fetchFastEntryResources())
-      .on("postgres_changes", { event: "*", schema: "public", table: "formulas" }, () => void fetchFastEntryResources())
+      // removed formulas table realtime
       .on("postgres_changes", { event: "*", schema: "public", table: "table_assignments" }, () => void fetchFastEntryResources())
       .on("postgres_changes", { event: "*", schema: "public", table: "restaurants" }, () => void fetchRestaurantSettings())
       .on("postgres_changes", { event: "*", schema: "public", table: "restaurant_profile" }, () => void fetchRestaurantSettings())
