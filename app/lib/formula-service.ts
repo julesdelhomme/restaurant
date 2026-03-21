@@ -17,7 +17,7 @@
  *   id, formula_id, dish_id, step_number, is_required, created_at, updated_at
  */
 
-import { supabase } from '@/lib/supabase';
+import { supabase } from './supabase';
 
 interface FormulaData {
   id?: string | number;
@@ -163,7 +163,7 @@ export const fetchFormulaLinks = async (
             .from('restaurant_formulas')
             .select('id')
             .eq('restaurant_id', restaurantId)
-        ).data?.map(f => f.id) || []
+        ).data?.map((f: any) => f.id) || []
       );
 
     if (error) {

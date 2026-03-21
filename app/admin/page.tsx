@@ -329,6 +329,7 @@ type FastOrderLine = {
   destination?: "cuisine" | "bar";
   quantity: number;
   unitPrice: number;
+  price?: number;
   selectedSides: string[];
   selectedExtras: ExtraChoice[];
   selectedProductOptionId: string | null;
@@ -338,6 +339,7 @@ type FastOrderLine = {
   specialRequest: string;
   isDrink: boolean;
   isFormula?: boolean;
+  formulaId?: string;
   formulaDishId?: string;
   formulaDishName?: string;
   formulaUnitPrice?: number;
@@ -345,7 +347,7 @@ type FastOrderLine = {
 };
 
 const DISH_SELECT_BASE =
-  "id,name,name_fr,name_en,name_es,name_de,price,category_id,restaurant_id";
+  "id,name,name_fr,name_en,name_es,name_de,price,category_id,restaurant_id,active";
 const DISH_SELECT_WITH_OPTIONS = `${DISH_SELECT_BASE},formula_price,is_formula,formula_category_ids,allow_multi_select,description,description_fr,description_en,description_es,description_de,ask_cooking,selected_sides,sides,has_sides,max_options,extras,supplement,supplements,options,selected_options`;
 
 interface ParsedDishOptions {
@@ -637,7 +639,7 @@ function AdminContent() {
   const [serviceNotifications, setServiceNotifications] = useState<ServiceNotification[]>([]);
   const [activeTables, setActiveTables] = useState<TableAssignment[]>([]);
   const [activeDishNames, setActiveDishNames] = useState<Set<string>>(new Set());
-  const [activeTab, setActiveTab] = useState<"orders" | "sessions" | "new-order">("orders");
+  const [activeTab, setActiveTab] = useState<"orders" | "sessions" | "new-order" | "service">("orders");
 
   const [tableNumberInput, setTableNumberInput] = useState("");
   const [pinInput, setPinInput] = useState("");
@@ -2105,7 +2107,7 @@ const getFormulaDisplayName = (dish: DishItem) => {
       }
   
       const itemsForPayload = normalizeFormulaItemsForOrderPayload(
-        validLines.flatMap((line) => {
+        (validLines as any[]).flatMap((line: any) => {
           const dish = dishById.get(String(line.dishId || ""));
           const base = {
             dish_id: line.dishId,
@@ -2138,14 +2140,14 @@ const getFormulaDisplayName = (dish: DishItem) => {
               formula_id: line.formulaDishId,
               price: line.formulaUnitPrice,
               formula_unit_price: line.formulaUnitPrice,
-              formula_items: line.formulaSelections.map((sel) => ({
+              formula_items: line.formulaSelections.map((sel: any) => ({
                 ...sel,
                 kind: "formula",
                 sequence: sel.sequence,
                 step: sel.sequence,
               })),
             };
-            const childItems = (line.formulaSelections || []).map((sel) => {
+            const childItems = (line.formulaSelections || []).map((sel: any) => {
               const childDish = dishById.get(String(sel.dishId));
               return {
                 dish_id: sel.dishId,
@@ -2496,7 +2498,7 @@ const getFormulaDisplayName = (dish: DishItem) => {
     const ordersChannel = supabase
       .channel(`public:orders:restaurant_id=eq.${restaurantId}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, (payload) =>
-        handleOrderUpdate(payload as { new: Order })
+        handleOrderUpdate((payload as unknown) as { new: Order })
       )
       .subscribe();
 
@@ -2510,7 +2512,7 @@ const getFormulaDisplayName = (dish: DishItem) => {
     const tablesChannel = supabase
       .channel(`public:table_assignments:restaurant_id=eq.${restaurantId}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "table_assignments" }, (payload) =>
-        handleTableAssignmentUpdate(payload as { new: TableAssignment })
+        handleTableAssignmentUpdate((payload as unknown) as { new: TableAssignment })
       )
       .subscribe();
 
@@ -2827,11 +2829,11 @@ const getFormulaDisplayName = (dish: DishItem) => {
                       {pendingOrPreparingItems.length > 0 && (
                         <div className="border-t pt-2">
                           <h4 className="font-semibold text-gray-700 mb-1">En attente / préparation</h4>
-                          {pendingOrPreparingItems.map((item) => {
-                            const isFormula = isFormulaOrderItem(item);
-                            // Create a synthetic DishItem for formula items to pass to helpers
-                            const dishForFormula = isFormula
-                              ? ({
+      {pendingOrPreparingItems.map((item) => {
+        const isFormula = isFormulaOrderItem(item);
+        // Create a synthetic DishItem for formula items to pass to helpers
+        const dishForFormula = isFormula
+          ? ({
                                   id: item.formula_id,
                                   ...item,
                                 } as DishItem)
@@ -2840,16 +2842,17 @@ const getFormulaDisplayName = (dish: DishItem) => {
                             const name = dishForFormula
                               ? getFormulaDisplayName(dishForFormula)
                               : getDishName(item as unknown as DishItem);
-                            const unitPrice = dishForFormula
-                              ? getFormulaPackPrice(dishForFormula)
-                              : parsePriceNumber(item.price);
+        const unitPrice = dishForFormula
+          ? getFormulaPackPrice(dishForFormula)
+          : parsePriceNumber(item.price);
 
-                            const total = unitPrice * (item.quantity ?? 1);
+        const total = unitPrice * (item.quantity ?? 1);
+        const hasStandaloneSide = Boolean(item.side || item.accompagnement);
 
-                            return (
-                              <div key={item.id} className="mb-2 text-sm">
-                                <div className="flex justify-between">
-                                  <span className="font-semibold">
+        return (
+          <div key={item.id} className="mb-2 text-sm">
+            <div className="flex justify-between">
+              <span className="font-semibold">
                                     {item.quantity}x {name}
                                   </span>
                                   <span className="font-semibold">{total.toFixed(2)}€</span>
@@ -2898,11 +2901,11 @@ const getFormulaDisplayName = (dish: DishItem) => {
                                     );
                                   })}
 
-                                {(item.side || item.accompagnement) && !isFormula && (
-                                  <div className="pl-4 text-xs text-gray-600">
-                                    - Accompagnement: {String(item.side || item.accompagnement)}
-                                  </div>
-                                )}
+        {hasStandaloneSide && !isFormula && (
+          <div className="pl-4 text-xs text-gray-600">
+            - Accompagnement: {String(item.side || item.accompagnement)}
+          </div>
+        )}
 
                                 {Array.isArray((item as any).selected_extras) &&
                                   (item as any).selected_extras.length > 0 && (
