@@ -4304,12 +4304,9 @@ export default function MenuDigital() {
   }
 
   function resolveInitialFormulaItemStatus(sequence: number | null, sortOrder?: unknown) {
-    if (isDirectFormulaStep(sequence)) return "pending";
     const normalizedSort = Number(sortOrder);
     if (Number.isFinite(normalizedSort) && Math.trunc(normalizedSort) === 0) return "preparing";
-    if (sequence != null && sequence <= 1) return "preparing";
-    if (sequence != null && sequence > 1) return "waiting";
-    return "pending";
+    return "waiting";
   }
 
   function mapSequenceToOrderStep(value: unknown) {
@@ -5187,10 +5184,11 @@ export default function MenuDigital() {
       const formulaUnitPrice =
         Number.isFinite(formulaUnitPriceRaw) && formulaUnitPriceRaw > 0 ? formulaUnitPriceRaw : null;
       const formulaSelections = Array.isArray(item.formulaSelections) ? item.formulaSelections : [];
-      if (formulaSelections.length > 0) {
-        formulaSelections.forEach((selection) => {
+      const sortedFormulaSelections = [...formulaSelections].sort((a, b) => (a.sequence || 0) - (b.sequence || 0));
+      if (sortedFormulaSelections.length > 0) {
+        sortedFormulaSelections.forEach((selection, idx) => {
           if (!selection?.dishId) return;
-          const sequence = normalizeFormulaStepValue(selection.sequence, true);
+          const sequence = idx + 1;
           selectedOptionsPayload.push({
             kind: "formula",
             formula_dish_id: formulaDishId,
@@ -5243,10 +5241,10 @@ export default function MenuDigital() {
           }
         });
       }
-      const formulaItemsPayload = formulaSelections
-        .map((selection) => {
+      const formulaItemsPayload = sortedFormulaSelections
+        .map((selection, idx) => {
           if (!selection?.dishId) return null;
-          const sequence = normalizeFormulaStepValue(selection.sequence, true);
+          const sequence = idx + 1;
           return {
             formula_dish_id: formulaDishId,
             formula_dish_name: formulaDishName,
@@ -5264,29 +5262,30 @@ export default function MenuDigital() {
             selected_option_names: Array.isArray(selection.selectedOptionNames) ? selection.selectedOptionNames : [],
             selected_option_price: Number(selection.selectedOptionPrice || 0) || 0,
             sequence,
-            sort_order: sequence != null ? sequence : null,
-            step_number: sequence != null ? sequence : null,
+            sort_order: sequence,
+            step_number: sequence,
             is_formula: true,
             is_formula_child: true,
             is_formula_parent: false,
           };
         })
         .filter(Boolean);
-      const formulaSequenceValues = formulaSelections
+      const formulaSequenceValues = sortedFormulaSelections
         .map((selection) => Number(selection.sequence))
         .filter((value) => Number.isFinite(value) && value > 0)
         .map((value) => Math.max(1, Math.trunc(value)));
       const formulaCurrentSequence =
         formulaSequenceValues.length > 0 ? Math.min(...formulaSequenceValues) : null;
-      const hasDirectFormulaSelections = formulaSelections.some((selection) => isDirectFormulaStep(selection.sequence));
+      const hasDirectFormulaSelections = sortedFormulaSelections.some((selection) => isDirectFormulaStep(selection.sequence));
       const hasNonDirectFormulaSelections =
-        formulaSelections.length > 0 && formulaSelections.some((selection) => !isDirectFormulaStep(selection.sequence));
+        sortedFormulaSelections.length > 0 && sortedFormulaSelections.some((selection) => !isDirectFormulaStep(selection.sequence));
       const directFormulaSelectionItems =
         hasDirectFormulaSelections && hasNonDirectFormulaSelections
-          ? formulaSelections
+          ? sortedFormulaSelections
+              .filter((selection) => isDirectFormulaStep(selection.sequence))
               .map((selection) => {
-                if (!selection?.dishId || !isDirectFormulaStep(selection.sequence)) return null;
-                const selectionStep = normalizeFormulaStepValue(selection.sequence, true) ?? 0;
+                const idx = sortedFormulaSelections.indexOf(selection);
+                const selectionStep = idx + 1;
                 const selectionDishId = String(selection.dishId || "").trim();
                 const selectionDish = selectionDishId ? dishById.get(selectionDishId) : null;
                 const selectionCategoryId = selectionDish?.category_id ?? selection.categoryId ?? null;
@@ -5342,8 +5341,8 @@ export default function MenuDigital() {
                   formula_current_sequence: selectionStep,
                   sequence: selectionStep,
                   step: selectionStep,
-                  sort_order: selectionStep ?? null,
-                  step_number: selectionStep ?? null,
+                  sort_order: selectionStep,
+                  step_number: selectionStep,
                   special_request: String(item.specialRequest || "").trim(),
                   from_recommendation: !!item.fromRecommendation,
                   status: "pending",
@@ -7006,23 +7005,6 @@ export default function MenuDigital() {
             </div>
             <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-28 pt-4 sm:pb-6">
               <h2 className="text-2xl font-black text-black mb-1">{getFormulaDisplayName(formulaDish)}</h2>
-              {(() => {
-                const info = formulaInfoById.get(String(formulaDish.id || ""));
-                if (!info) return null;
-                const parentDishId = info?.dishId;
-                const parentDish = parentDishId ? dishById.get(String(parentDishId)) : null;
-                const parentDishNameFromFormula = String(info?.parent_dish_name || "").trim();
-                const parentDishName = parentDishNameFromFormula || (parentDish ? getDishName(parentDish, lang) : null);
-                if (!parentDishName) return null;
-                return (
-                  <div className="text-base text-black/80 font-bold mt-2 mb-2">
-                    <span className="text-xs uppercase bg-gray-200 text-gray-800 font-black px-2 py-1 rounded-md mr-2">
-                      Plat de base
-                    </span>
-                    {parentDishName}
-                  </div>
-                );
-              })()}
               <div className="text-base font-black inline-flex items-center gap-1 mb-4">
                 {Number(getFormulaPackPrice(formulaDish) || 0).toFixed(2)}
                 <Euro size={16} />
@@ -7038,18 +7020,13 @@ export default function MenuDigital() {
                 const info = formulaInfoById.get(String(formulaDish.id || ""));
                 const desc = String((info as any)?.description || "").trim();
 const calories = (info as any)?.calories != null ? Number((info as any).calories) : null;
-const allergens = (info as any)?.allergens;
+const allergens = String((info as any)?.allergens || "").trim();
                 if (!desc && calories == null && !allergens) return null;
                 return (
                   <div className="mb-4 space-y-2 text-sm">
                     {desc && <p className="whitespace-pre-line">{desc}</p>}
                     {calories != null && <p className="font-bold">Calories : {calories} kcal</p>}
-                    {allergens && (
-                      <p className="text-black">
-                        <span className="font-bold">Allergènes :</span>{" "}
-                        {Array.isArray(allergens) ? allergens.join(", ") : allergens}
-                      </p>
-                    )}
+                    {allergens && <p className="text-black"><span className="font-bold">Allergènes :</span> {allergens}</p>}
                   </div>
                 );
               })()}
