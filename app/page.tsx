@@ -6878,9 +6878,9 @@ export default function MenuDigital() {
               })()}
               {(() => {
                 const info = formulaInfoById.get(String(formulaDish.id || ""));
-                const desc = String(info?.description || "").trim();
-                const calories = info?.calories != null ? Number(info.calories) : null;
-                const allergens = String(info?.allergens || "").trim();
+                const desc = String((info as any)?.description || "").trim();
+const calories = (info as any)?.calories != null ? Number((info as any).calories) : null;
+const allergens = String((info as any)?.allergens || "").trim();
                 if (!desc && calories == null && !allergens) return null;
                 return (
                   <div className="mb-4 space-y-2 text-sm">
