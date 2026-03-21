@@ -2352,7 +2352,7 @@ export default function MenuDigital() {
   const [formulaLinksByFormulaId, setFormulaLinksByFormulaId] = useState<Map<string, FormulaDishLink[]>>(new Map());
   const [formulaLinksByDishId, setFormulaLinksByDishId] = useState<Map<string, FormulaDishLink[]>>(new Map());
   const [formulaInfoById, setFormulaInfoById] = useState<
-    Map<string, { name?: string; imageUrl?: string; dishId?: string | null; price?: number | null }>
+    Map<string, { name?: string; imageUrl?: string; dishId?: string | null; price?: number | null; description?: string | null; calories?: number | null; allergens?: string | null; formula_category_ids?: unknown }>
   >(new Map());
   const [formulaSelections, setFormulaSelections] = useState<Record<string, string>>({});
   const [formulaSelectionDetails, setFormulaSelectionDetails] = useState<Record<string, FormulaSelectionDetails>>({});
@@ -3122,7 +3122,7 @@ export default function MenuDigital() {
 
     const formulaInfoByIdLocal = new Map<
       string,
-      { name?: string; imageUrl?: string; dishId?: string | null; price?: number | null; description?: string | null; calories?: number | null; allergens?: string | null }
+      { name?: string; imageUrl?: string; dishId?: string | null; price?: number | null; description?: string | null; calories?: number | null; allergens?: string | null; formula_category_ids?: unknown }
     >();
     const formulaIds: string[] = [];
     (formulasResult.data || []).forEach((row: unknown) => {
@@ -3148,6 +3148,7 @@ export default function MenuDigital() {
         description: record.description ?? null,
         calories: record.calories ?? null,
         allergens: record.allergens ?? null,
+        formula_category_ids: record.formula_category_ids ?? null,
       });
       formulaIds.push(formulaId);
     });
@@ -3836,6 +3837,7 @@ export default function MenuDigital() {
         image_url: imageUrl || (baseDish as any)?.image_url,
         is_formula: true,
         formula_id: formulaId,
+        formula_category_ids: info?.formula_category_ids ?? (baseDish as any)?.formula_category_ids ?? undefined,
       };
       list.push(display);
     });
@@ -4076,9 +4078,9 @@ export default function MenuDigital() {
   }, [formulaDish, formulaLinksByFormulaId]);
 
   const formulaDisplayById = useMemo(() => {
-    const map = new Map<string, { name?: string; imageUrl?: string }>();
+    const map = new Map<string, { name?: string; imageUrl?: string; description?: string | null; calories?: number | null }>();
     formulaInfoById.forEach((info, id) => {
-      map.set(id, { name: info.name, imageUrl: info.imageUrl });
+      map.set(id, { name: info.name, imageUrl: info.imageUrl, description: info.description, calories: info.calories });
     });
     return map;
   }, [formulaInfoById]);
@@ -6719,23 +6721,23 @@ export default function MenuDigital() {
                         style={!isOverlayCard ? { color: cardTextColorValue } : undefined}
                       >
                         {getDescription(
-                          formulaDisplay
+                          formulaDisplay && (formulaDisplay as any)?.description
                             ? {
                                 ...dish,
-                                description: (formulaDisplay as any)?.description || dish.description,
-description_fr: (formulaDisplay as any)?.description || dish.description_fr,
+                                description: (formulaDisplay as any).description,
+                                description_fr: (formulaDisplay as any).description,
                               }
                             : dish,
                           lang
                         )}
                       </p>
                       {(() => {
-                        const displayDish = formulaDisplay
+                        const displayDish = formulaDisplay && (formulaDisplay as any)?.calories != null
                           ? {
                               ...dish,
-                              calories: (formulaDisplay as any)?.calories || dish.calories,
-calories_min: (formulaDisplay as any)?.calories_min || dish.calories_min,
-calories_max: (formulaDisplay as any)?.calories_max || dish.calories_max,
+                              calories: (formulaDisplay as any).calories,
+                              calories_min: (formulaDisplay as any).calories,
+                              calories_max: (formulaDisplay as any).calories,
                             }
                           : dish;
                         return (
@@ -6935,7 +6937,13 @@ const allergens = String((info as any)?.allergens || "").trim();
               })()}
               {formulaMainConfig && (formulaMainConfig.hasRequiredSides || formulaMainConfig.askCooking) ? (
                 <div className="mb-4 border-2 border-black rounded-xl p-3">
-                  <div className="font-black text-base mb-2">Plat principal</div>
+                  {(() => {
+                    const info = formulaInfoById.get(String(formulaDish?.id || ""));
+                    const parentDishId = info?.dishId;
+                    const parentDish = parentDishId ? dishById.get(String(parentDishId)) : null;
+                    const parentDishName = parentDish ? getDishName(parentDish, lang) : "Plat principal";
+                    return <div className="font-black text-base mb-2">{parentDishName}</div>;
+                  })()}
                   <div className="space-y-3">
                     {formulaMainConfig.hasRequiredSides ? (
                       <div>
