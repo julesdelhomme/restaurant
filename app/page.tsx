@@ -3109,7 +3109,7 @@ export default function MenuDigital() {
 
     const formulasResult = await supabase
       .from("restaurant_formulas")
-      .select("*, dish:dish_id(id,image_url,name,name_fr,price)")
+      .select("*")
       .eq("restaurant_id", scopedRestaurantId)
       .eq("active", true);
     if (formulasResult.error) {
@@ -3129,8 +3129,9 @@ export default function MenuDigital() {
       if (!formulaId) return;
       const isActive = record.active == null ? true : toBooleanFlag(record.active);
       if (!isActive) return;
-      const linkedDish = record.dish || null;
-      const linkedDishId = linkedDish?.id ? String(linkedDish.id) : null;
+      const linkedDishId = record.dish_id ? String(record.dish_id) : null;
+      const linkedDish =
+        linkedDishId != null ? sourceDishes.find((d) => String(d.id) === linkedDishId) || null : null;
       const linkedDishPrice = parsePriceNumber(linkedDish?.price);
       const rawImage = sanitizeMediaUrl(
         record.image_url ?? record.image_path ?? record.image ?? linkedDish?.image_url,
@@ -3474,21 +3475,19 @@ export default function MenuDigital() {
     }
 
     const buildDishesQuery = ({
-      tableName,
       selectClause,
       filterActive,
       orderByCategory,
       withScope,
       scopeColumn,
     }: {
-      tableName: "dishes" | "menu_items";
       selectClause: string;
       filterActive: boolean;
       orderByCategory: boolean;
       withScope: boolean;
       scopeColumn: "restaurant_id";
     }) => {
-      let query = supabase.from(tableName).select(selectClause);
+      let query = supabase.from("dishes").select(selectClause);
       if (withScope && scopedRestaurantId) query = query.eq(scopeColumn, scopedRestaurantId);
       if (filterActive) query = query.eq("active", true);
       if (orderByCategory) query = query.order("category_id", { ascending: true });
@@ -3497,7 +3496,6 @@ export default function MenuDigital() {
 
     const dishesQueryAttempts: Array<{
       label: string;
-      tableName: "dishes" | "menu_items";
       selectClause: string;
       filterActive: boolean;
       orderByCategory: boolean;
@@ -3505,8 +3503,7 @@ export default function MenuDigital() {
       scopeColumn: "restaurant_id";
     }> = [
       {
-        label: "menu_items-rich-select+active+category",
-        tableName: "menu_items",
+        label: "dishes-rich-select+active+category",
         selectClause:
           "*, is_chef_suggestion, is_suggestion, is_daily_special, suggestion_message_fr, suggestion_message_en, suggestion_message_es, suggestion_message_de",
         filterActive: true,
@@ -3515,8 +3512,7 @@ export default function MenuDigital() {
         scopeColumn: "restaurant_id",
       },
       {
-        label: "menu_items-rich-select+active+category(retry-2)",
-        tableName: "menu_items",
+        label: "dishes-rich-select+active+category(retry-2)",
         selectClause:
           "*, is_chef_suggestion, is_suggestion, is_daily_special, suggestion_message_fr, suggestion_message_en, suggestion_message_es, suggestion_message_de",
         filterActive: true,
@@ -3525,8 +3521,7 @@ export default function MenuDigital() {
         scopeColumn: "restaurant_id",
       },
       {
-        label: "menu_items-basic-select+active+category",
-        tableName: "menu_items",
+        label: "dishes-basic-select+active+category",
         selectClause: "*",
         filterActive: true,
         orderByCategory: true,
@@ -3534,8 +3529,7 @@ export default function MenuDigital() {
         scopeColumn: "restaurant_id",
       },
       {
-        label: "menu_items-basic-select+active+category(retry-2)",
-        tableName: "menu_items",
+        label: "dishes-basic-select+active+category(retry-2)",
         selectClause: "*",
         filterActive: true,
         orderByCategory: true,
@@ -3543,8 +3537,7 @@ export default function MenuDigital() {
         scopeColumn: "restaurant_id",
       },
       {
-        label: "menu_items-basic-select+category",
-        tableName: "menu_items",
+        label: "dishes-basic-select+category",
         selectClause: "*",
         filterActive: false,
         orderByCategory: true,
@@ -3552,8 +3545,7 @@ export default function MenuDigital() {
         scopeColumn: "restaurant_id",
       },
       {
-        label: "menu_items-basic-select+category(retry-2)",
-        tableName: "menu_items",
+        label: "dishes-basic-select+category(retry-2)",
         selectClause: "*",
         filterActive: false,
         orderByCategory: true,
@@ -3562,7 +3554,6 @@ export default function MenuDigital() {
       },
       {
         label: "rich-select+active+category",
-        tableName: "dishes",
         selectClause:
           "*, is_chef_suggestion, is_suggestion, is_daily_special, suggestion_message_fr, suggestion_message_en, suggestion_message_es, suggestion_message_de",
         filterActive: true,
@@ -3572,7 +3563,6 @@ export default function MenuDigital() {
       },
       {
         label: "rich-select+active+category(retry-2)",
-        tableName: "dishes",
         selectClause:
           "*, is_chef_suggestion, is_suggestion, is_daily_special, suggestion_message_fr, suggestion_message_en, suggestion_message_es, suggestion_message_de",
         filterActive: true,
@@ -3580,19 +3570,19 @@ export default function MenuDigital() {
         withScope: Boolean(scopedRestaurantId),
         scopeColumn: "restaurant_id",
       },
-      { label: "basic-select+active+category", tableName: "dishes", selectClause: "*", filterActive: true, orderByCategory: true, withScope: Boolean(scopedRestaurantId), scopeColumn: "restaurant_id" },
-      { label: "basic-select+active+category(retry-2)", tableName: "dishes", selectClause: "*", filterActive: true, orderByCategory: true, withScope: Boolean(scopedRestaurantId), scopeColumn: "restaurant_id" },
-      { label: "basic-select+category", tableName: "dishes", selectClause: "*", filterActive: false, orderByCategory: true, withScope: Boolean(scopedRestaurantId), scopeColumn: "restaurant_id" },
-      { label: "basic-select+category(retry-2)", tableName: "dishes", selectClause: "*", filterActive: false, orderByCategory: true, withScope: Boolean(scopedRestaurantId), scopeColumn: "restaurant_id" },
-      { label: "basic-select+id", tableName: "dishes", selectClause: "*", filterActive: false, orderByCategory: false, withScope: Boolean(scopedRestaurantId), scopeColumn: "restaurant_id" },
-      { label: "basic-select+id(retry-2)", tableName: "dishes", selectClause: "*", filterActive: false, orderByCategory: false, withScope: Boolean(scopedRestaurantId), scopeColumn: "restaurant_id" },
+      { label: "basic-select+active+category", selectClause: "*", filterActive: true, orderByCategory: true, withScope: Boolean(scopedRestaurantId), scopeColumn: "restaurant_id" },
+      { label: "basic-select+active+category(retry-2)", selectClause: "*", filterActive: true, orderByCategory: true, withScope: Boolean(scopedRestaurantId), scopeColumn: "restaurant_id" },
+      { label: "basic-select+category", selectClause: "*", filterActive: false, orderByCategory: true, withScope: Boolean(scopedRestaurantId), scopeColumn: "restaurant_id" },
+      { label: "basic-select+category(retry-2)", selectClause: "*", filterActive: false, orderByCategory: true, withScope: Boolean(scopedRestaurantId), scopeColumn: "restaurant_id" },
+      { label: "basic-select+id", selectClause: "*", filterActive: false, orderByCategory: false, withScope: Boolean(scopedRestaurantId), scopeColumn: "restaurant_id" },
+      { label: "basic-select+id(retry-2)", selectClause: "*", filterActive: false, orderByCategory: false, withScope: Boolean(scopedRestaurantId), scopeColumn: "restaurant_id" },
     ];
     if (!scopedRestaurantId) {
       dishesQueryAttempts.push(
-        { label: "menu_items-basic-select+active+category(unscoped)", tableName: "menu_items", selectClause: "*", filterActive: true, orderByCategory: true, withScope: false, scopeColumn: "restaurant_id" },
-        { label: "menu_items-basic-select+id(unscoped)", tableName: "menu_items", selectClause: "*", filterActive: false, orderByCategory: false, withScope: false, scopeColumn: "restaurant_id" },
-        { label: "basic-select+active+category(unscoped)", tableName: "dishes", selectClause: "*", filterActive: true, orderByCategory: true, withScope: false, scopeColumn: "restaurant_id" },
-        { label: "basic-select+id(unscoped)", tableName: "dishes", selectClause: "*", filterActive: false, orderByCategory: false, withScope: false, scopeColumn: "restaurant_id" }
+      { label: "dishes-basic-select+active+category(unscoped)", selectClause: "*", filterActive: true, orderByCategory: true, withScope: false, scopeColumn: "restaurant_id" },
+      { label: "dishes-basic-select+id(unscoped)", selectClause: "*", filterActive: false, orderByCategory: false, withScope: false, scopeColumn: "restaurant_id" },
+        { label: "basic-select+active+category(unscoped)", selectClause: "*", filterActive: true, orderByCategory: true, withScope: false, scopeColumn: "restaurant_id" },
+        { label: "basic-select+id(unscoped)", selectClause: "*", filterActive: false, orderByCategory: false, withScope: false, scopeColumn: "restaurant_id" }
       );
     }
 
