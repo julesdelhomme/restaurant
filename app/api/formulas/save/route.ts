@@ -32,10 +32,16 @@ export async function POST(request: NextRequest) {
     }
 
     // 1. Sauvegarde de la formule elle-même dans restaurant_formulas
+    // Fix allergens: convert string to array for Supabase text[] column
+    const allergensArray = typeof formulaData.allergens === 'string' 
+      ? formulaData.allergens.split(',').map(a => a.trim()).filter(Boolean) 
+      : Array.isArray(formulaData.allergens) ? formulaData.allergens : [];
+
     const { data: formula, error: fError } = await supabase
       .from('restaurant_formulas')
       .upsert({
         ...formulaData,
+        ...(allergensArray.length > 0 && { allergens: allergensArray }),
         restaurant_id: restaurantId,
       } as never)
       .select()
