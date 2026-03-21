@@ -1472,6 +1472,20 @@ function hasMissingColumnError(error: unknown, expectedColumn?: string) {
   return code === "42703" || code === "PGRST204" || Boolean(missingColumn);
 }
 
+function isMissingTableError(error: unknown) {
+  if (!error || typeof error !== "object") return false;
+  const row = error as any;
+  const code = String(row.code || row.status || row.statusCode || "").trim().toUpperCase();
+  if (code === "42P01" || code === "404") return true;
+  const message = String(row.message || row.error || "").toLowerCase();
+  return (
+    message.includes("does not exist") ||
+    message.includes("relation") && message.includes("does not exist") ||
+    message.includes("undefined table") ||
+    message.includes("not found")
+  );
+}
+
 export default function MenuManager() {
   const router = useRouter();
   const params = useParams<{ id?: string; restaurant_id?: string }>();
@@ -1494,6 +1508,8 @@ export default function MenuManager() {
   const scopedRestaurantIdFromQuery = normalizeRestaurantId(decodeAndTrim(searchParams.get("restaurant_id") || ""));
   const scopedRestaurantId = String(scopedRestaurantIdFromPath || scopedRestaurantIdFromQuery || "").trim();
   const impersonateMode = String(searchParams.get("impersonate") || "").trim() === "1";
+  const hasAllergenLibraryTableRef = useRef(true);
+  const hasRestaurantLanguagesTableRef = useRef(true);
   const [dishes, setDishes] = useState<Dish[]>([]);
   const [formulaLinksByFormulaId, setFormulaLinksByFormulaId] = useState<Map<string, string[]>>(new Map());
   const [formulaLinksByDishId, setFormulaLinksByDishId] = useState<Map<string, string[]>>(new Map());
@@ -2915,39 +2931,45 @@ export default function MenuManager() {
         setAllergenLibrary(savedAllergenLibrary.length > 0 ? savedAllergenLibrary : createDefaultAllergenLibrary());
       }
       try {
-        const langTable = await supabase
-          .from("restaurant_languages")
-          .select("language_code, language_name")
-          .eq("restaurant_id", String(row.id || scopedRestaurantId));
-        if (!langTable.error && Array.isArray(langTable.data)) {
-          const options = langTable.data
-            .map((entry) => {
-              const code = normalizeLanguageKey(entry.language_code);
-              if (!code) return null;
-              return {
-                code,
-                label: String(entry.language_name || code.toUpperCase()).trim() || code.toUpperCase(),
-              };
-            })
-            .filter(Boolean) as Array<{ code: string; label: string }>;
-          if (options.length > 0) {
-            const normalizedCodes = Array.from(
-              new Set(
-                options
-                  .map((entry) => normalizeLanguageKey(entry.code))
-                  .filter(Boolean)
-              )
-            );
-            if (!normalizedCodes.includes("fr")) normalizedCodes.unshift("fr");
-            setActiveLanguageCodes(normalizedCodes);
-            setLanguageLabels(
-              Object.fromEntries(
-                normalizedCodes.map((code) => {
-                  const rowOption = options.find((entry) => normalizeLanguageKey(entry.code) === code);
-                  return [code, String(rowOption?.label || DEFAULT_LANGUAGE_LABELS[code] || code.toUpperCase()).trim()];
-                })
-              )
-            );
+        if (hasRestaurantLanguagesTableRef.current) {
+          const langTable = await supabase
+            .from("restaurant_languages")
+            .select("language_code, language_name")
+            .eq("restaurant_id", String(row.id || scopedRestaurantId));
+          if (langTable.error) {
+            if (isMissingTableError(langTable.error)) {
+              hasRestaurantLanguagesTableRef.current = false;
+            }
+          } else if (Array.isArray(langTable.data)) {
+            const options = langTable.data
+              .map((entry) => {
+                const code = normalizeLanguageKey(entry.language_code);
+                if (!code) return null;
+                return {
+                  code,
+                  label: String(entry.language_name || code.toUpperCase()).trim() || code.toUpperCase(),
+                };
+              })
+              .filter(Boolean) as Array<{ code: string; label: string }>;
+            if (options.length > 0) {
+              const normalizedCodes = Array.from(
+                new Set(
+                  options
+                    .map((entry) => normalizeLanguageKey(entry.code))
+                    .filter(Boolean)
+                )
+              );
+              if (!normalizedCodes.includes("fr")) normalizedCodes.unshift("fr");
+              setActiveLanguageCodes(normalizedCodes);
+              setLanguageLabels(
+                Object.fromEntries(
+                  normalizedCodes.map((code) => {
+                    const rowOption = options.find((entry) => normalizeLanguageKey(entry.code) === code);
+                    return [code, String(rowOption?.label || DEFAULT_LANGUAGE_LABELS[code] || code.toUpperCase()).trim()];
+                  })
+                )
+              );
+            }
           }
         }
       } catch {
@@ -3592,6 +3614,10 @@ export default function MenuManager() {
       setAllergenLibrary(createDefaultAllergenLibrary());
       return;
     }
+    if (!hasAllergenLibraryTableRef.current) {
+      setAllergenLibrary(createDefaultAllergenLibrary());
+      return;
+    }
 
     let result = await supabase
       .from("allergen_library")
@@ -3600,6 +3626,11 @@ export default function MenuManager() {
       .order("id", { ascending: true });
 
     if (result.error) {
+      if (isMissingTableError(result.error)) {
+        hasAllergenLibraryTableRef.current = false;
+        setAllergenLibrary(createDefaultAllergenLibrary());
+        return;
+      }
       console.warn("Erreur fetch allergen_library (scope restaurant):", result.error.message);
       setAllergenLibrary(createDefaultAllergenLibrary());
       return;
@@ -5180,6 +5211,12 @@ export default function MenuManager() {
             allergens: finalAllergens.length > 0 ? finalAllergens.join(", ") : null,
           };
           let formulaPayload = { ...baseFormulaPayload };
+          if (typeof formulaPayload.allergens === "string") {
+            formulaPayload.allergens = formulaPayload.allergens
+              .split(",")
+              .map((entry) => entry.trim())
+              .filter(Boolean);
+          }
           let upsertFormulaResult = await supabase
             .from("restaurant_formulas")
             .upsert(formulaPayload as never, { onConflict: "id" });
@@ -5752,23 +5789,35 @@ export default function MenuManager() {
         return;
       }
       try {
-        const langRows = Array.from(new Set(enabledLangs))
-          .map((code, index) => ({
-            restaurant_id: restaurant.id,
-            code,
-            label: String(languageLabels[code] || DEFAULT_LANGUAGE_LABELS[code] || code.toUpperCase()).trim(),
-            is_active: true,
-            sort_order: index,
-          }))
-          .filter((row) => row.code && row.label);
-        const deleteResult = await supabase.from("restaurant_languages").delete().eq("restaurant_id", restaurant.id);
-        if (deleteResult.error && !["42P01", "42703"].includes(String((deleteResult.error as { code?: string })?.code || ""))) {
-          console.warn("Suppression restaurant_languages échouée:", deleteResult.error);
-        }
-        if (langRows.length > 0) {
-          const insertResult = await supabase.from("restaurant_languages").insert(langRows as never);
-          if (insertResult.error && !["42P01", "42703"].includes(String((insertResult.error as { code?: string })?.code || ""))) {
-            console.warn("Insertion restaurant_languages échouée:", insertResult.error);
+        if (hasRestaurantLanguagesTableRef.current) {
+          const langRows = Array.from(new Set(enabledLangs))
+            .map((code, index) => ({
+              restaurant_id: restaurant.id,
+              code,
+              label: String(languageLabels[code] || DEFAULT_LANGUAGE_LABELS[code] || code.toUpperCase()).trim(),
+              is_active: true,
+              sort_order: index,
+            }))
+            .filter((row) => row.code && row.label);
+          const deleteResult = await supabase.from("restaurant_languages").delete().eq("restaurant_id", restaurant.id);
+          if (deleteResult.error) {
+            if (isMissingTableError(deleteResult.error)) {
+              hasRestaurantLanguagesTableRef.current = false;
+            } else if (!["42P01", "42703"].includes(String((deleteResult.error as { code?: string })?.code || ""))) {
+              console.warn("Suppression restaurant_languages échouée:", deleteResult.error);
+            }
+          }
+          if (langRows.length > 0 && hasRestaurantLanguagesTableRef.current) {
+            const insertResult = await supabase.from("restaurant_languages").insert(langRows as never);
+            if (insertResult.error) {
+              if (isMissingTableError(insertResult.error)) {
+                hasRestaurantLanguagesTableRef.current = false;
+              } else if (
+                !["42P01", "42703"].includes(String((insertResult.error as { code?: string })?.code || ""))
+              ) {
+                console.warn("Insertion restaurant_languages échouée:", insertResult.error);
+              }
+            }
           }
         }
       } catch (langTableError) {

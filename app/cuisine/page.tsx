@@ -350,8 +350,21 @@ export default function KitchenPage() {
     if (formulaSequence != null) return formulaSequence;
     return resolveServiceStepRank(resolveItemCourse(item));
   };
+  const readItemSortOrder = (item: Item) => {
+    const record = item as unknown as Record<string, unknown>;
+    const raw = record.sort_order ?? record.step_number ?? record.sortOrder;
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
   const sortKitchenItemsByStep = (items: Item[]) =>
     [...items].sort((a, b) => {
+      const aSort = readItemSortOrder(a);
+      const bSort = readItemSortOrder(b);
+      if (aSort != null || bSort != null) {
+        if (aSort == null) return 1;
+        if (bSort == null) return -1;
+        if (aSort !== bSort) return aSort - bSort;
+      }
       const stepDiff = resolveItemStepRank(a) - resolveItemStepRank(b);
       if (stepDiff !== 0) return stepDiff;
       const aOrderItemId = normalizeEntityId((a as unknown as Record<string, unknown>).order_item_id ?? a.id);

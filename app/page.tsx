@@ -5209,6 +5209,38 @@ export default function MenuDigital() {
             selected_option_price: Number(selection.selectedOptionPrice || 0) || 0,
             sequence,
           });
+          const selectionSideValues = Array.isArray(selection.selectedSides) ? selection.selectedSides.filter(Boolean) : [];
+          if (selectionSideValues.length > 0) {
+            selectedOptionsPayload.push({
+              kind: "side",
+              source: "formula",
+              sequence,
+              values: selectionSideValues,
+              label_fr: selectionSideValues.join(", "),
+            });
+          }
+          const selectionOptionValues = Array.isArray(selection.selectedOptionNames)
+            ? selection.selectedOptionNames.filter(Boolean)
+            : [];
+          if (selectionOptionValues.length > 0) {
+            selectedOptionsPayload.push({
+              kind: "option",
+              source: "formula",
+              sequence,
+              values: selectionOptionValues,
+              label_fr: selectionOptionValues.join(", "),
+            });
+          }
+          const selectionCooking = String(selection.selectedCooking || "").trim();
+          if (selectionCooking) {
+            selectedOptionsPayload.push({
+              kind: "cooking",
+              source: "formula",
+              sequence,
+              value: selectionCooking,
+              label_fr: selectionCooking,
+            });
+          }
         });
       }
       const formulaItemsPayload = formulaSelections
@@ -5324,9 +5356,29 @@ export default function MenuDigital() {
           ? "bar"
           : getCategoryDestination(item.dish.category_id);
       const baseSequence = normalizeFormulaStepValue(formulaCurrentSequence, true) ?? 1;
+      const selectedOptionsPayloadWithSequence = formulaDishId
+        ? selectedOptionsPayload.map((entry) => {
+            if (!entry || typeof entry !== "object") return entry;
+            const record = entry as Record<string, unknown>;
+            const kind = String(record.kind || "").trim().toLowerCase();
+            if (!kind || kind === "formula") return entry;
+            if (String(record.source || "").trim().toLowerCase() === "formula") return entry;
+            if (Number.isFinite(Number(record.sequence))) return entry;
+            return { ...(entry as Record<string, unknown>), source: "formula", sequence: baseSequence };
+          })
+        : selectedOptionsPayload;
       const baseStatus = formulaDishId
         ? resolveInitialFormulaItemStatus(baseSequence, formulaDishId ? 0 : null)
         : "pending";
+      const baseOptionEntries = selectedOptionsPayloadWithSequence.filter((entry) => {
+        if (String(entry.kind || "").trim() !== "option") return false;
+        if (!formulaDishId) return true;
+        const source = String((entry as Record<string, unknown>).source || "").trim().toLowerCase();
+        if (source !== "formula") return true;
+        const entrySequence = Number((entry as Record<string, unknown>).sequence);
+        if (!Number.isFinite(entrySequence)) return false;
+        return Math.trunc(entrySequence) === Math.trunc(baseSequence);
+      });
       const baseOrderItem = {
           dish_id: String(item.dish.id || "").trim(),
           id: String(item.dish.id || "").trim(),
@@ -5343,11 +5395,11 @@ export default function MenuDigital() {
         selected_option_name: selectedOptionNamesFr.length > 0 ? selectedOptionNamesFr.join(", ") : selectedOptionNames.length > 0 ? selectedOptionNames.join(", ") : null,
         selected_option_price: selectedOptionPrice,
         selected_option:
-          selectedOptionsPayload.filter((entry) => String(entry.kind || "").trim() === "option").length > 1
-            ? selectedOptionsPayload.filter((entry) => String(entry.kind || "").trim() === "option")
-            : selectedOptionsPayload.find((entry) => String(entry.kind || "").trim() === "option") || null,
-        selected_options: selectedOptionsPayload,
-        selectedOptions: selectedOptionsPayload,
+          baseOptionEntries.length > 1
+            ? baseOptionEntries
+            : baseOptionEntries[0] || null,
+        selected_options: selectedOptionsPayloadWithSequence,
+        selectedOptions: selectedOptionsPayloadWithSequence,
         selected_side_ids: fallbackSideIds,
         selected_side_label_fr: selectedSideLabelsFr.join(", ") || null,
         accompagnement_fr: selectedSideLabelsFr.join(", ") || null,

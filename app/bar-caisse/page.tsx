@@ -1371,15 +1371,6 @@ export default function BarCaissePage() {
             const transitionKey = `${String(newRow.id || oldRow.id || "")}:step:${newCurrentStep}:${String(newRow.updated_at || "")}`;
             if (transitionKey && !printedRealtimeTransitionsRef.current[transitionKey]) {
               printedRealtimeTransitionsRef.current[transitionKey] = true;
-              const payloadForPrint = buildTicketPayloadFromRealtimeOrder(newRow);
-              if (payloadForPrint) {
-                console.log("[bar-caisse] auto print trigger next step:", {
-                  orderId: payloadForPrint.orderId,
-                  step: newCurrentStep,
-                  table: payloadForPrint.tableNumber,
-                });
-                openThermalPrint(payloadForPrint);
-              }
             }
           }
         }
@@ -2651,4 +2642,3 @@ export default function BarCaissePage() {
     </div>
   );
 }
-
