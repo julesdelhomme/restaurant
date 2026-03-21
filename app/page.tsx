@@ -3161,8 +3161,9 @@ export default function MenuDigital() {
 
     const stepsResult = await supabase
       .from("formula_steps")
-      .select("formula_id,dish_id,step_number,is_required")
-      .in("formula_id", formulaIds as never);
+      .select("formula_id,dish_id,step_number,is_required,sort_order")
+      .in("formula_id", formulaIds as never)
+      .order("sort_order", { ascending: true });
     if (stepsResult.error) {
       console.warn("formula_steps fetch failed (menu public):", toLoggableSupabaseError(stepsResult.error));
       setFormulaLinksByFormulaId(new Map());
@@ -6318,24 +6319,45 @@ export default function MenuDigital() {
                           className={`text-base md:text-lg leading-relaxed mb-4 ${darkMode ? "text-gray-200" : "text-gray-700"}`}
                           style={!darkMode ? { color: cardTextColorValue } : undefined}
                         >
-                          {getDescription(featuredDish, lang)}
+                          {getDescription(
+                            featuredPrimaryFormula
+                              ? {
+                                  ...featuredDish,
+                                  description: (featuredPrimaryFormula as any).description || featuredDish.description,
+                                  description_fr: (featuredPrimaryFormula as any).description || featuredDish.description_fr,
+                                }
+                              : featuredDish,
+                            lang
+                          )}
                         </p>
-                        {(getHungerLevel(featuredDish, lang) || (showCaloriesClient && getCaloriesLabel(featuredDish, kcalLabel))) && (
-                          <div className="flex flex-wrap gap-2 mb-2">
-                            {getHungerLevel(featuredDish, lang) && (
-                              <span className="inline-flex items-center gap-2 bg-white/95 text-black border border-black rounded-full px-3 py-1.5 text-sm md:text-base font-bold">
-                                <span className="inline-block w-2.5 h-2.5 rounded-full bg-red-500" />
-                                {getHungerLevel(featuredDish, lang)}
-                              </span>
-                            )}
-                            {showCaloriesClient && getCaloriesLabel(featuredDish, kcalLabel) && (
-                              <span className="inline-flex items-center gap-2 bg-white/95 text-black border border-black rounded-full px-3 py-1.5 text-sm md:text-base font-bold">
-                                <span className="inline-block w-2.5 h-2.5 rounded-full bg-orange-500" />
-                                {getCaloriesLabel(featuredDish, kcalLabel)}
-                              </span>
-                            )}
-                          </div>
-                        )}
+                        {(() => {
+                          const displayDish = featuredPrimaryFormula
+                            ? {
+                                ...featuredDish,
+                                calories: (featuredPrimaryFormula as any).calories || featuredDish.calories,
+                                calories_min: (featuredPrimaryFormula as any).calories_min || featuredDish.calories_min,
+                                calories_max: (featuredPrimaryFormula as any).calories_max || featuredDish.calories_max,
+                              }
+                            : featuredDish;
+                          return (
+                            (getHungerLevel(displayDish, lang) || (showCaloriesClient && getCaloriesLabel(displayDish, kcalLabel))) && (
+                              <div className="flex flex-wrap gap-2 mb-2">
+                                {getHungerLevel(displayDish, lang) && (
+                                  <span className="inline-flex items-center gap-2 bg-white/95 text-black border border-black rounded-full px-3 py-1.5 text-sm md:text-base font-bold">
+                                    <span className="inline-block w-2.5 h-2.5 rounded-full bg-red-500" />
+                                    {getHungerLevel(displayDish, lang)}
+                                  </span>
+                                )}
+                                {showCaloriesClient && getCaloriesLabel(displayDish, kcalLabel) && (
+                                  <span className="inline-flex items-center gap-2 bg-white/95 text-black border border-black rounded-full px-3 py-1.5 text-sm md:text-base font-bold">
+                                    <span className="inline-block w-2.5 h-2.5 rounded-full bg-orange-500" />
+                                    {getCaloriesLabel(displayDish, kcalLabel)}
+                                  </span>
+                                )}
+                              </div>
+                            )
+                          );
+                        })()}
                       </div>
                       <div className="mt-2 grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_auto] items-center gap-3">
                         {getPromoPriceForDish(featuredDish) != null ? (
@@ -6696,24 +6718,45 @@ export default function MenuDigital() {
                         } ${isOverlayCard ? "text-white/90 line-clamp-3" : ""} ${!darkMode && !isOverlayCard ? "text-black" : ""}`}
                         style={!isOverlayCard ? { color: cardTextColorValue } : undefined}
                       >
-                        {getDescription(dish, lang)}
+                        {getDescription(
+                          formulaDisplay
+                            ? {
+                                ...dish,
+                                description: (formulaDisplay as any)?.description || dish.description,
+description_fr: (formulaDisplay as any)?.description || dish.description_fr,
+                              }
+                            : dish,
+                          lang
+                        )}
                       </p>
-                      {(getHungerLevel(dish, lang) || (showCaloriesClient && getCaloriesLabel(dish, kcalLabel))) && (
-                        <div className={`flex flex-wrap gap-3 text-xs font-bold mb-2 ${isBicolorCard ? "" : ""} ${cardTextColor}`}>
-                          {getHungerLevel(dish, lang) && (
-                            <span className={`inline-flex items-center gap-1 rounded-full px-2 py-1 border ${badgeBaseClass}`}>
-                              <span className="inline-block w-2 h-2 rounded-full bg-red-500" />
-                              {getHungerLevel(dish, lang)}
-                            </span>
-                          )}
-                          {showCaloriesClient && getCaloriesLabel(dish, kcalLabel) && (
-                            <span className={`inline-flex items-center gap-1 rounded-full px-2 py-1 border ${badgeBaseClass}`}>
-                              <span className="inline-block w-2 h-2 rounded-full bg-orange-500" />
-                              {getCaloriesLabel(dish, kcalLabel)}
-                            </span>
-                          )}
-                        </div>
-                      )}
+                      {(() => {
+                        const displayDish = formulaDisplay
+                          ? {
+                              ...dish,
+                              calories: (formulaDisplay as any)?.calories || dish.calories,
+calories_min: (formulaDisplay as any)?.calories_min || dish.calories_min,
+calories_max: (formulaDisplay as any)?.calories_max || dish.calories_max,
+                            }
+                          : dish;
+                        return (
+                          (getHungerLevel(displayDish, lang) || (showCaloriesClient && getCaloriesLabel(displayDish, kcalLabel))) && (
+                            <div className={`flex flex-wrap gap-3 text-xs font-bold mb-2 ${isBicolorCard ? "" : ""} ${cardTextColor}`}>
+                              {getHungerLevel(displayDish, lang) && (
+                                <span className={`inline-flex items-center gap-1 rounded-full px-2 py-1 border ${badgeBaseClass}`}>
+                                  <span className="inline-block w-2 h-2 rounded-full bg-red-500" />
+                                  {getHungerLevel(displayDish, lang)}
+                                </span>
+                              )}
+                              {showCaloriesClient && getCaloriesLabel(displayDish, kcalLabel) && (
+                                <span className={`inline-flex items-center gap-1 rounded-full px-2 py-1 border ${badgeBaseClass}`}>
+                                  <span className="inline-block w-2 h-2 rounded-full bg-orange-500" />
+                                  {getCaloriesLabel(displayDish, kcalLabel)}
+                                </span>
+                              )}
+                            </div>
+                          )
+                        );
+                      })()}
                       <div className={`flex gap-2 mb-2 flex-wrap ${isBicolorCard ? "" : ""}`}>
                         {dish.is_vegetarian && (
                           <span className={`px-2 py-1 rounded font-bold text-xs border-2 ${isOverlayCard ? "bg-green-700/80 border-white text-white" : "bg-green-200 border-black text-black"}`}>
@@ -7396,7 +7439,17 @@ const allergens = String((info as any)?.allergens || "").trim();
               <h2 className="text-2xl font-black text-black mb-2">
                 {getDishName(selectedDish, lang)}
               </h2>
-              <p className="text-black mb-2">{getDescription(selectedDish, lang)}</p>
+              {(() => {
+                const selectedFormulaDisplay = selectedDishLinkedFormulas[0] || null;
+                const displayDish = selectedFormulaDisplay
+                  ? {
+                      ...selectedDish,
+                      description: (selectedFormulaDisplay as any).description || selectedDish.description,
+                      description_fr: (selectedFormulaDisplay as any).description || selectedDish.description_fr,
+                    }
+                  : selectedDish;
+                return <p className="text-black mb-2">{getDescription(displayDish, lang)}</p>;
+              })()}
               {selectedFormulaButtonDish ? (
                 <div className="mb-3 rounded-lg border-2 border-black bg-amber-50 p-3">
                   <div className="text-sm font-black text-black mb-1">{availableInFormulaLabel}</div>
@@ -7436,22 +7489,35 @@ const allergens = String((info as any)?.allergens || "").trim();
                   </div>
                 </div>
               ) : null}
-              {(getHungerLevel(selectedDish, lang) || (showCaloriesClient && getCaloriesLabel(selectedDish, kcalLabel))) && (
-                <div className="flex flex-wrap gap-3 text-xs font-bold text-black mb-3">
-                  {getHungerLevel(selectedDish, lang) && (
-                    <span className="inline-flex items-center gap-1 bg-gray-100 border border-gray-300 rounded-full px-2 py-1">
-                      <span className="inline-block w-2 h-2 rounded-full bg-red-500" />
-                      {getHungerLevel(selectedDish, lang)}
-                    </span>
-                  )}
-                  {showCaloriesClient && getCaloriesLabel(selectedDish, kcalLabel) && (
-                    <span className="inline-flex items-center gap-1 bg-gray-100 border border-gray-300 rounded-full px-2 py-1">
-                      <span className="inline-block w-2 h-2 rounded-full bg-orange-500" />
-                      {getCaloriesLabel(selectedDish, kcalLabel)}
-                    </span>
-                  )}
-                </div>
-              )}
+              {(() => {
+                const selectedFormulaDisplay = selectedDishLinkedFormulas[0] || null;
+                const displayDish = selectedFormulaDisplay
+                  ? {
+                      ...selectedDish,
+                      calories: (selectedFormulaDisplay as any).calories || selectedDish.calories,
+                      calories_min: (selectedFormulaDisplay as any).calories_min || selectedDish.calories_min,
+                      calories_max: (selectedFormulaDisplay as any).calories_max || selectedDish.calories_max,
+                    }
+                  : selectedDish;
+                return (
+                  (getHungerLevel(displayDish, lang) || (showCaloriesClient && getCaloriesLabel(displayDish, kcalLabel))) && (
+                    <div className="flex flex-wrap gap-3 text-xs font-bold text-black mb-3">
+                      {getHungerLevel(displayDish, lang) && (
+                        <span className="inline-flex items-center gap-1 bg-gray-100 border border-gray-300 rounded-full px-2 py-1">
+                          <span className="inline-block w-2 h-2 rounded-full bg-red-500" />
+                          {getHungerLevel(displayDish, lang)}
+                        </span>
+                      )}
+                      {showCaloriesClient && getCaloriesLabel(displayDish, kcalLabel) && (
+                        <span className="inline-flex items-center gap-1 bg-gray-100 border border-gray-300 rounded-full px-2 py-1">
+                          <span className="inline-block w-2 h-2 rounded-full bg-orange-500" />
+                          {getCaloriesLabel(displayDish, kcalLabel)}
+                        </span>
+                      )}
+                    </div>
+                  )
+                );
+              })()}
               {getVisibleDishAllergenLabels(selectedDish).length > 0 && (
                 <div className="mb-3">
                   <label className="font-bold text-black mb-1 block">{uiText.allergensLabel} :</label>

@@ -965,7 +965,9 @@ interface DishForm {
   is_promo: boolean;
     promo_price: string;
     is_suggestion: boolean;
+  is_active: boolean;
   is_formula: boolean;
+  is_formula_active: boolean;
   formula_category_ids: string[];
   formula_dish_ids: string[];
   formula_default_option_ids: Record<string, string[]>;
@@ -1723,7 +1725,9 @@ export default function MenuManager() {
     is_promo: false,
     promo_price: "",
     is_suggestion: false,
+    is_active: true,
     is_formula: false,
+    is_formula_active: true,
   formula_category_ids: [],
   formula_dish_ids: [],
   formula_default_option_ids: {},
@@ -2603,6 +2607,7 @@ export default function MenuManager() {
     fetchCriticalStock();
     fetchSubCategories();
     fetchSidesLibrary();
+    fetchAllergenLibrary();
   }, [scopedRestaurantId]);
 
   useEffect(() => {
@@ -3582,6 +3587,32 @@ export default function MenuManager() {
     setSidesLibrary((result.data || []) as SideLibraryItem[]);
   };
 
+  const fetchAllergenLibrary = async () => {
+    if (!scopedRestaurantId) {
+      setAllergenLibrary(createDefaultAllergenLibrary());
+      return;
+    }
+
+    let result = await supabase
+      .from("allergen_library")
+      .select("*")
+      .eq("restaurant_id", scopedRestaurantId)
+      .order("id", { ascending: true });
+
+    if (result.error) {
+      console.warn("Erreur fetch allergen_library (scope restaurant):", result.error.message);
+      setAllergenLibrary(createDefaultAllergenLibrary());
+      return;
+    }
+
+    if (result.data && result.data.length > 0) {
+      const parsed = parseAllergenLibrary(result.data);
+      setAllergenLibrary(parsed.length > 0 ? parsed : createDefaultAllergenLibrary());
+    } else {
+      setAllergenLibrary(createDefaultAllergenLibrary());
+    }
+  };
+
   const fetchTableAssignments = async () => {
     if (!scopedRestaurantId) {
       setTableAssignments([]);
@@ -3813,7 +3844,9 @@ export default function MenuManager() {
       is_promo: false,
       promo_price: "",
       is_suggestion: false,
+      is_active: true,
       is_formula: false,
+      is_formula_active: true,
       formula_category_ids: [],
       formula_dish_ids: [],
       formula_default_option_ids: {},
@@ -4211,6 +4244,8 @@ export default function MenuManager() {
         typeof (dietary as any).sales_tip_dish_id === "string"
           ? String((dietary as any).sales_tip_dish_id)
           : "",
+      is_active: toBoolean((dish as unknown as any).active ?? true, true),
+      is_formula_active: isFormula && linkedFormulaDisplay ? toBoolean((linkedFormulaDisplay as any).active ?? true, true) : true,
     });
     setImagePreviewUrl(dish.image_url || "");
     setFormulaImagePreviewUrl(
@@ -4810,7 +4845,7 @@ export default function MenuManager() {
       selected_sides: formData.selected_side_ids || [],
       max_options: 1,
       is_available: true,
-      active: true,
+      active: !!formData.is_active,
       restaurant_id: scopedRestaurantId,
     };
     activeLanguageCodes.forEach((code) => {
@@ -5137,7 +5172,7 @@ export default function MenuManager() {
             restaurant_id: scopedRestaurantId,
             name: formulaNameToPersist || String(formData.name_fr || "").trim() || null,
             price: parsedFormulaPrice == null ? null : Number(parsedFormulaPrice),
-            active: true,
+            active: !!formData.is_formula_active,
             image_url: formulaImageUrlToPersist || null,
             image_path: formulaImageUrlToPersist || null,
             description: formData.formula_description || null,
@@ -5759,7 +5794,7 @@ export default function MenuManager() {
 
       alert("Restaurant mis ? jour !");
       // Refresh related entities after restaurant settings are reloaded from DB.
-      await Promise.all([fetchCategories(), fetchSubCategories(), fetchSidesLibrary(), fetchDishes()]);
+      await Promise.all([fetchCategories(), fetchSubCategories(), fetchSidesLibrary(), fetchDishes(), fetchAllergenLibrary()]);
     } catch (error: any) {
       console.error("Unexpected restaurant save error:", error);
       alert("Erreur: " + (error?.message || "Erreur inconnue"));
@@ -11404,7 +11439,10 @@ export default function MenuManager() {
                   <div className="mt-3">
                     <label className="block mb-2 font-bold">Allergènes (formule)</label>
                     <div className="grid grid-cols-2 gap-2">
-                      {STANDARD_FORMULA_ALLERGENS.map((allergen) => {
+                      {(allergenLibrary.length > 0
+                        ? allergenLibrary.map((row) => row.name_fr)
+                        : STANDARD_FORMULA_ALLERGENS
+                      ).map((allergen) => {
                         const checked = formData.formula_allergens.includes(allergen);
                         return (
                           <label key={allergen} className="flex items-center gap-2 text-sm font-bold">
@@ -11572,6 +11610,31 @@ export default function MenuManager() {
                   <p className="mt-2 text-xs text-gray-600">
                     Laissez vide pour rendre le plat disponible toute la journée.
                   </p>
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block mb-2 font-bold">Statut d'affichage</label>
+                  <div className="space-y-2">
+                    <label className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={formData.is_active}
+                        onChange={(e) => setFormData({ ...formData, is_active: e.target.checked })}
+                        className="w-4 h-4"
+                      />
+                      <span className="text-sm font-bold">Plat actif (visible au menu)</span>
+                    </label>
+                    {formData.is_formula && (
+                      <label className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={formData.is_formula_active}
+                          onChange={(e) => setFormData({ ...formData, is_formula_active: e.target.checked })}
+                          className="w-4 h-4"
+                        />
+                        <span className="text-sm font-bold">Formule active (visible au menu)</span>
+                      </label>
+                    )}
+                  </div>
                 </div>
               <div className="md:col-span-2 hidden">
                 <label className="block mb-1 font-bold">Description française</label>
