@@ -638,7 +638,7 @@ function AdminContent() {
   const [serviceNotifications, setServiceNotifications] = useState<ServiceNotification[]>([]);
   const [activeTables, setActiveTables] = useState<TableAssignment[]>([]);
   const [activeDishNames, setActiveDishNames] = useState<Set<string>>(new Set());
-  const [activeTab, setActiveTab] = useState<"orders" | "sessions" | "new-order" | "service" | "formulas">("orders");
+  const [activeTab, setActiveTab] = useState<"orders" | "sessions" | "new-order" | "service">("orders");
 
   const [tableNumberInput, setTableNumberInput] = useState("");
   const [pinInput, setPinInput] = useState("");
@@ -2813,26 +2813,30 @@ const formulaParentDishIds = useMemo(() => {
     if (!effectiveSelectedFastCategoryKey) return dishes;
     
     if (effectiveSelectedFastCategoryKey === FORMULAS_CATEGORY_KEY) {
-      // Filter ONLY formula_steps entries - NO Burger/legacy
-      return formulaDisplays
-        .filter(fd => formulaLinksByFormulaId.has(fd.id)) // MUST have links
-        .map((fd) => {
-        const baseDish = dishes.find((dish) => String(dish.id) === fd.id);
-        return {
-          ... (baseDish || {
-            id: fd.id,
-            name: fd.name,
-            name_fr: fd.name,
-            price: fd.price,
-            image_url: fd.imageUrl,
-            category: "Formules",
-          }),
-          formulaName: fd.name,
-          formulaPrice: fd.price,
-          formulaImage: fd.imageUrl,
-          isFormulaDisplay: true as const,
-        } as DishItem;
-      });
+      // Afficher les formules actives comme une fausse catégorie
+      return formulas
+        .filter((f) => formulaLinksByFormulaId.has(String(f.id)))
+        .map((f) => {
+          const baseDish = dishes.find((dish) => String(dish.id) === String(f.id));
+          const price = parsePriceNumber(f.price);
+          return {
+            ...(baseDish || {
+              id: f.id,
+              name: f.name,
+              name_fr: f.name,
+              price: price,
+              image_url: f.image_url || undefined,
+              category: "Formules",
+              category_id: "formules",
+            }),
+            formulaName: f.name,
+            formulaPrice: Number.isFinite(price) ? price : 0,
+            formulaImage: f.image_url || (baseDish as any)?.image_url,
+            isFormulaDisplay: true as const,
+            is_formula: true,
+            formula_id: f.id,
+          } as DishItem;
+        });
     }
 
     // Regular categories: EXCLUDE all formulas (incl Burger Alsacien)
@@ -3725,6 +3729,12 @@ const formulaParentDishIds = useMemo(() => {
         };
         const isFormulaLine = Boolean(line.isFormula || formulaDishId || formulaSelections.length > 0);
         const formulaDishRecord = formulaDishId ? dishById.get(formulaDishId) || null : null;
+        const formulaGroupId =
+          isFormulaLine && typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+            ? crypto.randomUUID()
+            : isFormulaLine
+              ? `${tableNumber}-${lineIndex}-${formulaDishId || "formula"}-${Date.now()}`
+              : null;
         const formulaUnitPriceRaw = Number(line.formulaUnitPrice);
         const formulaUnitPrice =
           isFormulaLine
@@ -3867,6 +3877,7 @@ const formulaParentDishIds = useMemo(() => {
             return {
               formula_dish_id: formulaDishId,
               formula_dish_name: formulaDishName,
+              formula_group_id: formulaGroupId,
               category_id: selection.categoryId || null,
               category_label: selection.categoryLabel || null,
               dish_id: selection.dishId || null,
@@ -3889,6 +3900,11 @@ const formulaParentDishIds = useMemo(() => {
               selected_option_price: 0,
               sequence,
               is_main: String(selection.dishId || "").trim() === String(formulaDishId || "").trim(),
+              is_formula_child: true,
+              is_formula_parent: false,
+              is_formula: true,
+              sort_order: sequence != null ? sequence : null,
+              step_number: sequence != null ? sequence : null,
             };
           })
           .filter(Boolean);
@@ -4081,17 +4097,21 @@ const formulaParentDishIds = useMemo(() => {
               formula_dish_name: formulaDishName,
               formula_unit_price: resolvedFormulaLinePrice,
               formula_instance_id: formulaInstanceId,
+              is_formula: true,
+              formula_group_id: formulaGroupId,
               is_formula_parent: index === formulaMainItemIndex,
+              is_formula_child: index !== formulaMainItemIndex,
               formula_current_sequence: entrySequence,
               sequence: entrySequence,
               step: entrySequence,
+              sort_order: index === formulaMainItemIndex ? 0 : entrySequence ?? index + 1,
+              step_number: index === formulaMainItemIndex ? 0 : entrySequence ?? index + 1,
               formula_items: [entry],
               formula: index === formulaMainItemIndex ? formulaPayload : null,
               special_request: String(line.specialRequest || "").trim(),
               instructions: lineInstructions,
               status: isDirectFormulaSequence(entrySequence) ? "pending" : entrySequence > 1 ? "waiting" : "pending",
               from_recommendation: false,
-              is_formula: true,
             } as Item;
           });
           return formulaSelectionItems;
@@ -4141,8 +4161,12 @@ const formulaParentDishIds = useMemo(() => {
           formula_dish_name: formulaDishName,
           formula_unit_price: formulaUnitPrice,
           formula_instance_id: formulaInstanceId,
+          formula_group_id: formulaGroupId,
           is_formula_parent: Boolean(formulaDishId),
+          is_formula_child: false,
           is_formula: Boolean(formulaDishId),
+          sort_order: formulaDishId ? 0 : null,
+          step_number: formulaDishId ? 0 : null,
           formula_current_sequence: formulaCurrentSequence,
           formula_items: formulaItemsPayload.length > 0 ? formulaItemsPayload : null,
           formula: formulaPayload,
@@ -4497,7 +4521,7 @@ const formulaParentDishIds = useMemo(() => {
     () => serviceNotifications.filter((n) => !n.status || String(n.status).toLowerCase() === "pending"),
     [serviceNotifications]
   );
-  const resolvedActiveTab: "orders" | "sessions" | "new-order" | "service" | "formulas" =
+  const resolvedActiveTab: "orders" | "sessions" | "new-order" | "service" =
     !showNewOrderTab && activeTab === "new-order"
       ? "orders"
       : activeTab;
@@ -4928,9 +4952,6 @@ className={`mt-4 w-full border-2 border-black py-3 text-base font-black shadow-[
           <button onClick={() => setActiveTab("sessions")} className={`px-4 py-3 border-2 border-black font-black ${resolvedActiveTab === "sessions" ? "bg-black text-white" : "bg-white text-black"}`}>
             Ouvrir une table
           </button>
-          <button onClick={() => setActiveTab("formulas")} className={`px-4 py-3 border-2 border-black font-black ${resolvedActiveTab === "formulas" ? "bg-black text-white" : "bg-white text-black"}`}>
-            Formules
-          </button>
         </div>
       </div>
 
@@ -5021,7 +5042,9 @@ className={`mt-4 w-full border-2 border-black py-3 text-base font-black shadow-[
             {visibleFastEntryDishes.length === 0 ? <div className="px-3 py-3 text-sm">Aucun article.</div> : null}
             {visibleFastEntryDishes.map((dish) => {
               const dishId = String(dish.id);
-              const isFormulaDish = formulaParentDishIds.has(String(dish.id || "").trim());
+              const isFormulaDish =
+                formulaParentDishIds.has(String(dish.id || "").trim()) ||
+                readBooleanFlag((dish as unknown as { is_formula?: unknown }).is_formula, false);
               const displayName = isFormulaDish ? getFormulaDisplayName(dish) : getDishName(dish);
               const displayPrice = isFormulaDish ? getFormulaPackPrice(dish) : getDishPrice(dish);
               const linkedDishOptions =
@@ -5125,58 +5148,6 @@ className={`mt-4 w-full border-2 border-black py-3 text-base font-black shadow-[
             </span>
           </button>
           {fastMessage ? <p className="mt-2 text-sm font-semibold">{fastMessage}</p> : null}
-        </section>
-      ) : null}
-
-      {resolvedActiveTab === "formulas" ? (
-        <section className="bg-white border-2 border-black rounded-lg p-4">
-          <h2 className="text-lg font-bold mb-3">Formules</h2>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {formulas.map((formula) => (
-              <div key={formula.id} className="border border-gray-200 rounded-lg p-3 flex flex-col gap-2">
-                {formula.image_url ? (
-                  <img src={formula.image_url} alt={formula.name} className="h-32 w-full object-cover rounded-md border" />
-                ) : null}
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div className="font-bold">{formula.name || "Formule"}</div>
-                    <div className="text-sm text-gray-600">{typeof formula.price === "number" ? `${formula.price.toFixed(2)}€` : "—"}</div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      openFormulaModal(
-                        {
-                          id: formula.id,
-                          name: formula.name,
-                          name_fr: formula.name,
-                          price: formula.price ?? 0,
-                          image_url: formula.image_url ?? undefined,
-                          is_formula: true,
-                          formula_id: formula.id,
-                        } as DishItem
-                      )
-                    }
-                    className="px-3 py-2 text-sm font-semibold border-2 border-black bg-black text-white"
-                  >
-                    Choisir
-                  </button>
-                </div>
-                <div className="text-xs text-gray-600">
-                  Étapes disponibles :{" "}
-                  {(() => {
-                    const links = formulaLinksByFormulaId.get(String(formula.id)) || [];
-                    if (links.length === 0) return "Aucune";
-                    const names = links
-                      .map((l) => dishById.get(String(l.dishId))?.name_fr || dishById.get(String(l.dishId))?.name || l.dishId)
-                      .filter(Boolean)
-                      .slice(0, 4);
-                    return names.join(", ");
-                  })()}
-                </div>
-              </div>
-            ))}
-          </div>
         </section>
       ) : null}
 
