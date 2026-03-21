@@ -298,7 +298,7 @@ export default function KitchenPage() {
           ? Number(row?.formula_current_sequence)
           : null,
         step: normalizeStepValue(
-          row?.step ?? row?.sequence ?? row?.formula_current_sequence ?? row?.formulaCurrentSequence,
+          row?.step ?? row?.step_number ?? row?.sort_order ?? row?.sequence ?? row?.formula_current_sequence ?? row?.formulaCurrentSequence,
           true
         ),
       } as Item;

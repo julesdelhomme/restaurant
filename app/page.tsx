@@ -1534,6 +1534,7 @@ interface FormulaSelectionDetails {
 interface FormulaDishLink {
   formulaDishId: string;
   dishId: string;
+  categoryId?: string | null;
   sequence: number | null;
   step?: number | null;
   defaultProductOptionIds?: string[];
@@ -3184,9 +3185,12 @@ export default function MenuDigital() {
       if (!formulaDishId || !dishId || !formulaIdSet.has(formulaDishId)) return;
       const sequence = normalizeFormulaStepValue(row.step_number, true);
       const formulaInfo = formulaInfoByIdLocal.get(formulaDishId);
+      const linkedDish = sourceDishes.find((d) => String(d.id) === dishId);
+      const categoryId = linkedDish ? String(linkedDish.category_id || "").trim() : null;
       const link: FormulaDishLink = {
         formulaDishId,
         dishId,
+        categoryId,
         sequence,
         step: sequence,
         formulaName: formulaInfo?.name,
@@ -4099,12 +4103,20 @@ export default function MenuDigital() {
     const links = formulaLinksByFormulaId.get(formulaDishId) || [];
     if (links.length === 0) return map;
     links.forEach((link) => {
-      const dish = dishById.get(String(link.dishId || "").trim());
-      if (!dish) return;
-      const categoryId = String(dish.category_id || "").trim();
-      if (!categoryId) return;
+      const categoryId = link.categoryId ? String(link.categoryId || "").trim() : null;
+      if (!categoryId) {
+        const dish = dishById.get(String(link.dishId || "").trim());
+        if (!dish) return;
+        const fallbackCategoryId = String(dish.category_id || "").trim();
+        if (fallbackCategoryId) {
+          const current = map.get(fallbackCategoryId) || new Set<string>();
+          current.add(String(link.dishId || "").trim());
+          map.set(fallbackCategoryId, current);
+        }
+        return;
+      }
       const current = map.get(categoryId) || new Set<string>();
-      current.add(String(dish.id || "").trim());
+      current.add(String(link.dishId || "").trim());
       map.set(categoryId, current);
     });
     return map;

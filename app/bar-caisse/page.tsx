@@ -1345,8 +1345,11 @@ export default function BarCaissePage() {
         if (eventType === "UPDATE" && sameRestaurant) {
           const oldStatus = normalizeStatusKey(oldRow.status);
           const newStatus = normalizeStatusKey(newRow.status);
+          const oldCurrentStep = Number((oldRow as any).current_step ?? (oldRow as any).currentStep ?? 0);
+          const newCurrentStep = Number((newRow as any).current_step ?? (newRow as any).currentStep ?? 0);
           const isNewPaidOrConfirmed = AUTO_PRINT_TRIGGER_STATUSES.has(newStatus);
           const wasAlreadyPaidOrConfirmed = AUTO_PRINT_TRIGGER_STATUSES.has(oldStatus);
+          const isNextStepSent = oldCurrentStep < newCurrentStep && newCurrentStep > 0;
           if (isNewPaidOrConfirmed && !wasAlreadyPaidOrConfirmed) {
             const transitionKey = `${String(newRow.id || oldRow.id || "")}:${newStatus}:${String(
               newRow.updated_at || newRow.paid_at || newRow.closed_at || ""
@@ -1358,6 +1361,21 @@ export default function BarCaissePage() {
                 console.log("[bar-caisse] auto print trigger status transition:", {
                   orderId: payloadForPrint.orderId,
                   status: newStatus,
+                  table: payloadForPrint.tableNumber,
+                });
+                openThermalPrint(payloadForPrint);
+              }
+            }
+          }
+          if (isNextStepSent) {
+            const transitionKey = `${String(newRow.id || oldRow.id || "")}:step:${newCurrentStep}:${String(newRow.updated_at || "")}`;
+            if (transitionKey && !printedRealtimeTransitionsRef.current[transitionKey]) {
+              printedRealtimeTransitionsRef.current[transitionKey] = true;
+              const payloadForPrint = buildTicketPayloadFromRealtimeOrder(newRow);
+              if (payloadForPrint) {
+                console.log("[bar-caisse] auto print trigger next step:", {
+                  orderId: payloadForPrint.orderId,
+                  step: newCurrentStep,
                   table: payloadForPrint.tableNumber,
                 });
                 openThermalPrint(payloadForPrint);
