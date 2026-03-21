@@ -2104,68 +2104,70 @@ const getFormulaDisplayName = (dish: DishItem) => {
         throw new Error(fastOrderText.noValidItem);
       }
   
-      const itemsForPayload = normalizeFormulaItemsForOrderPayload(validLines.flatMap((line) => {
-        const dish = dishById.get(String(line.dishId || ""));
-        const base = {
-          dish_id: line.dishId,
-          name: line.dishName,
-          quantity: line.quantity,
-          price: line.unitPrice,
-          category: line.category,
-          category_id: line.categoryId,
-          destination: line.destination,
-          cooking: line.selectedCooking,
-          side: line.selectedSides.join(", "),
-          extras: line.selectedExtras,
-          special_request: line.specialRequest,
-          is_drink: line.isDrink,
-        };
-  
-        if (line.isFormula && line.formulaSelections) {
-          const formulaDish = dishById.get(String(line.formulaDishId || ""));
-          const formulaPrice = getFormulaPackPrice(formulaDish as DishItem);
-          const formulaDetails = {
-            ...base,
-            name: line.formulaDishName,
-            is_formula: true,
-            is_formula_parent: true,
-            formula_id: line.formulaDishId,
-            price: line.formulaUnitPrice,
-            formula_unit_price: line.formulaUnitPrice,
-            formula_items: line.formulaSelections.map((sel) => ({
-              ...sel,
-              kind: "formula",
-              sequence: sel.sequence,
-              step: sel.sequence,
-            })),
+      const itemsForPayload = normalizeFormulaItemsForOrderPayload(
+        validLines.flatMap((line) => {
+          const dish = dishById.get(String(line.dishId || ""));
+          const base = {
+            dish_id: line.dishId,
+            name: line.dishName,
+            quantity: line.quantity,
+            price: line.unitPrice,
+            category: line.category,
+            category_id: line.categoryId,
+            destination: line.destination,
+            cooking: line.selectedCooking,
+            side: line.selectedSides.join(", "),
+            extras: line.selectedExtras,
+            special_request: line.specialRequest,
+            is_drink: line.isDrink,
           };
-          const childItems = (line.formulaSelections || []).map(sel => {
-            const childDish = dishById.get(String(sel.dishId));
-            return {
-              dish_id: sel.dishId,
-              name: sel.dishName,
-              quantity: 1,
-              price: 0, // Children have no price
-              category: childDish ? getDishCategoryLabel(childDish) : sel.categoryLabel,
-              category_id: sel.categoryId,
-              destination: resolveDestinationForCategory(sel.categoryId, sel.categoryLabel),
-              cooking: sel.selectedCooking,
-              side: (sel.selectedSides || []).join(", "),
+
+          if (line.isFormula && line.formulaSelections) {
+            const formulaDish = dishById.get(String(line.formulaDishId || ""));
+            const formulaPrice = getFormulaPackPrice(formulaDish as DishItem);
+            const formulaDetails = {
+              ...base,
+              name: line.formulaDishName,
               is_formula: true,
-              is_formula_parent: false,
+              is_formula_parent: true,
               formula_id: line.formulaDishId,
-              sequence: sel.sequence,
-              step: sel.sequence,
+              price: line.formulaUnitPrice,
+              formula_unit_price: line.formulaUnitPrice,
+              formula_items: line.formulaSelections.map((sel) => ({
+                ...sel,
+                kind: "formula",
+                sequence: sel.sequence,
+                step: sel.sequence,
+              })),
             };
-          });
-          
-          const combined = [formulaDetails, ...childItems];
-          // Repeat for quantity
-          return Array.from({ length: line.quantity }, () => combined).flat();
-        }
-        
-        return Array.from({ length: line.quantity }, () => base);
-      }));
+            const childItems = (line.formulaSelections || []).map((sel) => {
+              const childDish = dishById.get(String(sel.dishId));
+              return {
+                dish_id: sel.dishId,
+                name: sel.dishName,
+                quantity: 1,
+                price: 0, // Children have no price
+                category: childDish ? getDishCategoryLabel(childDish) : sel.categoryLabel,
+                category_id: sel.categoryId,
+                destination: resolveDestinationForCategory(sel.categoryId, sel.categoryLabel),
+                cooking: sel.selectedCooking,
+                side: (sel.selectedSides || []).join(", "),
+                is_formula: true,
+                is_formula_parent: false,
+                formula_id: line.formulaDishId,
+                sequence: sel.sequence,
+                step: sel.sequence,
+              };
+            });
+
+            const combined = [formulaDetails, ...childItems];
+            // Repeat for quantity
+            return Array.from({ length: line.quantity }, () => combined).flat();
+          }
+
+          return Array.from({ length: line.quantity }, () => base);
+        }) as Record<string, unknown>[]
+      );
       
       const covers = Number(fastCoversInput.trim()) || 1;
       const initialCurrentStep = resolveInitialCurrentStepFromItems(itemsForPayload);
