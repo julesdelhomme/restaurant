@@ -116,6 +116,22 @@ const DEFAULT_SUGGESTION_LEADS: Record<string, string> = {
   ar: "Hatha al tabaq yansajim jayyidan ma",
 };
 const ALLERGEN_OPTIONS = ["Gluten", "Lactose", "Arachides", "\u0152ufs", "Lait", "Poisson", "Fruits de mer", "Soja", "S\u00e9same", "Moutarde", "C\u00e9leri"];
+const STANDARD_FORMULA_ALLERGENS = [
+  "Gluten",
+  "Shellfish",
+  "Eggs",
+  "Fish",
+  "Peanuts",
+  "Soy",
+  "Milk",
+  "Nuts",
+  "Celery",
+  "Mustard",
+  "Sesame",
+  "Sulphites",
+  "Lupin",
+  "Molluscs",
+];
 const DEFAULT_ALLERGEN_TRANSLATIONS = DEFAULT_ALLERGEN_TRANSLATIONS_EXTENDED;
 const PREDEFINED_LANGUAGE_OPTIONS = PREDEFINED_LANGUAGE_OPTIONS_EXTENDED;
 const FORMULA_PARENT_STEP_KEY = "__formula_parent__";
@@ -956,6 +972,9 @@ interface DishForm {
   formula_sequence_by_dish: Record<string, number>;
   formula_name: string;
   formula_image_url: string;
+  formula_description: string;
+  formula_calories: string;
+  formula_allergens: string[];
   only_in_formula: boolean;
   linked_formula_ids: string[];
   max_options: string;
@@ -1483,7 +1502,17 @@ export default function MenuManager() {
     Map<string, Map<string, number>>
   >(new Map());
   const [formulaLinkDisplayByFormulaId, setFormulaLinkDisplayByFormulaId] = useState<
-    Map<string, { name: string; imageUrl: string; price?: number | null }>
+    Map<
+      string,
+      {
+        name: string;
+        imageUrl: string;
+        price?: number | null;
+        description?: string | null;
+        calories?: number | null;
+        allergens?: string[] | null;
+      }
+    >
   >(new Map());
   const [orders, setOrders] = useState<Order[]>([]);
   const [reviews, setReviews] = useState<ReviewRow[]>([]);
@@ -1681,11 +1710,11 @@ export default function MenuManager() {
     allergens: "",
     calories_min: "",
     calories_max: "",
-    has_sides: false,
-    has_extras: false,
-    allow_multi_select: false,
-    ask_cooking: false,
-    is_vegetarian_badge: false,
+  has_sides: false,
+  has_extras: false,
+  allow_multi_select: false,
+  ask_cooking: false,
+  is_vegetarian_badge: false,
     is_spicy_badge: false,
     is_new_badge: false,
     is_gluten_free_badge: false,
@@ -1695,14 +1724,17 @@ export default function MenuManager() {
     promo_price: "",
     is_suggestion: false,
     is_formula: false,
-    formula_category_ids: [],
-    formula_dish_ids: [],
-    formula_default_option_ids: {},
-    formula_sequence_by_dish: {},
-    formula_name: "",
-    formula_image_url: "",
-    only_in_formula: false,
-    linked_formula_ids: [],
+  formula_category_ids: [],
+  formula_dish_ids: [],
+  formula_default_option_ids: {},
+  formula_sequence_by_dish: {},
+  formula_name: "",
+  formula_image_url: "",
+  formula_description: "",
+  formula_calories: "",
+  formula_allergens: [],
+  only_in_formula: false,
+  linked_formula_ids: [],
     max_options: "1",
     selected_side_ids: [],
     extras_list: [],
@@ -2650,6 +2682,24 @@ export default function MenuManager() {
     }
   }, [categories]);
 
+  useEffect(() => {
+    const current = new Set(formData.formula_allergens || []);
+    formData.formula_dish_ids.forEach((dishIdRaw) => {
+      const dish = dishes.find((d) => String(d.id) === String(dishIdRaw));
+      const raw = String((dish as any)?.allergens || "").trim();
+      if (!raw) return;
+      raw
+        .split(/[,;]+/)
+        .map((v) => v.trim())
+        .filter(Boolean)
+        .forEach((v) => current.add(v));
+    });
+    const next = Array.from(current);
+    if (next.sort().join("|") !== (formData.formula_allergens || []).slice().sort().join("|")) {
+      setFormData((prev) => ({ ...prev, formula_allergens: next }));
+    }
+  }, [formData.formula_dish_ids, dishes]);
+
   const fetchRestaurant = async () => {
     setIsRestaurantLoading(true);
     setIsSuperAdminSession(false);
@@ -3047,7 +3097,10 @@ export default function MenuManager() {
     }
 
     const formulaIds: string[] = [];
-    const displayByFormula = new Map<string, { name: string; imageUrl: string; price?: number | null }>();
+    const displayByFormula = new Map<
+      string,
+      { name: string; imageUrl: string; price?: number | null; description?: string | null; calories?: number | null; allergens?: string[] | null }
+    >();
     (formulasResult.data || []).forEach((row: unknown) => {
       if (!row || typeof row !== "object") return;
       const record = row as any;
@@ -3055,10 +3108,22 @@ export default function MenuManager() {
       if (!formulaId) return;
       formulaIds.push(formulaId);
       const rawImage = String(record.image_url ?? record.image_path ?? record.image ?? "").trim();
+      const allergensRaw = record.allergens;
+      const parsedAllergens = Array.isArray(allergensRaw)
+        ? allergensRaw.map((a: unknown) => String(a || "").trim()).filter(Boolean)
+        : typeof allergensRaw === "string"
+          ? String(allergensRaw)
+              .split(",")
+              .map((a) => a.trim())
+              .filter(Boolean)
+          : [];
       displayByFormula.set(formulaId, {
         name: String(record.name || "").trim(),
         imageUrl: rawImage,
         price: record.price == null ? null : Number(record.price),
+        description: record.description ?? null,
+        calories: record.calories == null ? null : Number(record.calories),
+        allergens: parsedAllergens,
       });
     });
 
@@ -3717,11 +3782,14 @@ export default function MenuManager() {
       name_i18n: {},
       description_fr: "",
       description_en: "",
-      description_es: "",
+        description_es: "",
         description_de: "",
         description_i18n: {},
         price: "",
         formula_price: "",
+        formula_description: "",
+        formula_calories: "",
+        formula_allergens: [],
         available_days: [],
         start_time: "",
         end_time: "",
@@ -4106,6 +4174,19 @@ export default function MenuManager() {
       formula_sequence_by_dish: isFormula ? linkedFormulaSequenceMap : {},
       formula_name: isFormula ? String(linkedFormulaDisplay?.name || dish.name_fr || dish.name || "").trim() : "",
       formula_image_url: isFormula ? String(linkedFormulaDisplay?.imageUrl || "").trim() : "",
+      formula_description: isFormula ? String((linkedFormulaDisplay as any)?.description || "").trim() : "",
+      formula_calories:
+        isFormula && linkedFormulaDisplay?.calories != null
+          ? String(linkedFormulaDisplay.calories)
+          : "",
+      formula_allergens: isFormula
+        ? Array.isArray((linkedFormulaDisplay as any)?.allergens)
+          ? ((linkedFormulaDisplay as any)?.allergens as string[])
+          : String((linkedFormulaDisplay as any)?.allergens || "")
+              .split(",")
+              .map((a) => a.trim())
+              .filter(Boolean)
+        : [],
       only_in_formula: onlyInFormula,
       linked_formula_ids: !isFormula ? linkedFormulaIds : [],
       max_options: String(dish.max_options ?? 1),
@@ -5035,6 +5116,22 @@ export default function MenuManager() {
         if (formData.is_formula) {
           const formulaNameToPersist = String(formData.formula_name || formData.name_fr || "").trim();
           const formulaImageUrlToPersist = String(formData.formula_image_url || "").trim();
+          const autoAllergensFromComponents = (() => {
+            const set = new Set<string>();
+            normalizedFormulaDishIds.forEach((dishId) => {
+              const dish = dishesById.get(String(dishId));
+              const raw = String((dish as any)?.allergens || "").trim();
+              if (raw) {
+                raw
+                  .split(/[,;]+/)
+                  .map((v) => v.trim())
+                  .filter(Boolean)
+                  .forEach((v) => set.add(v));
+              }
+            });
+            return set;
+          })();
+          const finalAllergens = Array.from(new Set([...(formData.formula_allergens || []), ...autoAllergensFromComponents]));
           const baseFormulaPayload: Record<string, unknown> = {
             id: savedDishIdRaw,
             restaurant_id: scopedRestaurantId,
@@ -5043,6 +5140,9 @@ export default function MenuManager() {
             active: true,
             image_url: formulaImageUrlToPersist || null,
             image_path: formulaImageUrlToPersist || null,
+            description: formData.formula_description || null,
+            calories: formData.formula_calories ? Number(formData.formula_calories) : null,
+            allergens: finalAllergens.length > 0 ? finalAllergens.join(", ") : null,
           };
           let formulaPayload = { ...baseFormulaPayload };
           let upsertFormulaResult = await supabase
@@ -11275,6 +11375,52 @@ export default function MenuManager() {
                   className="w-full px-3 py-2 bg-white text-black border border-gray-300"
                   placeholder="Prix applique quand le client prend la formule"
                 />
+              </div>
+              <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="block mb-1 font-bold">Description de la formule</label>
+                  <textarea
+                    value={formData.formula_description}
+                    onChange={(e) => setFormData({ ...formData, formula_description: e.target.value })}
+                    className="w-full px-3 py-2 bg-white text-black border border-gray-300"
+                    rows={3}
+                    placeholder="Ex: Entrée + Plat + Dessert"
+                  />
+                </div>
+                <div>
+                  <label className="block mb-1 font-bold">Calories (kcal)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={formData.formula_calories}
+                    onChange={(e) => setFormData({ ...formData, formula_calories: e.target.value })}
+                    className="w-full px-3 py-2 bg-white text-black border border-gray-300"
+                    placeholder="Ex: 950"
+                  />
+                  <div className="mt-3">
+                    <label className="block mb-2 font-bold">Allergènes (formule)</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      {STANDARD_FORMULA_ALLERGENS.map((allergen) => {
+                        const checked = formData.formula_allergens.includes(allergen);
+                        return (
+                          <label key={allergen} className="flex items-center gap-2 text-sm font-bold">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={(e) => {
+                                const next = e.target.checked
+                                  ? [...formData.formula_allergens, allergen]
+                                  : formData.formula_allergens.filter((a) => a !== allergen);
+                                setFormData({ ...formData, formula_allergens: next });
+                              }}
+                            />
+                            {allergen}
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
               </div>
               <div>
                 <label className="block mb-1 font-bold">Prix promo (&euro;)</label>

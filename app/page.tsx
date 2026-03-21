@@ -3120,7 +3120,10 @@ export default function MenuDigital() {
       return;
     }
 
-    const formulaInfoByIdLocal = new Map<string, { name?: string; imageUrl?: string; dishId?: string | null; price?: number | null }>();
+    const formulaInfoByIdLocal = new Map<
+      string,
+      { name?: string; imageUrl?: string; dishId?: string | null; price?: number | null; description?: string | null; calories?: number | null; allergens?: string | null }
+    >();
     const formulaIds: string[] = [];
     (formulasResult.data || []).forEach((row: unknown) => {
       if (!row || typeof row !== "object") return;
@@ -3142,6 +3145,9 @@ export default function MenuDigital() {
         imageUrl: rawImage || undefined,
         dishId: linkedDishId,
         price: Number.isFinite(parsePriceNumber(record.price)) ? parsePriceNumber(record.price) : linkedDishPrice,
+        description: record.description ?? null,
+        calories: record.calories ?? null,
+        allergens: record.allergens ?? null,
       });
       formulaIds.push(formulaId);
     });
@@ -6863,6 +6869,27 @@ export default function MenuDigital() {
                 {Number(getFormulaPackPrice(formulaDish) || 0).toFixed(2)}
                 <Euro size={16} />
               </div>
+              {(() => {
+                const info = formulaInfoById.get(String(formulaDish.id || ""));
+                const linkedDish = info?.dishId ? dishById.get(String(info.dishId)) : null;
+                const imageUrl = sanitizeMediaUrl(info?.imageUrl || (linkedDish as any)?.image_url, "dishes-images-");
+                if (!imageUrl) return null;
+                return <img src={imageUrl} alt={getFormulaDisplayName(formulaDish)} className="w-full h-48 object-cover rounded-lg border-2 border-black mb-4" />;
+              })()}
+              {(() => {
+                const info = formulaInfoById.get(String(formulaDish.id || ""));
+                const desc = String(info?.description || "").trim();
+                const calories = info?.calories != null ? Number(info.calories) : null;
+                const allergens = String(info?.allergens || "").trim();
+                if (!desc && calories == null && !allergens) return null;
+                return (
+                  <div className="mb-4 space-y-2 text-sm">
+                    {desc && <p className="whitespace-pre-line">{desc}</p>}
+                    {calories != null && <p className="font-bold">Calories : {calories} kcal</p>}
+                    {allergens && <p className="text-black"><span className="font-bold">Allergènes :</span> {allergens}</p>}
+                  </div>
+                );
+              })()}
               {formulaMainConfig && (formulaMainConfig.hasRequiredSides || formulaMainConfig.askCooking) ? (
                 <div className="mb-4 border-2 border-black rounded-xl p-3">
                   <div className="font-black text-base mb-2">Plat principal</div>
