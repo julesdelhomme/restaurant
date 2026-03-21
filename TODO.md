@@ -1,16 +1,13 @@
-# TODO: Fix Syntax Errors in TableConfigManager.tsx
+# TableConfigManager.tsx Syntax Fix Task
+**Progress: 0/6**
 
-**Status: 0/6 Complete**
-
-## Plan Steps:
+## Steps:
 1. [ ] Add missing `);` after first `formulaQueryResult = await formulaQuery` (~line 3705)
-2. [ ] Delete redundant `primaryDishesQuery = primaryDishesQueryRes;` (~line 3715)
-3. [ ] Complete `String(...)` expression, remove "let linksResult..." garbage (~lines 3780-3800)  
+2. [ ] Delete redundant `primaryDishesQuery = primaryDishesQueryRes;` (~line 3715)  
+3. [ ] Fix lines ~3780-3800: Remove garbage "let linksResult...", complete String expression
 4. [ ] Fix `applyFormulasRows` lambda braces/indentation
-5. [ ] Consolidate duplicated `formula_dish_links` queries (use single clean version)
-6. [ ] Preserve fallbacks/error handling (42703), formulaDisplays logic
+5. [ ] Consolidate duplicate `formula_dish_links` queries → single clean version with fallbacks
+6. [ ] Test: `npx next dev`, admin page loads, realtime OK
 
-**Next:** edit_file on app/admin/TableConfigManager.tsx
-
-**Followup:** `npx next dev` → test browser console → realtime OK → attempt_completion
+**Next**: edit_file app/admin/TableConfigManager.tsx → step 1-2
 
