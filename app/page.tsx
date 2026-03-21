@@ -2353,7 +2353,7 @@ export default function MenuDigital() {
   const [formulaLinksByFormulaId, setFormulaLinksByFormulaId] = useState<Map<string, FormulaDishLink[]>>(new Map());
   const [formulaLinksByDishId, setFormulaLinksByDishId] = useState<Map<string, FormulaDishLink[]>>(new Map());
   const [formulaInfoById, setFormulaInfoById] = useState<
-    Map<string, { name?: string; imageUrl?: string; dishId?: string | null; price?: number | null; description?: string | null; calories?: number | null; allergens?: string | null; formula_category_ids?: unknown }>
+    Map<string, { name?: string; imageUrl?: string; dishId?: string | null; price?: number | null; description?: string | null; calories?: number | null; allergens?: string | null; formula_category_ids?: unknown; parent_dish_name?: string | null }>
   >(new Map());
   const [formulaSelections, setFormulaSelections] = useState<Record<string, string>>({});
   const [formulaSelectionDetails, setFormulaSelectionDetails] = useState<Record<string, FormulaSelectionDetails>>({});
@@ -3123,7 +3123,7 @@ export default function MenuDigital() {
 
     const formulaInfoByIdLocal = new Map<
       string,
-      { name?: string; imageUrl?: string; dishId?: string | null; price?: number | null; description?: string | null; calories?: number | null; allergens?: string | null; formula_category_ids?: unknown }
+      { name?: string; imageUrl?: string; dishId?: string | null; price?: number | null; description?: string | null; calories?: number | null; allergens?: string | null; formula_category_ids?: unknown; parent_dish_name?: string | null }
     >();
     const formulaIds: string[] = [];
     (formulasResult.data || []).forEach((row: unknown) => {
@@ -3149,6 +3149,7 @@ export default function MenuDigital() {
         description: record.description ?? null,
         calories: record.calories ?? null,
         allergens: record.allergens ?? null,
+        parent_dish_name: record.parent_dish_name ?? record.parentDishName ?? null,
         formula_category_ids: record.formula_category_ids ?? null,
       });
       formulaIds.push(formulaId);
@@ -4035,8 +4036,12 @@ export default function MenuDigital() {
   }, [categoryList.length, selectedCategory]);
 
   const categoryById = useMemo(() => {
-    const map = new Map<string | number, CategoryItem>();
-    sortedCategories.forEach((category) => map.set(category.id, category));
+    const map = new Map<string, CategoryItem>();
+    sortedCategories.forEach((category) => {
+      const key = String(category.id || "").trim();
+      if (!key) return;
+      map.set(key, category);
+    });
     return map;
   }, [sortedCategories]);
 
@@ -4163,7 +4168,7 @@ export default function MenuDigital() {
         return;
       }
       const options = dishes
-        .filter((dish) => String(dish.category_id) === categoryId)
+        .filter((dish) => String(dish.category_id || "").trim() === categoryId)
         .filter((dish) => dish.is_available !== false)
         .filter((dish) => isDishAvailableNow(dish))
         .filter((dish) => !toBooleanFlag((dish as any).is_formula))
@@ -4298,6 +4303,15 @@ export default function MenuDigital() {
     return normalizedStep === 0 || normalizedStep >= FORMULA_DIRECT_SEND_SEQUENCE;
   }
 
+  function resolveInitialFormulaItemStatus(sequence: number | null, sortOrder?: unknown) {
+    if (isDirectFormulaStep(sequence)) return "pending";
+    const normalizedSort = Number(sortOrder);
+    if (Number.isFinite(normalizedSort) && Math.trunc(normalizedSort) === 0) return "preparing";
+    if (sequence != null && sequence <= 1) return "preparing";
+    if (sequence != null && sequence > 1) return "waiting";
+    return "pending";
+  }
+
   function mapSequenceToOrderStep(value: unknown) {
     const normalizedStep = normalizeFormulaStepValue(value, true);
     if (normalizedStep == null) return null;
@@ -4331,6 +4345,24 @@ export default function MenuDigital() {
       const currentRecord = current as Record<string, unknown>;
       currentRecord.step = step;
       currentRecord.sequence = step;
+      const formulaDishId = String(
+        currentRecord.formula_dish_id ?? currentRecord.formulaDishId ?? currentRecord.formula_id ?? currentRecord.formulaId ?? ""
+      ).trim();
+      const isFormulaItem = Boolean(currentRecord.is_formula ?? formulaDishId);
+      if (isFormulaItem) {
+        const existingStatus = String(currentRecord.status || "").trim().toLowerCase();
+        if (!existingStatus || existingStatus === "pending" || existingStatus === "waiting") {
+          const sequence = normalizeFormulaStepValue(
+            currentRecord.step ??
+              currentRecord.sequence ??
+              currentRecord.formula_current_sequence ??
+              currentRecord.formulaCurrentSequence,
+            true
+          );
+          const sortOrder = currentRecord.sort_order ?? currentRecord.step_number ?? currentRecord.sortOrder;
+          currentRecord.status = resolveInitialFormulaItemStatus(sequence, sortOrder);
+        }
+      }
       return current;
     });
 
@@ -4412,7 +4444,7 @@ export default function MenuDigital() {
 
   const getCategoryDestination = (categoryId?: string | number | null) => {
     if (!categoryId) return "cuisine";
-    const category = categoryById.get(categoryId);
+    const category = categoryById.get(String(categoryId || "").trim());
     const destination = String(category?.destination || "").trim().toLowerCase();
     if (destination === "bar") return "bar";
     if (destination === "cuisine") return "cuisine";
@@ -4421,7 +4453,7 @@ export default function MenuDigital() {
 
   const isDrinkCategory = (categoryId?: string | number | null) => {
     if (!categoryId) return false;
-    const category = categoryById.get(categoryId);
+    const category = categoryById.get(String(categoryId || "").trim());
     if (!category) return false;
     const keys = [
       normalizeCategory(category.name_fr || ""),
@@ -4444,7 +4476,7 @@ export default function MenuDigital() {
 
   const isDessertCategory = (categoryId?: string | number | null) => {
     if (!categoryId) return false;
-    const category = categoryById.get(categoryId);
+    const category = categoryById.get(String(categoryId || "").trim());
     if (!category) return false;
     const keys = [
       normalizeCategory(category.name_fr || ""),
@@ -5291,10 +5323,10 @@ export default function MenuDigital() {
         hasDirectFormulaSelections && !hasNonDirectFormulaSelections
           ? "bar"
           : getCategoryDestination(item.dish.category_id);
-      const baseStatus =
-        Number.isFinite(Number(formulaCurrentSequence)) && Number(formulaCurrentSequence) > 1
-          ? "waiting"
-          : "pending";
+      const baseSequence = normalizeFormulaStepValue(formulaCurrentSequence, true) ?? 1;
+      const baseStatus = formulaDishId
+        ? resolveInitialFormulaItemStatus(baseSequence, formulaDishId ? 0 : null)
+        : "pending";
       const baseOrderItem = {
           dish_id: String(item.dish.id || "").trim(),
           id: String(item.dish.id || "").trim(),
@@ -5562,7 +5594,7 @@ export default function MenuDigital() {
 
   const isIceCreamDish = (dish?: Dish | null) => {
     if (!dish) return false;
-    const category = dish.category_id ? categoryById.get(dish.category_id) : undefined;
+    const category = dish.category_id ? categoryById.get(String(dish.category_id || "").trim()) : undefined;
     const label = normalizeCategory(
       `${category?.name_fr || ""} ${category?.name_en || ""} ${category?.name_es || ""} ${category?.name_de || ""}`
     );
@@ -6953,7 +6985,10 @@ const allergens = String((info as any)?.allergens || "").trim();
                     const info = formulaInfoById.get(String(formulaDish?.id || ""));
                     const parentDishId = info?.dishId;
                     const parentDish = parentDishId ? dishById.get(String(parentDishId)) : null;
-                    const parentDishName = parentDish ? getDishName(parentDish, lang) : "Plat principal";
+                    const parentDishNameFromFormula = String(info?.parent_dish_name || "").trim();
+                    const parentDishName =
+                      parentDishNameFromFormula ||
+                      (parentDish ? getDishName(parentDish, lang) : getFormulaDisplayName(formulaDish));
                     return <div className="font-black text-base mb-2">{parentDishName}</div>;
                   })()}
                   <div className="space-y-3">

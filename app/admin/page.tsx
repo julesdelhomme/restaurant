@@ -1256,6 +1256,14 @@ const getFormulaDisplayName = (dish: DishItem) => {
     if (sequence < 0) return false;
     return Math.max(1, sequence) >= FORMULA_DIRECT_SEND_SEQUENCE;
   };
+  const resolveInitialFormulaItemStatus = (sequence: number | null, sortOrder?: unknown) => {
+    if (isDirectFormulaSequence(sequence)) return "pending";
+    const normalizedSort = Number(sortOrder);
+    if (Number.isFinite(normalizedSort) && Math.trunc(normalizedSort) === 0) return "preparing";
+    if (sequence != null && sequence <= 1) return "preparing";
+    if (sequence != null && sequence > 1) return "waiting";
+    return "pending";
+  };
   const mapSequenceToOrderStep = (value: unknown) => {
     const sequence = normalizeFormulaStepValue(value, true);
     if (sequence == null) return null;
@@ -1287,6 +1295,24 @@ const getFormulaDisplayName = (dish: DishItem) => {
       const currentRecord = current as Record<string, unknown>;
       currentRecord.step = step;
       currentRecord.sequence = step;
+      const formulaDishId = String(
+        currentRecord.formula_dish_id ?? currentRecord.formulaDishId ?? currentRecord.formula_id ?? currentRecord.formulaId ?? ""
+      ).trim();
+      const isFormulaItem = readBooleanFlag(currentRecord.is_formula, false) || Boolean(formulaDishId);
+      if (isFormulaItem) {
+        const existingStatus = String(currentRecord.status || "").trim().toLowerCase();
+        if (!existingStatus || existingStatus === "pending" || existingStatus === "waiting") {
+          const sequence = normalizeFormulaStepValue(
+            currentRecord.step ??
+              currentRecord.sequence ??
+              currentRecord.formula_current_sequence ??
+              currentRecord.formulaCurrentSequence,
+            true
+          );
+          const sortOrder = currentRecord.sort_order ?? currentRecord.step_number ?? currentRecord.sortOrder;
+          currentRecord.status = resolveInitialFormulaItemStatus(sequence, sortOrder);
+        }
+      }
       return current;
     });
 
@@ -4056,6 +4082,7 @@ const formulaParentDishIds = useMemo(() => {
             }
 
             const entryUnitPrice = index === formulaMainItemIndex ? resolvedFormulaLinePrice : 0;
+            const entrySortOrder = index === formulaMainItemIndex ? 0 : entrySequence ?? index + 1;
             return {
               id: entryDishId || line.dishId,
               dish_id: entryDishId || line.dishId,
@@ -4104,19 +4131,23 @@ const formulaParentDishIds = useMemo(() => {
               formula_current_sequence: entrySequence,
               sequence: entrySequence,
               step: entrySequence,
-              sort_order: index === formulaMainItemIndex ? 0 : entrySequence ?? index + 1,
-              step_number: index === formulaMainItemIndex ? 0 : entrySequence ?? index + 1,
+              sort_order: entrySortOrder,
+              step_number: entrySortOrder,
               formula_items: [entry],
               formula: index === formulaMainItemIndex ? formulaPayload : null,
               special_request: String(line.specialRequest || "").trim(),
               instructions: lineInstructions,
-              status: isDirectFormulaSequence(entrySequence) ? "pending" : entrySequence > 1 ? "waiting" : "pending",
+              status: resolveInitialFormulaItemStatus(entrySequence, entrySortOrder),
               from_recommendation: false,
             } as Item;
           });
           return formulaSelectionItems;
         }
 
+        const baseSequence = normalizeFormulaStepValue(formulaCurrentSequence, true) ?? 1;
+        const baseStatus = formulaDishId
+          ? resolveInitialFormulaItemStatus(baseSequence, formulaDishId ? 0 : null)
+          : "pending";
         return [{
           id: line.dishId,
           name: line.dishName,
@@ -4172,7 +4203,7 @@ const formulaParentDishIds = useMemo(() => {
           formula: formulaPayload,
           special_request: String(line.specialRequest || "").trim(),
           instructions: lineInstructions,
-          status: "pending",
+          status: baseStatus,
           from_recommendation: false,
         } as Item];
       });
@@ -4576,12 +4607,33 @@ const formulaParentDishIds = useMemo(() => {
     setSendingNextStepOrderIds((prev) => ({ ...prev, [orderId]: true }));
 
     try {
+      const parsedItems = parseItems(order.items);
+      const nextItems = parsedItems.length > 0
+        ? parsedItems.map((item) => {
+            const step = resolveWorkflowStepForItem(item as Item);
+            if (step == null) return item;
+            if (step === normalizedNextStep) {
+              if (isItemServed(item as Item) || getItemPrepStatus(item as Item) === "ready") return item;
+              return { ...(item as Item), status: "preparing" };
+            }
+            if (step > normalizedNextStep) {
+              const existingStatus = normalizeWorkflowItemStatus(item as Item);
+              if (!existingStatus || existingStatus === "pending") {
+                return { ...(item as Item), status: "waiting" };
+              }
+            }
+            return item;
+          })
+        : parsedItems;
+      const nextServiceStep = resolveLegacyServiceStepFromCurrentStep(normalizedNextStep);
       setOrders((prev) =>
         prev.map((row) =>
           String(row.id) === orderId
             ? {
                 ...row,
                 current_step: normalizedNextStep,
+                service_step: nextServiceStep,
+                items: nextItems.length > 0 ? nextItems : row.items,
               }
             : row
         )
@@ -4590,6 +4642,8 @@ const formulaParentDishIds = useMemo(() => {
         .from("orders")
         .update({
           current_step: normalizedNextStep,
+          service_step: nextServiceStep,
+          ...(nextItems.length > 0 && { items: nextItems }),
         })
         .eq("id", orderId);
       if (error) {

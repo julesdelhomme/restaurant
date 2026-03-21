@@ -134,6 +134,7 @@ export default function KitchenPage() {
   const [callsTableName, setCallsTableName] = useState<"calls">("calls");
   const knownPendingIdsRef = useRef<Record<string, boolean>>({});
   const hasInitializedPendingSnapshotRef = useRef(false);
+  const lastPrintedStepByOrderIdRef = useRef<Record<string, number>>({});
   const isOrderStatusUpdatingRef = useRef(false);
   const needsOrderRefreshRef = useRef(false);
 
@@ -1661,9 +1662,48 @@ export default function KitchenPage() {
       pendingRows.forEach((o: any) => {
         pendingMap[String(o.id)] = true;
       });
+      if (!hasInitializedPendingSnapshotRef.current) {
+        const seeded: Record<string, number> = {};
+        kitchenOrdersWithCovers.forEach((order) => {
+          const orderId = String(order.id || "").trim();
+          if (!orderId) return;
+          const itemsForStep = getKitchenItems(order as Order);
+          const currentStep = resolveOrderCurrentStep(order as Order, itemsForStep as Item[]);
+          const normalizedStep = Number.isFinite(currentStep) && Number(currentStep) > 0 ? Number(currentStep) : 1;
+          seeded[orderId] = normalizedStep;
+        });
+        lastPrintedStepByOrderIdRef.current = seeded;
+      }
+      const stepPrintCandidate = (() => {
+        if (!autoPrintEnabled || !allowAutoPrint || !hasInitializedPendingSnapshotRef.current) return null;
+        for (const order of pendingRows) {
+          const orderId = String(order.id || "").trim();
+          if (!orderId) continue;
+          const itemsForStep = getKitchenItems(order as Order);
+          if (itemsForStep.length === 0) continue;
+          const currentStep = resolveOrderCurrentStep(order as Order, itemsForStep as Item[]);
+          const normalizedStep = Number.isFinite(currentStep) && Number(currentStep) > 0 ? Number(currentStep) : 1;
+          const lastPrintedStep = lastPrintedStepByOrderIdRef.current[orderId] ?? 0;
+          if (normalizedStep > lastPrintedStep) {
+            lastPrintedStepByOrderIdRef.current[orderId] = normalizedStep;
+            return order as Order;
+          }
+        }
+        return null;
+      })();
       const newPending = pendingRows.find((o: any) => !knownPendingIdsRef.current[String(o.id)]);
-      if (autoPrintEnabled && allowAutoPrint && hasInitializedPendingSnapshotRef.current && newPending) {
-        setPrintOrder(newPending);
+      const printCandidate = stepPrintCandidate || (newPending as Order | undefined) || null;
+      if (autoPrintEnabled && allowAutoPrint && hasInitializedPendingSnapshotRef.current && printCandidate) {
+        if (!stepPrintCandidate && newPending) {
+          const orderId = String(newPending.id || "").trim();
+          if (orderId) {
+            const itemsForStep = getKitchenItems(newPending as Order);
+            const currentStep = resolveOrderCurrentStep(newPending as Order, itemsForStep as Item[]);
+            const normalizedStep = Number.isFinite(currentStep) && Number(currentStep) > 0 ? Number(currentStep) : 1;
+            lastPrintedStepByOrderIdRef.current[orderId] = normalizedStep;
+          }
+        }
+        setPrintOrder(printCandidate);
         shouldTriggerAutoPrint = true;
       }
       knownPendingIdsRef.current = pendingMap;
@@ -1702,7 +1742,7 @@ export default function KitchenPage() {
         "postgres_changes",
         { event: "*", schema: "public", table: "orders" },
         async (payload) => {
-          await fetchOrders(payload?.eventType === "INSERT");
+          await fetchOrders(payload?.eventType === "INSERT" || payload?.eventType === "UPDATE");
         }
       )
       .on("postgres_changes", { event: "*", schema: "public", table: "restaurants" }, () => void fetchKitchenSettings())
