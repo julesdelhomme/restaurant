@@ -65,9 +65,10 @@ export const saveFormula = async (
 
     // 1. Sauvegarde de la formule elle-même dans restaurant_formulas
     // Fix allergens: convert string to array for Supabase text[] column (defensive)
-    const allergensArray = typeof formulaData.allergens === 'string' 
-      ? formulaData.allergens.split(',').map(a => a.trim()).filter(Boolean) 
-      : Array.isArray(formulaData.allergens) ? formulaData.allergens : [];
+    // On force le type 'as any' sur formulaData pour que TypeScript ignore l'absence de définition
+const allergensArray = typeof (formulaData as any).allergens === 'string' 
+  ? (formulaData as any).allergens.split(',').map((a: string) => a.trim()).filter(Boolean) 
+  : Array.isArray((formulaData as any).allergens) ? (formulaData as any).allergens : [];
 
     const payload = {
       ...formulaData,
