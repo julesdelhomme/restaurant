@@ -10,7 +10,7 @@ import { ChevronDown, ChevronRight, ChevronUp, CircleHelp, Pencil, Printer, Star
 import { DEFAULT_ALLERGEN_TRANSLATIONS_EXTENDED, PREDEFINED_LANGUAGE_OPTIONS_EXTENDED } from "../lib/languagesConfig";
 import RestaurantQrCard from "../components/RestaurantQrCard";
 import DashboardOtpGate from "../components/DashboardOtpGate";
-import { buildRestaurantPublicUrl, buildRestaurantVitrineUrl } from "@/lib/restaurant-url";
+import { buildRestaurantPublicUrl, buildRestaurantVitrineUrl } from "../../lib/restaurant-url";
 import {
   Bar,
   BarChart,
@@ -10061,15 +10061,19 @@ export default function MenuManager() {
                 className={`overflow-hidden transition-all duration-300 ${openManagerPanels.font ? "max-h-[500px] opacity-100" : "max-h-0 opacity-0"}`}
               >
                 <div className="px-3 pb-3">
-                  <style jsx global>{`
-                    .manager-font-preview-live {
-                      font-family: ${JSON.stringify(normalizeManagerFontFamily(restaurantForm.font_family))}, sans-serif !important;
-                    }
-                    ${MENU_FONT_OPTIONS.map(
-                      (fontName) =>
-                        `.manager-font-select option[data-font-option="${fontName.replace(/"/g, '"') }"] { font-family: ${JSON.stringify(fontName)}, sans-serif !important; }`
-                    ).join("\n")}
-                  `}</style>
+                  <style
+                    dangerouslySetInnerHTML={{
+                      __html: `
+                        .manager-font-preview-live {
+                          font-family: ${JSON.stringify(normalizeManagerFontFamily(restaurantForm.font_family))}, sans-serif !important;
+                        }
+                        ${MENU_FONT_OPTIONS.map(
+                          (fontName) =>
+                            `.manager-font-select option[data-font-option="${fontName.replace(/"/g, '"')}"] { font-family: ${JSON.stringify(fontName)}, sans-serif !important; }`
+                        ).join("\n")}
+                      `,
+                    }}
+                  />
                   <select
                     value={restaurantForm.font_family}
                     onChange={(e) => setRestaurantForm({ ...restaurantForm, font_family: e.target.value })}
