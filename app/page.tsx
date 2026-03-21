@@ -4080,24 +4080,11 @@ export default function MenuDigital() {
 
   const formulaDisplayById = useMemo(() => {
     const map = new Map<string, { name?: string; imageUrl?: string }>();
-    formulaLinksByFormulaId.forEach((links, formulaId) => {
-      links.forEach((link) => {
-        if (!map.has(formulaId)) {
-          map.set(formulaId, {
-            name: link.formulaName,
-            imageUrl: link.formulaImageUrl,
-          });
-          return;
-        }
-        const current = map.get(formulaId) || {};
-        map.set(formulaId, {
-          name: current.name || link.formulaName,
-          imageUrl: current.imageUrl || link.formulaImageUrl,
-        });
-      });
+    formulaInfoById.forEach((info, id) => {
+      map.set(id, { name: info.name, imageUrl: info.imageUrl });
     });
     return map;
-  }, [formulaLinksByFormulaId]);
+  }, [formulaInfoById]);
 
   const getFormulaDisplayName = (formula: Dish | null) => {
     if (!formula) return "";
