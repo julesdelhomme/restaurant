@@ -123,5 +123,19 @@ const FAST_ORDER_I18N = {
     sent: "Bestellung an die Küche gesendet.",
   },
 } as const;
+function AdminContent() {
+  return (
+    <div>
+      <h1>Interface Admin</h1>
+      {/* Ton code viendra ici plus tard */}
+    </div>
+  );
+}
 
-// ... (Le reste de tes types et fonctions ci-dessous)
+export default function AdminPage() {
+  return (
+    <Suspense fallback={<div>Chargement...</div>}>
+      <AdminContent />
+    </Suspense>
+  );
+}
