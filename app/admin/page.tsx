@@ -2120,6 +2120,11 @@ const getFormulaDisplayName = (dish: DishItem) => {
             extras: line.selectedExtras,
             special_request: line.specialRequest,
             is_drink: line.isDrink,
+            is_formula: line.isFormula || false,
+            is_formula_parent: false,
+            formula_id: line.formulaId || null,
+            formula_unit_price: line.price || 0,
+            formula_items: [],
           };
 
           if (line.isFormula && line.formulaSelections) {
@@ -2155,6 +2160,8 @@ const getFormulaDisplayName = (dish: DishItem) => {
                 is_formula: true,
                 is_formula_parent: false,
                 formula_id: line.formulaDishId,
+                formula_unit_price: line.price || 0,
+                formula_items: [],
                 sequence: sel.sequence,
                 step: sel.sequence,
               };
@@ -2166,7 +2173,7 @@ const getFormulaDisplayName = (dish: DishItem) => {
           }
 
           return Array.from({ length: line.quantity }, () => base);
-        }) as Record<string, unknown>[]
+        }) as any[]
       );
       
       const covers = Number(fastCoversInput.trim()) || 1;
