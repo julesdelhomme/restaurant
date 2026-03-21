@@ -7006,6 +7006,23 @@ export default function MenuDigital() {
             </div>
             <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-28 pt-4 sm:pb-6">
               <h2 className="text-2xl font-black text-black mb-1">{getFormulaDisplayName(formulaDish)}</h2>
+              {(() => {
+                const info = formulaInfoById.get(String(formulaDish.id || ""));
+                if (!info) return null;
+                const parentDishId = info?.dishId;
+                const parentDish = parentDishId ? dishById.get(String(parentDishId)) : null;
+                const parentDishNameFromFormula = String(info?.parent_dish_name || "").trim();
+                const parentDishName = parentDishNameFromFormula || (parentDish ? getDishName(parentDish, lang) : null);
+                if (!parentDishName) return null;
+                return (
+                  <div className="text-base text-black/80 font-bold mt-2 mb-2">
+                    <span className="text-xs uppercase bg-gray-200 text-gray-800 font-black px-2 py-1 rounded-md mr-2">
+                      Plat de base
+                    </span>
+                    {parentDishName}
+                  </div>
+                );
+              })()}
               <div className="text-base font-black inline-flex items-center gap-1 mb-4">
                 {Number(getFormulaPackPrice(formulaDish) || 0).toFixed(2)}
                 <Euro size={16} />
@@ -7021,13 +7038,18 @@ export default function MenuDigital() {
                 const info = formulaInfoById.get(String(formulaDish.id || ""));
                 const desc = String((info as any)?.description || "").trim();
 const calories = (info as any)?.calories != null ? Number((info as any).calories) : null;
-const allergens = String((info as any)?.allergens || "").trim();
+const allergens = (info as any)?.allergens;
                 if (!desc && calories == null && !allergens) return null;
                 return (
                   <div className="mb-4 space-y-2 text-sm">
                     {desc && <p className="whitespace-pre-line">{desc}</p>}
                     {calories != null && <p className="font-bold">Calories : {calories} kcal</p>}
-                    {allergens && <p className="text-black"><span className="font-bold">Allergènes :</span> {allergens}</p>}
+                    {allergens && (
+                      <p className="text-black">
+                        <span className="font-bold">Allergènes :</span>{" "}
+                        {Array.isArray(allergens) ? allergens.join(", ") : allergens}
+                      </p>
+                    )}
                   </div>
                 );
               })()}

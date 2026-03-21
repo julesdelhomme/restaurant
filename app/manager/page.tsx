@@ -5208,24 +5208,26 @@ export default function MenuManager() {
             image_path: formulaImageUrlToPersist || null,
             description: formData.formula_description || null,
             calories: formData.formula_calories ? Number(formData.formula_calories) : null,
-            allergens: finalAllergens.length > 0 ? finalAllergens.join(", ") : null,
+            allergens: finalAllergens.length > 0 ? finalAllergens : null,
           };
+          // 1. ICI ON CHANGE 'const' par 'let' pour avoir le droit de modifier la variable plus bas
           let formulaPayload = { ...baseFormulaPayload };
-          if (typeof formulaPayload.allergens === "string") {
-            formulaPayload.allergens = formulaPayload.allergens
-              .split(",")
-              .map((entry) => entry.trim())
-              .filter(Boolean);
-          }
+          
           let upsertFormulaResult = await supabase
             .from("restaurant_formulas")
             .upsert(formulaPayload as never, { onConflict: "id" });
+
           const optionalFormulaColumns = ["image_url", "image_path"];
+
           for (const column of optionalFormulaColumns) {
             if (!upsertFormulaResult.error || !hasMissingColumnError(upsertFormulaResult.error, column)) continue;
+            
             const trimmedPayload = { ...formulaPayload };
             delete (trimmedPayload as Record<string, unknown>)[column];
+            
+            // 2. Maintenant cette ligne ne fera plus d'erreur car on a utilisé 'let' en haut
             formulaPayload = trimmedPayload;
+            
             upsertFormulaResult = await supabase
               .from("restaurant_formulas")
               .upsert(formulaPayload as never, { onConflict: "id" });
