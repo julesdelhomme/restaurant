@@ -1,4 +1,3 @@
-﻿
 "use client";
 
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
@@ -1998,994 +1997,34 @@ const getFormulaDisplayName = (dish: DishItem) => {
     formulaOptionModalCategoryId &&
       formulaOptionModalDishId &&
       formulaOptionModalDish &&
-      formulaOptionModalConfig &&
-      (
-        formulaOptionModalConfig.productOptions.length > 0 ||
-        formulaOptionModalConfig.hasRequiredSides ||
-        formulaOptionModalConfig.askCooking
-      )
-  );
-  const formulaOptionModalMissingRequired = Boolean(
-    formulaOptionModalConfig &&
-      (
-        (formulaOptionModalConfig.productOptions.length > 0 &&
-          formulaOptionModalDetails.selectedProductOptionIds.length === 0) ||
-        (formulaOptionModalConfig.hasRequiredSides &&
-          formulaOptionModalDetails.selectedSides.length === 0) ||
-        (formulaOptionModalConfig.askCooking &&
-          !String(formulaOptionModalDetails.selectedCooking || "").trim())
-      )
+      formulaOptionModalConfig
   );
 
-  useEffect(() => {
-    if (!formulaModalDish || !formulaModalSourceDish) return;
-    const sourceDishId = String(formulaModalSourceDish.id || "").trim();
-    const sourceCategoryId = String(formulaModalSourceDish.category_id || "").trim();
-    if (!sourceDishId || !sourceCategoryId) return;
-    const options = formulaOptionsByCategory.get(sourceCategoryId) || [];
-    if (!options.some((dish) => String(dish.id || "").trim() === sourceDishId)) return;
-    setFormulaModalSelections((prev) => {
-      if (prev[sourceCategoryId] === sourceDishId) return prev;
-      return { ...prev, [sourceCategoryId]: sourceDishId };
-    });
-    const resolvedSourceDish = resolveFormulaDishRecord(formulaModalSourceDish) || formulaModalSourceDish;
-    const config = getFormulaDishConfig(resolvedSourceDish);
-    const rawDefaults = formulaDefaultOptionsByDishId.get(sourceDishId) || [];
-    const allowedIds = new Set(
-      config.productOptions.map((option) => String(option.id || "").trim()).filter(Boolean)
-    );
-    const normalizedDefaults = rawDefaults.filter((id) => allowedIds.has(String(id || "").trim()));
-    if (normalizedDefaults.length > 0) {
-      const allowMulti = Boolean((resolvedSourceDish as unknown as { allow_multi_select?: unknown }).allow_multi_select);
-      const nextDefaults = allowMulti ? normalizedDefaults : normalizedDefaults.slice(0, 1);
-      setFormulaModalSelectionDetails((prev) => {
-        const current = prev[sourceCategoryId];
-        if (current && current.selectedProductOptionIds.length > 0) return prev;
-        return {
-          ...prev,
-          [sourceCategoryId]: {
-            selectedSideIds: [],
-            selectedSides: [],
-            selectedCooking: "",
-            selectedProductOptionIds: nextDefaults,
-          },
-        };
-      });
-    }
-  }, [formulaModalDish, formulaModalSourceDish, formulaOptionsByCategory, formulaDefaultOptionsByDishId, formulaResolvedDishById]);
+  const isFastOrderReadyToSend =
+    selectedFastTableNumber.trim() !== "" && fastOptionLines.some((line) => line.quantity > 0);
 
-  const loadDishProductOptionsFromDatabase = async (dishId: string | number): Promise<ProductOptionChoice[]> => {
-    const normalizedDishId = String(dishId || "").trim();
-    if (!normalizedDishId) return [];
-    const queryByColumn = async (column: "product_id" | "dish_id") =>
-      supabase
-        .from("product_options")
-        .select("*")
-        .eq(column, normalizedDishId);
-
-    const first = await queryByColumn("product_id");
-    if (!first.error && Array.isArray(first.data) && first.data.length > 0) {
-      return normalizeProductOptionRows(first.data as Array<Record<string, unknown>>);
-    }
-
-    const firstMissingColumn = String((first.error as { code?: string } | null)?.code || "") === "42703";
-    if (first.error && !firstMissingColumn) return [];
-
-    const second = await queryByColumn("dish_id");
-    if (second.error || !Array.isArray(second.data)) return [];
-    return normalizeProductOptionRows(second.data as Array<Record<string, unknown>>);
+  const resetFastOrder = () => {
+    setFastQtyByDish({});
+    setBaseLineComments({});
+    setFastOptionLines([]);
+    setFastMessage("");
   };
 
-  const parseExtraChoicesFromRows = (rows: Array<Record<string, unknown>>) => {
-    const parsed = rows
-      .map((row) => {
-        const name = String(
-          row.name_fr ||
-            row.name ||
-            row.label_fr ||
-            row.label ||
-            row.option_name ||
-            row.supplement_name ||
-            row.extra_name ||
-            row.title ||
-            ""
-        ).trim();
-        if (!name) return null;
-        const price = parsePriceNumber(
-          row.price ??
-            row.option_price ??
-            row.supplement_price ??
-            row.extra_price ??
-            row.amount ??
-            row.value ??
-            0
-        );
-        return { name, price } as ExtraChoice;
-      })
-      .filter(Boolean) as ExtraChoice[];
-
-    const deduped = new Map<string, ExtraChoice>();
-    parsed.forEach((extra) => {
-      const key = `${normalizeLookupText(extra.name)}:${parsePriceNumber(extra.price).toFixed(2)}`;
-      if (!deduped.has(key)) deduped.set(key, extra);
-    });
-    return [...deduped.values()];
+  const resetModal = () => {
+    setModalDish(null);
+    setModalQty(1);
+    setModalSideChoices([]);
+    setModalSelectedSides([]);
+    setModalExtraChoices([]);
+    setModalSelectedExtras([]);
+    setModalCooking("");
+    setModalKitchenComment("");
+    setModalProductOptions([]);
+    setModalSelectedProductOptionId("");
+    setModalOpen(false);
   };
 
-  const loadDishExtrasFromRelations = async (dishId: string | number): Promise<ExtraChoice[]> => {
-    const directDishOptionsQuery = await supabase
-      .from("dish_options")
-      .select("id,dish_id,name,price")
-      .eq("dish_id", dishId);
-    if (!directDishOptionsQuery.error && Array.isArray(directDishOptionsQuery.data) && directDishOptionsQuery.data.length > 0) {
-      const directDishOptions = parseExtraChoicesFromRows(directDishOptionsQuery.data as Array<Record<string, unknown>>);
-      if (directDishOptions.length > 0) return directDishOptions;
-    }
-
-    const relationTables = ["dish_options", "dish_extras", "dish_supplements"];
-    const libraryTables = ["options_library", "extras_library", "supplements_library"];
-
-    for (const relationTable of relationTables) {
-      const relationQuery = await supabase.from(relationTable).select("*").eq("dish_id", dishId);
-      if (relationQuery.error || !Array.isArray(relationQuery.data) || relationQuery.data.length === 0) continue;
-
-      const relationRows = relationQuery.data as Array<Record<string, unknown>>;
-      const directExtras = parseExtraChoicesFromRows(relationRows);
-      if (directExtras.length > 0) return directExtras;
-
-      const linkIds = Array.from(
-        new Set(
-          relationRows
-            .flatMap((row) => [row.option_id, row.extra_id, row.supplement_id, row.linked_id])
-            .map((value) => String(value || "").trim())
-            .filter(Boolean)
-        )
-      );
-      if (linkIds.length === 0) continue;
-
-      for (const libraryTable of libraryTables) {
-        const libraryQuery = await supabase.from(libraryTable).select("*").in("id", linkIds);
-        if (libraryQuery.error || !Array.isArray(libraryQuery.data) || libraryQuery.data.length === 0) continue;
-        const libRows = libraryQuery.data as Array<Record<string, unknown>>;
-        const byId = new Map<string, Record<string, unknown>>();
-        libRows.forEach((row) => {
-          const key = String(row.id || "").trim();
-          if (key) byId.set(key, row);
-        });
-
-        const mergedRows = relationRows.map((row) => {
-          const linkedId = String(row.option_id || row.extra_id || row.supplement_id || row.linked_id || "").trim();
-          if (!linkedId) return row;
-          const lib = byId.get(linkedId);
-          return lib ? { ...lib, ...row } : row;
-        });
-        const mergedExtras = parseExtraChoicesFromRows(mergedRows);
-        if (mergedExtras.length > 0) return mergedExtras;
-      }
-    }
-
-    return [];
-  };
-
-  const buildLineInstructions = (line: FastOrderLine) => {
-    const detailParts: string[] = [];
-    if (line.selectedProductOptionName) {
-      const optionPrice = parsePriceNumber(line.selectedProductOptionPrice);
-      detailParts.push(
-        optionPrice > 0
-          ? `Option: ${line.selectedProductOptionName} (+${optionPrice.toFixed(2)}\u20AC)`
-          : `Option: ${line.selectedProductOptionName}`
-      );
-    }
-    if (line.selectedSides.length > 0) {
-      detailParts.push(`Accompagnements: ${line.selectedSides.join(", ")}`);
-    }
-    if (line.selectedExtras.length > 0) {
-      detailParts.push(
-        `Suppléments: ${line.selectedExtras
-          .map((extra) => {
-            const amount = parsePriceNumber(extra.price);
-            return amount > 0 ? `${extra.name} (+${amount.toFixed(2)}\u20AC)` : `${extra.name}`;
-          })
-          .join(", ")}`
-      );
-    }
-    if (Array.isArray(line.formulaSelections) && line.formulaSelections.length > 0) {
-      const formulaText = line.formulaSelections
-        .map((selection) => {
-          const dishLabel = String(selection.dishName || "").trim();
-          if (!dishLabel) return "";
-          const categoryLabel = String(selection.categoryLabel || "").trim();
-          const detailChunks: string[] = [];
-          if (Array.isArray(selection.selectedOptionNames) && selection.selectedOptionNames.length > 0) {
-            detailChunks.push(`Options: ${selection.selectedOptionNames.join(", ")}`);
-          }
-          if (Array.isArray(selection.selectedSides) && selection.selectedSides.length > 0) {
-            detailChunks.push(`Accompagnements: ${selection.selectedSides.join(", ")}`);
-          }
-          if (String(selection.selectedCooking || "").trim()) {
-            detailChunks.push(`Cuisson: ${String(selection.selectedCooking || "").trim()}`);
-          }
-          const detailText = detailChunks.length > 0 ? ` (${detailChunks.join(" | ")})` : "";
-          return `${categoryLabel ? `${categoryLabel}: ` : ""}${dishLabel}${detailText}`;
-        })
-        .filter(Boolean)
-        .join(" | ");
-      if (formulaText) detailParts.push(`Formule: ${formulaText}`);
-    }
-    if (line.selectedCooking.trim()) detailParts.push(`Cuisson: ${line.selectedCooking.trim()}`);
-    if (line.specialRequest.trim()) detailParts.push(`Remarque: ${line.specialRequest.trim()}`);
-    return detailParts.length > 0 ? `Détails: ${detailParts.join(" | ")}` : "";
-  };
-
-  const fetchFastEntryResources = async () => {
-    const currentRestaurantId = String(restaurantId || scopedRestaurantId || "").trim();
-    
-    const categoriesBaseQuery = supabase.from("categories").select("*").order("id", { ascending: true });
-
-    const dishesBaseQuery = supabase.from("dishes").select(DISH_SELECT_WITH_OPTIONS).order("id", { ascending: true });
-    const sidesBaseQuery = supabase.from("sides_library").select("*").order("id", { ascending: true });
-    const tablesBaseQuery = supabase.from("table_assignments").select("table_number").order("table_number", { ascending: true });
-
-    let primaryDishesQuery;
-    try {
-      primaryDishesQuery = await dishesBaseQuery.eq("restaurant_id", currentRestaurantId);
-    } catch {
-      primaryDishesQuery = await dishesBaseQuery;
-    }
-
-    const relationExtraTables = ["dish_options", "dish_extras", "dish_supplements"] as const;
-    const queryResults = await Promise.all([
-      categoriesBaseQuery.eq("restaurant_id", currentRestaurantId),
-      Promise.resolve(primaryDishesQuery),
-      sidesBaseQuery.eq("restaurant_id", currentRestaurantId),
-      tablesBaseQuery.eq("restaurant_id", currentRestaurantId),
-    ]);
-    const [categoriesQuery, primaryDishesQueryRes, sidesQuery, tablesQuery] = queryResults;
-    primaryDishesQuery = primaryDishesQueryRes;
-
-    const nextCategories = !categoriesQuery.error ? ((categoriesQuery.data || []) as CategoryItem[]) : [];
-    let nextDishes = !primaryDishesQuery.error ? ((primaryDishesQuery.data || []) as DishItem[]) : [];
-    let dishesError = primaryDishesQuery.error;
-
-    if (dishesError && String((dishesError as { code?: string } | null)?.code || "") === "42703") {
-      const minimalSelect = DISH_SELECT_BASE;
-      const minimalQuery = await supabase
-        .from("dishes")
-        .select(minimalSelect)
-        .order("id", { ascending: true });
-
-      if (!minimalQuery.error) {
-        nextDishes = (minimalQuery.data || []) as DishItem[];
-        dishesError = null;
-      }
-    }
-
-    let relationExtraQueries: Array<{ data: unknown[] | null; error: unknown }> = [];
-    const scopedDishIds = nextDishes
-      .map((row) => String((row as { id?: string | number | null })?.id ?? "").trim())
-      .filter(Boolean);
-    if (scopedDishIds.length > 0) {
-      relationExtraQueries = await Promise.all(
-        relationExtraTables.map(async (tableName) => {
-          const selectClause = tableName === "dish_options" ? "id,dish_id,name,price" : "*";
-          const result = await supabase.from(tableName).select(selectClause).in("dish_id", scopedDishIds).limit(5000);
-          return {
-            data: (result.data as unknown[] | null) ?? null,
-            error: result.error,
-          };
-        })
-      );
-    }
-
-    if (!categoriesQuery.error) setCategories(nextCategories);
-    let hasFormulaCategoryLocal = false;
-    if (!dishesError) {
-      const linkedOptionsByDishId = new Map<string, Array<Record<string, unknown>>>();
-      relationExtraQueries.forEach((queryResult) => {
-        if (queryResult.error || !Array.isArray(queryResult.data)) return;
-        (queryResult.data as Array<Record<string, unknown>>).forEach((row) => {
-          const dishId = String(row.dish_id || row.dishId || row.plat_id || row.item_id || "").trim();
-          if (!dishId) return;
-          const list = linkedOptionsByDishId.get(dishId) || [];
-          list.push(row);
-          linkedOptionsByDishId.set(dishId, list);
-        });
-      });
-
-      nextDishes = nextDishes.map((dish) => {
-        const fallbackCategory = dish.category_id != null ? `cat_${dish.category_id}` : "autres";
-        const dishId = String(dish.id || "").trim();
-        return {
-          ...dish,
-          category: String(dish.category || dish.categorie || fallbackCategory),
-          categorie: String(dish.categorie || dish.category || fallbackCategory),
-          dish_options: dishId ? linkedOptionsByDishId.get(dishId) || [] : [],
-        };
-      });
-      setDishes(nextDishes);
-      setActiveDishNames(
-        new Set(
-          nextDishes
-            .filter((dish) => {
-              const record = dish as unknown as { active?: unknown };
-              if (record.active == null) return true;
-              return readBooleanFlag(record.active, true);
-            })
-            .map((dish) => String((dish as { name?: unknown })?.name || "").trim().toLowerCase())
-            .filter(Boolean)
-        )
-      );
-      const formulaIdSetForInit = new Set<string>();
-      const byFormula = new Map<string, FormulaDishLink[]>();
-      const byDish = new Map<string, FormulaDishLink[]>();
-      const displayByFormula = new Map<string, { name?: string; imageUrl?: string }>();
-      const formulaDisplaysMap = new Map<string, FormulaDisplay>();
-      const formulaPriceMap = new Map<string, number>();
-
-      const formulasResult = currentRestaurantId
-        ? await supabase.from("restaurant_formulas").select("*").eq("restaurant_id", currentRestaurantId)
-        : await supabase.from("restaurant_formulas").select("*");
-
-      if (formulasResult.error) {
-        console.warn("restaurant_formulas fetch failed (admin):", formulasResult.error.message || formulasResult.error);
-        setFormulaDisplays([]);
-        setFormulaLinksByFormulaId(new Map());
-        setFormulaLinksByDishId(new Map());
-        setFormulaDisplayById(new Map());
-        setFormulaDishIdsFromLinks(new Set());
-        setFormulaPriceByDishId(new Map());
-      } else {
-        const formulaIds: string[] = [];
-        (formulasResult.data || []).forEach((row: unknown) => {
-          if (!row || typeof row !== "object") return;
-          const record = row as Record<string, unknown>;
-          const formulaId = String(record.id || "").trim();
-          if (!formulaId) return;
-          const isActive = record.active == null ? true : readBooleanFlag(record.active, true);
-          if (!isActive) return;
-          const displayName = String(record.name || "").trim() || `Formule ${formulaId.slice(-4)}`;
-          const rawImage = String(record.image_url ?? record.image_path ?? record.image ?? "").trim();
-          const price = parsePriceNumber(record.price);
-          formulaIds.push(formulaId);
-          displayByFormula.set(formulaId, { name: displayName, imageUrl: rawImage || undefined });
-          formulaDisplaysMap.set(formulaId, {
-            id: formulaId,
-            name: displayName || "Formule",
-            price: Number.isFinite(price) ? Number(price) : 0,
-            imageUrl: rawImage || "",
-            formulaLinks: [],
-          });
-          if (Number.isFinite(price) && price > 0) {
-            formulaPriceMap.set(formulaId, Number(price.toFixed(2)));
-          }
-        });
-
-        if (formulaIds.length > 0) {
-          const stepsResult = await supabase
-            .from("formula_steps")
-            .select("formula_id,dish_id,step_number,is_required")
-            .in("formula_id", formulaIds as never);
-          if (stepsResult.error) {
-            console.warn("formula_steps fetch failed (admin):", stepsResult.error.message || stepsResult.error);
-          } else {
-            (stepsResult.data || []).forEach((row: unknown) => {
-              if (!row || typeof row !== "object") return;
-              const record = row as Record<string, unknown>;
-              const formulaDishId = String(record.formula_id || "").trim();
-              const dishId = String(record.dish_id || "").trim();
-              if (!formulaDishId || !dishId) return;
-              formulaIdSetForInit.add(formulaDishId);
-              const sequence = normalizeFormulaStepValue(record.step_number, true);
-              const isMain = readBooleanFlag(record.is_required, dishId === formulaDishId);
-              const link: FormulaDishLink = {
-                formulaDishId,
-                dishId,
-                sequence,
-                step: sequence,
-                isMain,
-                formulaName: displayByFormula.get(formulaDishId)?.name,
-                formulaImageUrl: displayByFormula.get(formulaDishId)?.imageUrl,
-              };
-              const formulaLinks = byFormula.get(formulaDishId) || [];
-              if (!formulaLinks.some((entry) => entry.dishId === dishId)) formulaLinks.push(link);
-              byFormula.set(formulaDishId, formulaLinks);
-              const dishLinks = byDish.get(dishId) || [];
-              if (!dishLinks.some((entry) => entry.formulaDishId === formulaDishId)) dishLinks.push(link);
-              byDish.set(dishId, dishLinks);
-            });
-          }
-        }
-
-        formulaDisplaysMap.forEach((display, formulaId) => {
-          display.formulaLinks = byFormula.get(formulaId) || [];
-        });
-
-        setFormulaDisplays(Array.from(formulaDisplaysMap.values()));
-        setFormulaLinksByFormulaId(byFormula);
-        setFormulaLinksByDishId(byDish);
-        setFormulaDisplayById(displayByFormula);
-        setFormulaDishIdsFromLinks(new Set(formulaIdSetForInit));
-        setFormulaPriceByDishId(formulaPriceMap);
-      }
-      hasFormulaCategoryLocal =
-        formulaDisplaysMap.size > 0 ||
-        nextDishes.some((dish) => readBooleanFlag((dish as unknown as { is_formula?: unknown }).is_formula, false));
-      console.log("[admin.fetchFastEntryResources] dishes loaded", {
-        restaurantId: currentRestaurantId,
-        count: nextDishes.length,
-        sample: nextDishes[0] || null,
-      });
-    } else {
-      console.error("DEBUG_SQL_TOTAL:", dishesError);
-      const message = (dishesError as { message?: string } | null)?.message || "Erreur fetch dishes (admin)";
-      console.error("Erreur fetch dishes (admin):", message);
-      setFormulaPriceByDishId(new Map());
-    }
-    if (!sidesQuery.error) setSidesLibrary((sidesQuery.data || []) as SideLibraryItem[]);
-    if (!tablesQuery.error) {
-      const values = (tablesQuery.data || [])
-        .map((entry) => Number((entry as { table_number?: unknown }).table_number))
-        .filter((value) => Number.isFinite(value) && value > 0);
-      const unique = Array.from(new Set(values)).sort((a, b) => a - b);
-      setTableNumbers(unique);
-      if (!fastEntryInitializedRef.current && unique[0]) {
-        setSelectedFastTableNumber((current) => (current.trim() ? current : String(unique[0])));
-      }
-    }
-    const linkedExtraDishIds = new Set<string>();
-    relationExtraQueries.forEach((queryResult) => {
-      if (queryResult.error || !Array.isArray(queryResult.data)) return;
-      (queryResult.data as Array<Record<string, unknown>>).forEach((row) => {
-        const dishId = String(row.dish_id || row.dishId || row.plat_id || row.item_id || "").trim();
-        if (dishId) linkedExtraDishIds.add(dishId);
-      });
-    });
-    setDishIdsWithLinkedExtras(linkedExtraDishIds);
-    if (!selectedCategoryInitializedRef.current && !selectedCategory.trim()) {
-      const firstCategory = nextCategories[0]
-        ? normalizeCategoryKey(getCategoryLabel(nextCategories[0]))
-        : "";
-      const fallbackCategory = nextDishes[0]
-        ? normalizeCategoryKey(getDishCategoryLabel(nextDishes[0]))
-        : "";
-      const initialCategory = firstCategory || fallbackCategory || (hasFormulaCategoryLocal ? FORMULAS_CATEGORY_KEY : "");
-      if (initialCategory) {
-        setSelectedCategory(initialCategory);
-        selectedCategoryInitializedRef.current = true;
-      }
-    }
-    if (!fastEntryInitializedRef.current) fastEntryInitializedRef.current = true;
-  };
-
-  useEffect(() => {
-    const initialScope = scopedRestaurantId || null;
-    fetchRestaurantSettings();
-    fetchActiveTables(initialScope);
-    fetchActiveDishes(initialScope);
-    fetchFastEntryResources();
-
-    const channel = supabase
-      .channel("admin-orders-and-tables")
-      .on("postgres_changes", { event: "*", schema: "public", table: "table_assignments" }, () => void fetchActiveTables())
-      .on("postgres_changes", { event: "*", schema: "public", table: "dishes" }, () => void fetchActiveDishes())
-      .on("postgres_changes", { event: "*", schema: "public", table: "categories" }, () => void fetchFastEntryResources())
-      .on("postgres_changes", { event: "*", schema: "public", table: "dishes" }, () => void fetchFastEntryResources())
-      .on("postgres_changes", { event: "*", schema: "public", table: "formula_steps" }, () => void fetchFastEntryResources())
-      .on("postgres_changes", { event: "*", schema: "public", table: "restaurant_formulas" }, () => void fetchFastEntryResources())
-      .on("postgres_changes", { event: "*", schema: "public", table: "table_assignments" }, () => void fetchFastEntryResources())
-      .on("postgres_changes", { event: "*", schema: "public", table: "restaurants" }, () => void fetchRestaurantSettings())
-      .on("postgres_changes", { event: "*", schema: "public", table: "restaurant_profile" }, () => void fetchRestaurantSettings())
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [scopedRestaurantId]);
-
-  useEffect(() => {
-    void fetchOrders();
-
-    const ordersChannel = supabase
-      .channel("admin-orders")
-      .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, (payload) => {
-        console.log("LOG_NOTIF ADMIN orders:", payload);
-        const eventPayload = payload as {
-          eventType?: string;
-          old?: Record<string, unknown>;
-          new?: Record<string, unknown>;
-        };
-        const normalizeRealtimeStatus = (value: unknown) =>
-          String(value || "")
-            .toLowerCase()
-            .normalize("NFD")
-            .replace(/[\u0300-\u036f]/g, "")
-            .replace(/[\s-]+/g, "_")
-            .trim();
-        const readyStatuses = new Set(["ready", "ready_bar", "pret", "prete", "prêt"]);
-        const preparingStatuses = new Set(["preparing", "en_preparation", "to_prepare", "to_prepare_bar", "to_prepare_kitchen", "preparant"]);
-        const oldStatus = normalizeRealtimeStatus(eventPayload.old?.status);
-        const newStatus = normalizeRealtimeStatus(eventPayload.new?.status);
-        const isReadyTransition = !!newStatus && readyStatuses.has(newStatus) && !readyStatuses.has(oldStatus);
-        if (isReadyTransition) {
-          const changedOrderId = String(eventPayload.new?.id ?? eventPayload.old?.id ?? "").trim();
-          if (changedOrderId) triggerReadyOrderAlert(changedOrderId, preparingStatuses.has(oldStatus));
-        }
-        const nextRestaurantId = String(eventPayload.new?.restaurant_id ?? eventPayload.old?.restaurant_id ?? "").trim();
-        const currentRestaurantId = String(restaurantId || "").trim();
-        if (currentRestaurantId && nextRestaurantId && currentRestaurantId !== nextRestaurantId) {
-          console.warn("Admin realtime restaurant_id mismatch, forcing refresh anyway", {
-            currentRestaurantId,
-            nextRestaurantId,
-          });
-        }
-        void fetchOrders();
-      })
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(ordersChannel);
-    };
-  }, [restaurantId]);
-
-  useEffect(() => {
-    return () => {
-      Object.values(readyAlertTimeoutsRef.current).forEach((timeoutId) => window.clearTimeout(timeoutId));
-      readyAlertTimeoutsRef.current = {};
-    };
-  }, []);
-
-  useEffect(() => {
-    if (activeTab === "orders" && hasReadyTabAlert) {
-      setHasReadyTabAlert(false);
-    }
-  }, [activeTab, hasReadyTabAlert]);
-
-  useEffect(() => {
-    console.log("SETTINGS RÉCUPÉRÉS :", settings);
-  }, [settings]);
-
-  useEffect(() => {
-    void fetchNotifications();
-
-    const channel = supabase
-      .channel(`admin-notifications-${String(restaurantId ?? "global")}`)
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "notifications" }, (payload) => {
-        const row = normalizeNotificationRow(((payload as { new?: Record<string, unknown> }).new || {}) as Record<string, unknown>);
-        if (!row.id) return;
-        const status = String(row.status || "").trim().toLowerCase();
-        if (status && status !== "pending") return;
-        const currentRestaurantId = String(restaurantId ?? "").trim();
-        const rowRestaurantId = String(row.restaurant_id ?? "").trim();
-        if (currentRestaurantId && rowRestaurantId && rowRestaurantId !== currentRestaurantId) return;
-        setServiceNotifications((prev) => {
-          if (prev.some((entry) => String(entry.id) === String(row.id))) return prev;
-          return [row, ...prev];
-        });
-        playReadyNotificationBeep();
-      })
-      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "notifications" }, (payload) => {
-        const row = normalizeNotificationRow(((payload as { new?: Record<string, unknown> }).new || {}) as Record<string, unknown>);
-        const status = String(row.status || "").trim().toLowerCase();
-        setServiceNotifications((prev) => {
-          const filtered = prev.filter((entry) => String(entry.id) !== String(row.id));
-          if (status === "pending") return [row, ...filtered];
-          return filtered;
-        });
-      })
-      .on("postgres_changes", { event: "DELETE", schema: "public", table: "notifications" }, (payload) => {
-        const oldRow = ((payload as { old?: Record<string, unknown> }).old || {}) as Record<string, unknown>;
-        const oldId = String(oldRow.id || "").trim();
-        if (!oldId) return;
-        setServiceNotifications((prev) => prev.filter((entry) => String(entry.id) !== oldId));
-      })
-      .subscribe((status) => {
-        console.log("Realtime notifications admin:", status);
-      });
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [restaurantId]);
-
-  const handleSaveTable = async () => {
-    const tableNumber = Number(tableNumberInput);
-    const pin = pinInput.trim();
-    const covers = normalizeCoversValue(coversInput);
-    const targetRestaurantId = String(restaurantId || scopedRestaurantId || "").trim();
-    if (!targetRestaurantId) {
-      setMessage("ID restaurant manquant dans l'URL.");
-      return;
-    }
-
-    if (!tableNumber || !pin || !covers) {
-      setMessage("Veuillez saisir le numéro de table, le PIN et le nombre de couverts.");
-      return;
-    }
-
-    setSaving(true);
-    setMessage("");
-
-    const enrichWithRestaurantId = (payload: Record<string, unknown>) =>
-      targetRestaurantId ? { ...payload, restaurant_id: targetRestaurantId } : payload;
-    const sessionPayloads = [
-      enrichWithRestaurantId({ table_number: tableNumber, pin_code: pin, covers, guest_count: covers, customer_count: covers }),
-      enrichWithRestaurantId({ table_number: tableNumber, pin_code: pin, covers, guest_count: covers }),
-      enrichWithRestaurantId({ table_number: tableNumber, pin_code: pin, covers }),
-      enrichWithRestaurantId({ table_number: tableNumber, pin_code: pin, guest_count: covers }),
-      enrichWithRestaurantId({ table_number: tableNumber, pin_code: pin, customer_count: covers }),
-      enrichWithRestaurantId({ table_number: tableNumber, pin_code: pin }),
-      { table_number: tableNumber, pin_code: pin, covers, guest_count: covers, customer_count: covers },
-      { table_number: tableNumber, pin_code: pin },
-    ];
-
-    let insertResult = await supabase.from("table_assignments").insert(sessionPayloads[0]);
-    for (let i = 1; insertResult.error && i < sessionPayloads.length; i += 1) {
-      const code = String((insertResult.error as { code?: string })?.code || "");
-      const msg = String(insertResult.error.message || "").toLowerCase();
-      const missingColumn = code === "42703" || msg.includes("column") || msg.includes("schema cache");
-      if (!missingColumn) break;
-      insertResult = await supabase.from("table_assignments").insert(sessionPayloads[i]);
-    }
-
-    if (insertResult.error) {
-      const code = String((insertResult.error as { code?: string })?.code || "");
-      const message = String(insertResult.error.message || "").toLowerCase();
-      const duplicate =
-        code === "23505" ||
-        message.includes("duplicate key") ||
-        message.includes("unique");
-
-      if (!duplicate) {
-        setMessage("Erreur enregistrement: " + insertResult.error.message);
-        setSaving(false);
-        return;
-      }
-
-      const updatePayloads = [
-        enrichWithRestaurantId({ pin_code: pin, covers, guest_count: covers, customer_count: covers }),
-        enrichWithRestaurantId({ pin_code: pin, covers, guest_count: covers }),
-        enrichWithRestaurantId({ pin_code: pin, covers }),
-        enrichWithRestaurantId({ pin_code: pin, guest_count: covers }),
-        enrichWithRestaurantId({ pin_code: pin, customer_count: covers }),
-        enrichWithRestaurantId({ pin_code: pin }),
-        { pin_code: pin, covers, guest_count: covers, customer_count: covers },
-        { pin_code: pin },
-      ];
-      let updateQuery = supabase.from("table_assignments").update(updatePayloads[0]).eq("table_number", tableNumber);
-      if (targetRestaurantId) updateQuery = updateQuery.eq("restaurant_id", targetRestaurantId);
-      let updateResult = await updateQuery;
-      for (let i = 1; updateResult.error && i < updatePayloads.length; i += 1) {
-        const code = String((updateResult.error as { code?: string })?.code || "");
-        const msg = String(updateResult.error.message || "").toLowerCase();
-        const missingColumn = code === "42703" || msg.includes("column") || msg.includes("schema cache");
-        if (!missingColumn) break;
-        let nextUpdateQuery = supabase.from("table_assignments").update(updatePayloads[i]).eq("table_number", tableNumber);
-        if (targetRestaurantId && i < 6) nextUpdateQuery = nextUpdateQuery.eq("restaurant_id", targetRestaurantId);
-        updateResult = await nextUpdateQuery;
-      }
-
-      if (updateResult.error) {
-        setMessage("Erreur enregistrement: " + updateResult.error.message);
-        setSaving(false);
-        return;
-      }
-    }
-
-    setMessage("Table enregistrée.");
-    setPinInput("");
-    setCoversInput(String(covers));
-    setSaving(false);
-    fetchActiveTables(targetRestaurantId);
-  };
-
-  const handleDeleteTable = async (row: TableAssignment) => {
-    const tableNumber = Number(row.table_number);
-    const targetRestaurantId = String(restaurantId || scopedRestaurantId || "").trim();
-    if (!targetRestaurantId) {
-      setMessage("ID restaurant manquant dans l'URL.");
-      return;
-    }
-    let deleteQuery = supabase.from("table_assignments").delete().eq("table_number", tableNumber);
-    if (targetRestaurantId) deleteQuery = deleteQuery.eq("restaurant_id", targetRestaurantId);
-    const deleteResult = await deleteQuery;
-    if (deleteResult.error) {
-      setMessage("Erreur fermeture table: " + String(deleteResult.error.message || ""));
-      return;
-    }
-
-    setMessage("Table fermée.");
-    fetchActiveTables(targetRestaurantId);
-  };
-
-  const fillFormForEdit = (row: TableAssignment) => {
-    setTableNumberInput(String(row.table_number));
-    setPinInput(String(row.pin_code || ""));
-    setCoversInput(String(readCoversFromRow(row as unknown as Record<string, unknown>) || 1));
-    setMessage("");
-  };
-
-  const deriveOrderStatusFromItems = (items: Item[]) => {
-    const activeItems = items.filter((item) => !isItemServed(item));
-    if (activeItems.length === 0) return "served";
-    if (activeItems.every((item) => isItemReady(item))) {
-      return activeItems.every((item) => isDrink(item)) ? "ready_bar" : "ready";
-    }
-    if (activeItems.some((item) => isItemReady(item) || getItemPrepStatus(item) === "preparing")) {
-      return "preparing";
-    }
-    return "pending";
-  };
-
-  const handleServeItems = async (orderId: string, itemIndexes: number[]) => {
-    const targetOrder = orders.find((order) => String(order.id) === String(orderId));
-    if (!targetOrder) {
-      await fetchOrders();
-      return;
-    }
-    const normalizedIndexes = Array.from(new Set(itemIndexes.filter((idx) => Number.isInteger(idx) && idx >= 0)));
-    if (normalizedIndexes.length === 0) return;
-    const currentItems = parseItems(targetOrder.items);
-    const indexSet = new Set<number>(normalizedIndexes);
-
-    const nextItems = currentItems.map((item, idx) =>
-      indexSet.has(idx) ? { ...(item || {}), status: "served" } : item
-    );
-    const nextStatus = deriveOrderStatusFromItems(nextItems);
-
-    setOrders((prev) =>
-      prev.map((order) =>
-        String(order.id) === String(orderId)
-          ? { ...order, items: nextItems, status: nextStatus }
-          : order
-      )
-    );
-
-    const { error } = await supabase
-      .from("orders")
-      .update({ items: nextItems, status: nextStatus })
-      .eq("id", orderId);
-
-    if (error) {
-      console.error("Erreur service articles:", error);
-      await fetchOrders();
-    }
-  };
-
-  const markNotificationRead = async (notificationId: string) => {
-    const { error } = await supabase
-      .from("notifications")
-      .update({ status: "completed" })
-      .eq("id", notificationId);
-    if (error) {
-      console.error("Erreur traitement notification:", error);
-      return;
-    }
-    setServiceNotifications((prev) => prev.filter((row) => String(row.id) !== String(notificationId)));
-  };
-
-const formulaParentDishIds = useMemo(() => {
-  const ids = new Set<string>();
-  dishes.forEach((dish) => {
-    if (!readBooleanFlag((dish as unknown as { is_formula?: unknown }).is_formula, false)) return;
-    const normalizedId = String(dish.id || "").trim();
-    if (normalizedId) ids.add(normalizedId);
-  });
-  return ids;
-}, [dishes]);
-
-
-
-  const categoriesForFastEntryBase =
-    categories.length > 0
-      ? categories.map((category) => {
-          const label = getCategoryLabel(category);
-          return { key: normalizeCategoryKey(label), label };
-        })
-      : (() => {
-          const unique = new Map<string, string>();
-          dishes.forEach((dish) => {
-            const label = getDishCategoryLabel(dish);
-            const key = normalizeCategoryKey(label);
-            if (!unique.has(key)) unique.set(key, label);
-          });
-          return [...unique.entries()].map(([key, label]) => ({ key, label }));
-        })();
-  const categoriesForFastEntry = [{ key: FORMULAS_CATEGORY_KEY, label: "Formules" }, ...categoriesForFastEntryBase];
-
-  const availableFastCategoryKeys = new Set(categoriesForFastEntry.map((category) => category.key));
-  const effectiveSelectedFastCategoryKey = availableFastCategoryKeys.has(selectedCategory)
-    ? selectedCategory
-    : categoriesForFastEntry[0]?.key || "";
-
-      const fastEntryDishes = useMemo(() => {
-    if (!effectiveSelectedFastCategoryKey) return dishes;
-    
-    if (effectiveSelectedFastCategoryKey === FORMULAS_CATEGORY_KEY) {
-      // Filter ONLY formula_steps entries - NO Burger/legacy
-      return formulaDisplays
-        .filter(fd => formulaLinksByFormulaId.has(fd.id)) // MUST have links
-        .map((fd) => {
-        const baseDish = dishes.find((dish) => String(dish.id) === fd.id);
-        return {
-          ... (baseDish || {
-            id: fd.id,
-            name: fd.name,
-            name_fr: fd.name,
-            price: fd.price,
-            image_url: fd.imageUrl,
-            category: "Formules",
-          }),
-          formulaName: fd.name,
-          formulaPrice: fd.price,
-          formulaImage: fd.imageUrl,
-          isFormulaDisplay: true as const,
-        } as DishItem;
-      });
-    }
-
-    // Regular categories: EXCLUDE all formulas (incl Burger Alsacien)
-    return dishes.filter(
-      (dish) =>
-        normalizeCategoryKey(getDishCategoryLabel(dish)) === effectiveSelectedFastCategoryKey &&
-        !formulaParentDishIds.has(String(dish.id || "").trim()) &&
-        !formulaLinksByFormulaId.has(String(dish.id || "").trim())
-    );
-  }, [effectiveSelectedFastCategoryKey, dishes, formulaDisplays, formulaParentDishIds, formulaLinksByFormulaId]);
-
-  const visibleFastEntryDishes = fastEntryDishes;
-
-  const fastBaseLines = (() => {
-    const lines: FastOrderLine[] = [];
-    const dishById = new Map<string, DishItem>();
-    dishes.forEach((dish) => dishById.set(String(dish.id), dish));
-
-    Object.entries(fastQtyByDish).forEach(([dishId, quantity]) => {
-      if (!quantity || quantity <= 0) return;
-      const dish = dishById.get(dishId);
-      if (!dish) return;
-      const category = getDishCategoryLabel(dish);
-      lines.push({
-        lineId: `base-${dishId}`,
-        dishId,
-        dishName: getDishName(dish),
-        category,
-        categoryId: dish.category_id ?? null,
-        quantity,
-        unitPrice: getDishPrice(dish),
-        selectedSides: [],
-        selectedExtras: [],
-        selectedProductOptionId: null,
-        selectedProductOptionName: null,
-        selectedProductOptionPrice: 0,
-        selectedCooking: "",
-        specialRequest: String(baseLineComments[dishId] || ""),
-        destination: resolveDishDestination(dish),
-        isDrink: resolveDishDestination(dish) === "bar",
-      });
-    });
-
-    return lines;
-  })();
-
-  const fastLines = [...fastBaseLines, ...fastOptionLines];
-
-  const resolveFastLineUnitPrice = (line: FastOrderLine) => {
-    const isFormulaLine = Boolean(line.isFormula || line.formulaDishId || (line.formulaSelections || []).length > 0);
-    if (isFormulaLine) {
-      const formulaDishId = String(line.formulaDishId || line.dishId || "").trim();
-      const formulaDish = formulaDishId ? dishById.get(formulaDishId) : undefined;
-      if (formulaDish) {
-        const forcedPrice = getFormulaPackPrice(formulaDish);
-        if (Number.isFinite(forcedPrice) && forcedPrice > 0) return forcedPrice;
-      }
-      const storedFormulaPrice = Number(line.formulaUnitPrice);
-      if (Number.isFinite(storedFormulaPrice) && storedFormulaPrice > 0) return storedFormulaPrice;
-    }
-    const unitPrice = Number(line.unitPrice || 0);
-    return Number.isFinite(unitPrice) ? unitPrice : 0;
-  };
-  const fastTotal = fastLines.reduce((sum, line) => sum + resolveFastLineUnitPrice(line) * line.quantity, 0);
-  const fastItemCount = fastLines.reduce((sum, line) => sum + line.quantity, 0);
-  const tableSelectOptions = Array.from(
-    new Set([
-      ...Array.from({ length: configuredTotalTables }, (_, index) => index + 1),
-      ...tableNumbers,
-    ])
-  ).sort((a, b) => a - b);
-
-  const loadDishOptionsFromDishes = async (dish: DishItem) => {
-    const currentRestaurantId = String(restaurantId || scopedRestaurantId || "").trim();
-    if (!currentRestaurantId) return dish;
-
-    const dishId = String(dish.id || "").trim();
-    if (dishId) {
-      let byIdPrimaryQuery = supabase
-        .from("dishes")
-        .select(DISH_SELECT_WITH_OPTIONS)
-        .eq("id", dish.id)
-        .limit(1);
-      if (currentRestaurantId) byIdPrimaryQuery = byIdPrimaryQuery.eq("restaurant_id", currentRestaurantId);
-      const byIdPrimary = await byIdPrimaryQuery;
-      let byIdData = Array.isArray(byIdPrimary.data) ? (byIdPrimary.data[0] as DishItem | undefined) : undefined;
-
-      if (byIdPrimary.error) {
-        let byIdStarFallbackQuery = supabase.from("dishes").select("*").eq("id", dish.id).limit(1);
-        if (currentRestaurantId) byIdStarFallbackQuery = byIdStarFallbackQuery.eq("restaurant_id", currentRestaurantId);
-        const byIdStarFallback = await byIdStarFallbackQuery;
-        byIdData = Array.isArray(byIdStarFallback.data) ? (byIdStarFallback.data[0] as DishItem | undefined) : undefined;
-        if (!byIdStarFallback.error && byIdData) {
-          return { ...(dish as Record<string, unknown>), ...(byIdData as Record<string, unknown>) } as DishItem;
-        }
-        let byIdFallbackQuery = supabase
-          .from("dishes")
-          .select(DISH_SELECT_BASE)
-          .eq("id", dish.id)
-          .limit(1);
-        if (currentRestaurantId) byIdFallbackQuery = byIdFallbackQuery.eq("restaurant_id", currentRestaurantId);
-        const byIdFallback = await byIdFallbackQuery;
-        byIdData = Array.isArray(byIdFallback.data) ? (byIdFallback.data[0] as DishItem | undefined) : undefined;
-        if (byIdFallback.error) {
-          let byIdUltraFallbackQuery = supabase.from("dishes").select("id,name,price").eq("id", dish.id).limit(1);
-          if (currentRestaurantId) byIdUltraFallbackQuery = byIdUltraFallbackQuery.eq("restaurant_id", currentRestaurantId);
-          const byIdUltraFallback = await byIdUltraFallbackQuery;
-          byIdData = Array.isArray(byIdUltraFallback.data)
-            ? (byIdUltraFallback.data[0] as DishItem | undefined)
-            : undefined;
-        }
-      }
-      if (byIdData) {
-        return { ...(dish as Record<string, unknown>), ...(byIdData as Record<string, unknown>) } as DishItem;
-      }
-    }
-
-    const dishName = String(dish.name || "").trim();
-    if (dishName) {
-      let byNamePrimaryQuery = supabase
-        .from("dishes")
-        .select(DISH_SELECT_WITH_OPTIONS)
-        .eq("name", dishName)
-        .limit(1);
-      if (currentRestaurantId) byNamePrimaryQuery = byNamePrimaryQuery.eq("restaurant_id", currentRestaurantId);
-      const byNamePrimary = await byNamePrimaryQuery;
-      let byNameData = Array.isArray(byNamePrimary.data) ? (byNamePrimary.data[0] as DishItem | undefined) : undefined;
-
-      if (byNamePrimary.error) {
-        let byNameStarFallbackQuery = supabase.from("dishes").select("*").eq("name", dishName).limit(1);
-        if (currentRestaurantId) byNameStarFallbackQuery = byNameStarFallbackQuery.eq("restaurant_id", currentRestaurantId);
-        const byNameStarFallback = await byNameStarFallbackQuery;
-        byNameData = Array.isArray(byNameStarFallback.data)
-          ? (byNameStarFallback.data[0] as DishItem | undefined)
-          : undefined;
-        if (!byNameStarFallback.error && byNameData) {
-          return { ...(dish as Record<string, unknown>), ...(byNameData as Record<string, unknown>) } as DishItem;
-        }
-        let byNameFallbackQuery = supabase
-          .from("dishes")
-          .select(DISH_SELECT_BASE)
-          .eq("name", dishName)
-          .limit(1);
-        if (currentRestaurantId) byNameFallbackQuery = byNameFallbackQuery.eq("restaurant_id", currentRestaurantId);
-        const byNameFallback = await byNameFallbackQuery;
-        byNameData = Array.isArray(byNameFallback.data) ? (byNameFallback.data[0] as DishItem | undefined) : undefined;
-        if (byNameFallback.error) {
-          let byNameUltraFallbackQuery = supabase.from("dishes").select("id,name,price").eq("name", dishName).limit(1);
-          if (currentRestaurantId) byNameUltraFallbackQuery = byNameUltraFallbackQuery.eq("restaurant_id", currentRestaurantId);
-          const byNameUltraFallback = await byNameUltraFallbackQuery;
-          byNameData = Array.isArray(byNameUltraFallback.data)
-            ? (byNameUltraFallback.data[0] as DishItem | undefined)
-            : undefined;
-        }
-      }
-      if (byNameData) {
-        return { ...(dish as Record<string, unknown>), ...(byNameData as Record<string, unknown>) } as DishItem;
-      }
-    }
-
-    return dish;
-  };
-
-  const closeFormulaModal = () => {
+  const resetFormulaModal = () => {
     setFormulaModalOpen(false);
     setFormulaModalDish(null);
     setFormulaModalSourceDish(null);
@@ -2994,119 +2033,372 @@ const formulaParentDishIds = useMemo(() => {
     setFormulaModalError("");
     setFormulaModalItemDetailsOpen({});
     setFormulaResolvedDishById({});
+  };
+
+  const resetFormulaOptionModal = () => {
     setFormulaOptionModalState(null);
   };
 
-  const openFormulaModal = (formula: DishItem, sourceDish?: DishItem | null) => {
-    const sourceFormula = dishes.find((row) => String(row.id) === String(formula.id)) || formula;
-    const resolvedSourceDish = sourceDish
-      ? dishes.find((row) => String(row.id) === String(sourceDish.id)) || sourceDish
-      : null;
-    setFormulaModalDish(sourceFormula);
-    setFormulaModalSourceDish(resolvedSourceDish);
-    setFormulaModalSelections({});
-    setFormulaModalSelectionDetails({});
-    setFormulaModalError("");
-    setFormulaModalItemDetailsOpen({});
-    setFormulaOptionModalState(null);
-    setFormulaResolvedDishById(() => {
-      const next: Record<string, DishItem> = {};
-      const formulaId = String(sourceFormula.id || "").trim();
-      if (formulaId) next[formulaId] = sourceFormula;
-      const sourceDishId = String(resolvedSourceDish?.id || "").trim();
-      if (sourceDishId && resolvedSourceDish) next[sourceDishId] = resolvedSourceDish;
-      return next;
+  const updateActiveDishNamesFromOrders = (orders: Order[]) => {
+    const names = new Set<string>();
+    orders.forEach((order) => {
+      parseItems(order.items).forEach((item) => {
+        const dishName = String((item as { name?: string }).name || "").trim();
+        if (dishName) names.add(dishName.toLowerCase());
+      });
     });
-    setFormulaModalOpen(true);
+    fetchActiveDishes();
   };
 
-  const ensureFormulaDishDetails = async (dish: DishItem | null | undefined) => {
-    if (!dish) return null;
-    const dishId = String(dish.id || "").trim();
-    const cached = dishId ? formulaResolvedDishById[dishId] : null;
-    if (cached) return cached;
-    const loaded = await loadDishOptionsFromDishes(dish);
-    const loadedDish = loaded || dish;
-    if (dishId) {
-      setFormulaResolvedDishById((prev) => ({ ...prev, [dishId]: loadedDish }));
-    }
-    return loadedDish;
-  };
-
-  const openFormulaItemOptionsModal = async (
-    categoryId: string,
-    optionDish: DishItem,
-    resetSelectionDetails = true
-  ) => {
-    const normalizedCategoryId = String(categoryId || "").trim();
-    const optionId = String(optionDish.id || "").trim();
-    if (!normalizedCategoryId || !optionId) return;
-
-    setFormulaModalError("");
-    setFormulaModalSelections((prev) => ({ ...prev, [normalizedCategoryId]: optionId }));
-
-    const optionDishResolved = resolveFormulaDishRecord(optionDish) || optionDish;
-    const loadedDish = (await ensureFormulaDishDetails(optionDishResolved)) || optionDishResolved;
-    const loadedConfig = getFormulaDishConfig(loadedDish);
-    const rawDefaultOptionIds = formulaDefaultOptionsByDishId.get(optionId) || [];
-    const allowedOptionIds = new Set(
-      loadedConfig.productOptions.map((option) => String(option.id || "").trim()).filter(Boolean)
-    );
-    const normalizedDefaults = rawDefaultOptionIds.filter((id) =>
-      allowedOptionIds.has(String(id || "").trim())
-    );
-    const allowMultiDefaults = Boolean(
-      (loadedDish as unknown as { allow_multi_select?: unknown }).allow_multi_select
-    );
-    const nextDefaultOptionIds = allowMultiDefaults ? normalizedDefaults : normalizedDefaults.slice(0, 1);
-
-    setFormulaModalSelectionDetails((prev) => {
-      const current = prev[normalizedCategoryId];
-      if (!resetSelectionDetails && current) {
-        return prev;
+  const handleOrderUpdate = (payload: { new: Order }) => {
+    const updatedOrder = payload.new;
+    setOrders((currentOrders) => {
+      const index = currentOrders.findIndex((o) => o.id === updatedOrder.id);
+      if (index > -1) {
+        const nextOrders = [...currentOrders];
+        nextOrders[index] = updatedOrder;
+        return nextOrders;
       }
-      return {
-        ...prev,
-        [normalizedCategoryId]: {
+      return [...currentOrders, updatedOrder];
+    });
+  };
+
+  const handleNotification = (payload: { new: Record<string, unknown> }) => {
+    const newNotification = normalizeNotificationRow(payload.new);
+    if (!newNotification.id) return;
+    const isPending = !newNotification.status || newNotification.status === "pending";
+    if (isPending) {
+      setServiceNotifications((current) => [newNotification, ...current]);
+      playReadyNotificationBeep();
+    }
+  };
+
+  const handleTableAssignmentUpdate = (payload: { new: TableAssignment }) => {
+    const updated = payload.new;
+    setActiveTables((current) => {
+      const index = current.findIndex((t) => t.id === updated.id);
+      const next = [...current];
+      if (index > -1) {
+        next[index] = updated;
+      } else {
+        next.push(updated);
+      }
+      return next.sort((a, b) => a.table_number - b.table_number);
+    });
+  };
+  
+  const handleNewOrderFromFastEntry = async () => {
+    if (fastLoading || !isFastOrderReadyToSend) return;
+  
+    setFastLoading(true);
+    setFastMessage("");
+  
+    try {
+      const tableNumber = Number(selectedFastTableNumber.trim());
+      if (!Number.isFinite(tableNumber) || tableNumber <= 0) {
+        throw new Error(fastOrderText.tableInvalid);
+      }
+  
+      const validLines = fastOptionLines.filter((line) => line.quantity > 0);
+      if (validLines.length === 0) {
+        throw new Error(fastOrderText.noValidItem);
+      }
+  
+      const itemsForPayload = normalizeFormulaItemsForOrderPayload(validLines.flatMap((line) => {
+        const dish = dishById.get(String(line.dishId || ""));
+        const base = {
+          dish_id: line.dishId,
+          name: line.dishName,
+          quantity: line.quantity,
+          price: line.unitPrice,
+          category: line.category,
+          category_id: line.categoryId,
+          destination: line.destination,
+          cooking: line.selectedCooking,
+          side: line.selectedSides.join(", "),
+          extras: line.selectedExtras,
+          special_request: line.specialRequest,
+          is_drink: line.isDrink,
+        };
+  
+        if (line.isFormula && line.formulaSelections) {
+          const formulaDish = dishById.get(String(line.formulaDishId || ""));
+          const formulaPrice = getFormulaPackPrice(formulaDish as DishItem);
+          const formulaDetails = {
+            ...base,
+            name: line.formulaDishName,
+            is_formula: true,
+            is_formula_parent: true,
+            formula_id: line.formulaDishId,
+            price: line.formulaUnitPrice,
+            formula_unit_price: line.formulaUnitPrice,
+            formula_items: line.formulaSelections.map((sel) => ({
+              ...sel,
+              kind: "formula",
+              sequence: sel.sequence,
+              step: sel.sequence,
+            })),
+          };
+          const childItems = (line.formulaSelections || []).map(sel => {
+            const childDish = dishById.get(String(sel.dishId));
+            return {
+              dish_id: sel.dishId,
+              name: sel.dishName,
+              quantity: 1,
+              price: 0, // Children have no price
+              category: childDish ? getDishCategoryLabel(childDish) : sel.categoryLabel,
+              category_id: sel.categoryId,
+              destination: resolveDestinationForCategory(sel.categoryId, sel.categoryLabel),
+              cooking: sel.selectedCooking,
+              side: (sel.selectedSides || []).join(", "),
+              is_formula: true,
+              is_formula_parent: false,
+              formula_id: line.formulaDishId,
+              sequence: sel.sequence,
+              step: sel.sequence,
+            };
+          });
+          
+          const combined = [formulaDetails, ...childItems];
+          // Repeat for quantity
+          return Array.from({ length: line.quantity }, () => combined).flat();
+        }
+        
+        return Array.from({ length: line.quantity }, () => base);
+      }));
+      
+      const covers = Number(fastCoversInput.trim()) || 1;
+      const initialCurrentStep = resolveInitialCurrentStepFromItems(itemsForPayload);
+      const initialServiceStep = resolveLegacyServiceStepFromCurrentStep(initialCurrentStep);
+  
+      const { error } = await supabase.from("orders").insert({
+        restaurant_id: restaurantId,
+        table_number: tableNumber,
+        items: itemsForPayload,
+        status: "pending",
+        covers: covers > 1 ? covers : null,
+        service_step: initialServiceStep || null,
+        current_step: initialCurrentStep,
+      });
+  
+      if (error) throw error;
+  
+      setFastMessage(fastOrderText.sent);
+      resetFastOrder();
+      fetchOrders();
+      window.setTimeout(() => setFastMessage(""), 4000);
+    } catch (error) {
+      console.error("Erreur commande rapide:", error);
+      const info = toErrorInfo(error);
+      const text = hasUsefulError(info)
+        ? `${info.message || ""}${info.details ? ` (${info.details})` : ""}`
+        : fastOrderText.sendError;
+      setFastMessage(text);
+    } finally {
+      setFastLoading(false);
+    }
+  };
+  
+  const handleOpenModal = (dish: DishItem) => {
+    const dishId = String(dish.id || "").trim();
+    if (!dishId) return;
+
+    if (readBooleanFlag((dish as unknown as { is_formula?: unknown }).is_formula)) {
+      setFormulaModalDish(dish);
+      setFormulaModalSourceDish(dish);
+      const selections: Record<string, string> = {};
+      const details: Record<string, FormulaSelectionDetails> = {};
+      
+      const links = formulaLinksByFormulaId.get(dishId) || [];
+      links.forEach(link => {
+        const linkedDish = dishById.get(String(link.dishId).trim());
+        if (!linkedDish) return;
+        const categoryId = String(linkedDish.category_id).trim();
+        if (!categoryId) return;
+        
+        selections[categoryId] = linkedDish.id as string;
+        details[categoryId] = {
           selectedSideIds: [],
           selectedSides: [],
           selectedCooking: "",
-          selectedProductOptionIds: nextDefaultOptionIds,
-        },
-      };
+          selectedProductOptionIds: link.defaultProductOptionIds || [],
+        };
+      });
+
+      setFormulaModalSelections(selections);
+      setFormulaModalSelectionDetails(details);
+      setFormulaModalOpen(true);
+      return;
+    }
+
+    const sideIds = parseDishSideIds(dish).map((id) => String(id));
+    const sideChoices = sideIds.map((id) => sideLabelById.get(id) || id).filter(Boolean);
+    const extraChoices = parseDishExtras(dish);
+    const productOptions = parseDishProductOptions(dish);
+
+    setModalDish(dish);
+    setModalQty(fastQtyByDish[dishId] || 1);
+    setModalSideChoices(sideChoices);
+    setModalExtraChoices(extraChoices);
+    setModalProductOptions(productOptions);
+
+    const existingLine = fastOptionLines.find(
+      (line) => line.dishId === dishId && !line.isFormula && !line.selectedProductOptionId
+    );
+    if (existingLine) {
+      setModalSelectedSides(existingLine.selectedSides);
+      setModalSelectedExtras(existingLine.selectedExtras);
+      setModalCooking(existingLine.selectedCooking);
+      setModalKitchenComment(existingLine.specialRequest);
+    } else {
+      setModalSelectedSides([]);
+      setModalSelectedExtras([]);
+      setModalCooking("");
+      setModalKitchenComment(baseLineComments[dishId] || "");
+    }
+    
+    if (productOptions.length > 0) {
+      const requiredDefault = productOptions.find(opt => opt.required);
+      setModalSelectedProductOptionId(requiredDefault ? requiredDefault.id : "");
+    } else {
+       setModalSelectedProductOptionId("");
+    }
+
+    setModalOpen(true);
+  };
+  
+  const handleAddOrUpdateFastOptionLine = () => {
+    if (!modalDish) return;
+    const dishId = String(modalDish.id || "").trim();
+    if (!dishId) return;
+
+    const lineId =
+      fastOptionLines.find(
+        (line) =>
+          line.dishId === dishId &&
+          line.selectedProductOptionId === modalSelectedProductOptionId &&
+          line.selectedCooking === modalCooking &&
+          JSON.stringify(line.selectedSides.sort()) === JSON.stringify(modalSelectedSides.sort()) &&
+          JSON.stringify(line.selectedExtras.sort((a, b) => a.name.localeCompare(b.name))) ===
+            JSON.stringify(modalSelectedExtras.sort((a, b) => a.name.localeCompare(b.name))) &&
+          line.specialRequest === modalKitchenComment
+      )?.lineId || makeLineId();
+      
+    const selectedOption = modalProductOptions.find(opt => opt.id === modalSelectedProductOptionId);
+    let unitPrice = getDishPrice(modalDish);
+    if (selectedOption) {
+      unitPrice += selectedOption.price;
+    }
+    modalSelectedExtras.forEach(extra => unitPrice += extra.price);
+
+    const newLine: FastOrderLine = {
+      lineId,
+      dishId,
+      dishName: getDishName(modalDish),
+      category: getDishCategoryLabel(modalDish),
+      categoryId: modalDish.category_id || null,
+      destination: resolveDishDestination(modalDish),
+      quantity: modalQty,
+      unitPrice,
+      selectedSides: modalSelectedSides,
+      selectedExtras: modalSelectedExtras,
+      selectedProductOptionId: modalSelectedProductOptionId,
+      selectedProductOptionName: selectedOption?.name || null,
+      selectedProductOptionPrice: selectedOption?.price || 0,
+      selectedCooking: modalCooking,
+      specialRequest: modalKitchenComment,
+      isDrink: isDrink({ category: getDishCategoryLabel(modalDish) }),
+    };
+
+    setFastOptionLines((prev) => {
+      const index = prev.findIndex((line) => line.lineId === lineId);
+      if (index > -1) {
+        const next = [...prev];
+        next[index] = newLine;
+        return next;
+      }
+      return [...prev, newLine];
     });
 
-    const hasNestedFormulaOptions =
-      loadedConfig.productOptions.length > 0 ||
-      loadedConfig.hasRequiredSides ||
-      loadedConfig.askCooking;
-    if (hasNestedFormulaOptions) {
-      setFormulaOptionModalState({ categoryId: normalizedCategoryId, dishId: optionId });
-    } else {
-      setFormulaOptionModalState(null);
-    }
+    resetModal();
   };
 
-  const appendFormulaLine = (formulaDish: DishItem, selections: FormulaSelection[]) => {
-    const currentFormulaSelection =
-      [...selections].sort((a, b) => Number(a.sequence || 0) - Number(b.sequence || 0))[0] || null;
-    const currentSelectionDish = currentFormulaSelection
-      ? dishById.get(String(currentFormulaSelection.dishId || "").trim()) || null
-      : null;
-    const formulaDestination = currentFormulaSelection
-      ? resolveFormulaSelectionDestination(currentFormulaSelection, currentSelectionDish)
-      : resolveDishDestination(formulaDish);
-    const category = getDishCategoryLabel(formulaDish);
-    const formulaName = getFormulaDisplayName(formulaDish);
-    const formulaPackPrice = getFormulaPackPrice(formulaDish);
-    const line: FastOrderLine = {
-      lineId: makeLineId(),
-      dishId: String(formulaDish.id || ""),
-      dishName: formulaName,
-      category,
-      categoryId: formulaDish.category_id ?? null,
-      quantity: 1,
-      unitPrice: formulaPackPrice,
+  const handleAddFormulaToFastOrder = () => {
+    if (!formulaModalDish) return;
+
+    const formulaId = String(formulaModalDish.id).trim();
+    const selections: FormulaSelection[] = [];
+    let formulaPrice = getFormulaPackPrice(formulaModalDish);
+
+    for (const category of formulaCategories) {
+      const categoryId = String(category.id).trim();
+      const dishId = formulaModalSelections[categoryId];
+      if (!dishId) {
+        setFormulaModalError(`${formulaUi.missing} (${getCategoryLabel(category)})`);
+        return;
+      }
+      const dish = dishById.get(dishId);
+      if (!dish) continue;
+
+      const details = getFormulaSelectionDetails(categoryId);
+      const config = getFormulaDishConfig(dish);
+
+      if (config.askCooking && !details.selectedCooking) {
+        setFormulaModalError(`${formulaUi.missingOptions} (Cuisson pour ${getDishName(dish)})`);
+        return;
+      }
+      if (config.hasRequiredSides && isSideSelectionRequired(dish, config.sideOptions) && details.selectedSideIds.length === 0) {
+         setFormulaModalError(`${formulaUi.missingOptions} (Accompagnement pour ${getDishName(dish)})`);
+        return;
+      }
+
+      const selectedProductOptionIds = details.selectedProductOptionIds || [];
+      if (config.productOptions.length > 0 && isProductOptionSelectionRequired(dish, config.productOptions)) {
+        if (selectedProductOptionIds.length === 0) {
+          setFormulaModalError(`${formulaUi.missingOptions} (Option pour ${getDishName(dish)})`);
+          return;
+        }
+      }
+      
+      const optionPrices = selectedProductOptionIds.reduce((total, id) => {
+        const option = config.productOptions.find(opt => opt.id === id);
+        return total + (option?.price || 0);
+      }, 0);
+      formulaPrice += optionPrices;
+      
+      const sequence = formulaSequenceByDishId.get(dishId);
+
+      selections.push({
+        categoryId,
+        categoryLabel: getCategoryLabel(category),
+        dishId,
+        dishName: getDishName(dish),
+        destination: resolveDishDestination(dish),
+        sequence: sequence,
+        selectedSideIds: details.selectedSideIds,
+        selectedSides: details.selectedSideIds.map(id => sideLabelById.get(id) || id),
+        selectedCooking: details.selectedCooking,
+        selectedOptionIds: selectedProductOptionIds,
+        selectedOptionNames: selectedProductOptionIds.map(id => config.productOptions.find(opt => opt.id === id)?.name || ""),
+        selectedOptionPrice: optionPrices,
+      });
+    }
+    
+    const lineId = makeLineId();
+    const newLine: FastOrderLine = {
+      lineId,
+      dishId: formulaId,
+      dishName: getFormulaDisplayName(formulaModalDish),
+      category: "Formules",
+      categoryId: null,
+      destination: "cuisine",
+      quantity: 1, // multiple formulas can be added as separate lines
+      unitPrice: formulaPrice,
+      isFormula: true,
+      formulaDishId: formulaId,
+      formulaDishName: getFormulaDisplayName(formulaModalDish),
+      formulaUnitPrice: formulaPrice,
+      formulaSelections: selections,
       selectedSides: [],
       selectedExtras: [],
       selectedProductOptionId: null,
@@ -3114,2982 +2406,1030 @@ const formulaParentDishIds = useMemo(() => {
       selectedProductOptionPrice: 0,
       selectedCooking: "",
       specialRequest: "",
-      isDrink: formulaDestination === "bar",
-      destination: formulaDestination,
-      isFormula: true,
-      formulaDishId: String(formulaDish.id || "").trim() || undefined,
-      formulaDishName: formulaName,
-      formulaUnitPrice: formulaPackPrice,
-      formulaSelections: selections,
+      isDrink: false,
     };
-    setFastOptionLines((prev) => [...prev, line]);
+    
+    setFastOptionLines(prev => [...prev, newLine]);
+    resetFormulaModal();
   };
 
-  const resolveFormulaLinksForDish = (formulaDish: DishItem) => {
-    const formulaDishId = String(formulaDish.id || "").trim();
-    if (!formulaDishId) return [] as FormulaDishLink[];
-    const existing = formulaLinksByFormulaId.get(formulaDishId) || [];
-    const byDishId = new Map<string, FormulaDishLink>();
-    existing.forEach((link) => {
-      const dishId = String(link.dishId || "").trim();
-      if (!dishId) return;
-      if (byDishId.has(dishId)) return;
-      byDishId.set(dishId, link);
-    });
-    if (!byDishId.has(formulaDishId)) {
-      byDishId.set(formulaDishId, {
-        formulaDishId,
-        dishId: formulaDishId,
-        sequence: 1,
-        isMain: true,
-      });
-    }
-    return [...byDishId.values()];
+  const handleUpdateFormulaSelectionDetails = (
+    categoryId: string,
+    updates: Partial<FormulaSelectionDetails>
+  ) => {
+    setFormulaModalSelectionDetails((prev) => ({
+      ...prev,
+      [categoryId]: {
+        ...(prev[categoryId] || emptyFormulaSelectionDetails),
+        ...updates,
+      },
+    }));
   };
-
-  const resolveFirstStepFormulaLinks = (formulaDish: DishItem) => {
-    const links = resolveFormulaLinksForDish(formulaDish);
-    if (links.length === 0) return [] as FormulaDishLink[];
-    const normalized = links.map((link) => {
-      const rawSequence = normalizeFormulaStepValue(link.step ?? link.sequence, true);
-      if (rawSequence != null && rawSequence > 0) {
-        return {
-          link,
-          sequence: rawSequence,
-        };
-      }
-      if (link.isMain) {
-        return {
-          link: {
-            ...link,
-            sequence: 1,
-          },
-          sequence: 1,
-        };
-      }
-      return {
-        link,
-        sequence: null as number | null,
-      };
-    });
-    const stepOne = normalized.filter((entry) => entry.sequence === 1).map((entry) => entry.link);
-    if (stepOne.length > 0) return stepOne;
-    const withSequence = normalized.filter((entry) => Number.isFinite(entry.sequence) && Number(entry.sequence) > 0);
-    if (withSequence.length > 0) {
-      const minSequence = Math.min(...withSequence.map((entry) => Number(entry.sequence)));
-      return withSequence
-        .filter((entry) => Number(entry.sequence) === minSequence)
-        .map((entry) => entry.link);
-    }
-    return links;
-  };
-
-  const formulaDishNeedsOptions = async (dish: DishItem) => {
-    const loadedDish = (await ensureFormulaDishDetails(dish)) || dish;
-    const config = getFormulaDishConfig(loadedDish);
-    return config.productOptions.length > 0 || config.hasRequiredSides || config.askCooking;
-  };
-
-  const buildAutoFormulaSelections = async (formulaDish: DishItem) => {
-    const formulaDishId = String(formulaDish.id || "").trim();
-    if (!formulaDishId) return [] as FormulaSelection[];
-    const links = resolveFormulaLinksForDish(formulaDish);
-    const sequenceByDishId = new Map<string, number>();
-    const defaultOptionIdsByDishId = new Map<string, string[]>();
-    const linkedDishIdsByCategory = new Map<string, Set<string>>();
-    links.forEach((link) => {
-      const linkedDishId = String(link.dishId || "").trim();
-      if (!linkedDishId) return;
-      const rawSequence = normalizeFormulaStepValue(link.step ?? link.sequence, true);
-      if (rawSequence != null) {
-        sequenceByDishId.set(linkedDishId, rawSequence);
-      } else if (Boolean(link.isMain)) {
-        sequenceByDishId.set(linkedDishId, 1);
-      }
-      if (Array.isArray(link.defaultProductOptionIds) && link.defaultProductOptionIds.length > 0) {
-        defaultOptionIdsByDishId.set(linkedDishId, link.defaultProductOptionIds);
-      }
-      const linkedDish = dishById.get(linkedDishId);
-      const linkedCategoryId = String(linkedDish?.category_id || "").trim();
-      if (!linkedCategoryId) return;
-      const currentSet = linkedDishIdsByCategory.get(linkedCategoryId) || new Set<string>();
-      currentSet.add(linkedDishId);
-      linkedDishIdsByCategory.set(linkedCategoryId, currentSet);
-    });
-    const parsedCategoryIds = parseFormulaCategoryIds(
-      (formulaDish as unknown as { formula_category_ids?: unknown }).formula_category_ids
-    );
-    const categoryIds =
-      parsedCategoryIds.length > 0
-        ? parsedCategoryIds
-        : Array.from(linkedDishIdsByCategory.keys());
-    const selections: FormulaSelection[] = [];
-    for (const [categoryIndex, rawCategoryId] of categoryIds.entries()) {
-      const categoryId = String(rawCategoryId || "").trim();
-      if (!categoryId) continue;
-      const linkedIds = linkedDishIdsByCategory.get(categoryId);
-      const restrictToLinked = Boolean(linkedIds && linkedIds.size > 0);
-      const options = dishes
-        .filter((dish) => String(dish.category_id || "").trim() === categoryId)
-        .filter((dish) => !readBooleanFlag((dish as unknown as { is_formula?: unknown }).is_formula))
-        .filter((dish) => String(dish.id || "").trim() !== formulaDishId)
-        .filter((dish) => !restrictToLinked || linkedIds?.has(String(dish.id || "").trim()));
-      if (options.length === 0) continue;
-      const sortedOptions = [...options].sort((a, b) => {
-        const aId = String(a.id || "").trim();
-        const bId = String(b.id || "").trim();
-        const aSequence = sequenceByDishId.get(aId);
-        const bSequence = sequenceByDishId.get(bId);
-        const aSort = Number.isFinite(Number(aSequence)) && Number(aSequence) > 0 ? Number(aSequence) : 999;
-        const bSort = Number.isFinite(Number(bSequence)) && Number(bSequence) > 0 ? Number(bSequence) : 999;
-        if (aSort !== bSort) return aSort - bSort;
-        return getDishName(a).localeCompare(getDishName(b), "fr", { sensitivity: "base" });
-      });
-      const selectedDish = sortedOptions[0];
-      const selectedDishId = String(selectedDish.id || "").trim();
-      if (!selectedDishId) continue;
-      const loadedSelectedDish = (await ensureFormulaDishDetails(selectedDish)) || selectedDish;
-      const config = getFormulaDishConfig(loadedSelectedDish);
-      const availableOptionIds = new Set(
-        config.productOptions.map((option) => String(option.id || "").trim()).filter(Boolean)
-      );
-      const linkedDefaultOptionIds = (defaultOptionIdsByDishId.get(selectedDishId) || []).filter((id) =>
-        availableOptionIds.has(String(id || "").trim())
-      );
-      const allowMulti = Boolean(
-        (loadedSelectedDish as unknown as { allow_multi_select?: unknown }).allow_multi_select
-      );
-      const selectedOptionIds = allowMulti ? linkedDefaultOptionIds : linkedDefaultOptionIds.slice(0, 1);
-      const selectedOptions = config.productOptions.filter((option) =>
-        selectedOptionIds.includes(String(option.id || "").trim())
-      );
-      const selectedOptionNames = selectedOptions
-        .map((option) => String(option.name || "").trim())
-        .filter(Boolean);
-      const selectedOptionPrice = selectedOptions.reduce(
-        (sum, option) => sum + parsePriceNumber(option.price),
-        0
-      );
-      const linkedSequence = sequenceByDishId.get(selectedDishId);
-      const sequence =
-        Number.isFinite(Number(linkedSequence))
-          ? Number(linkedSequence)
-          : categoryIndex + 1;
-      const category = categoryById.get(categoryId);
-      const selectionContext = {
-        sequence,
-        destination: undefined,
-        categoryId,
-        categoryLabel: category ? getCategoryLabel(category) : "",
-      };
-      selections.push({
-        categoryId,
-        categoryLabel: selectionContext.categoryLabel,
-        dishId: selectedDishId,
-        dishName: getDishName(loadedSelectedDish),
-        destination: resolveFormulaSelectionDestination(selectionContext, loadedSelectedDish),
-        sequence,
-        selectedSideIds: [],
-        selectedSides: [],
-        selectedCooking: "",
-        selectedOptionIds,
-        selectedOptionNames,
-        selectedOptionPrice,
-      } as FormulaSelection);
-    }
-    return selections;
-  };
-
-  const handleSelectFormula = async (formula: DishItem) => {
-    const sourceFormula = dishes.find((row) => String(row.id) === String(formula.id)) || formula;
-    const stepOneLinks = resolveFirstStepFormulaLinks(sourceFormula);
-    for (const stepLink of stepOneLinks) {
-      const stepDishId = String(stepLink.dishId || "").trim();
-      if (!stepDishId) continue;
-      const stepDish =
-        stepDishId === String(sourceFormula.id || "").trim()
-          ? sourceFormula
-          : dishById.get(stepDishId) || null;
-      if (!stepDish) continue;
-      const needsOptions = await formulaDishNeedsOptions(stepDish);
-      if (!needsOptions) continue;
-      const stepDishCategoryId = String(stepDish.category_id || "").trim();
-      openFormulaModal(sourceFormula, stepDish);
-      if (stepDishCategoryId) {
-        window.setTimeout(() => {
-          void openFormulaItemOptionsModal(stepDishCategoryId, stepDish, true);
-        }, 0);
-      }
-      return;
-    }
-    const selections = await buildAutoFormulaSelections(sourceFormula);
-    appendFormulaLine(sourceFormula, selections);
-  };
-
-  const openOptionsModal = async (dish: DishItem) => {
-    const sourceDish = await loadDishOptionsFromDishes(dish);
-    console.log("STRUCTURE RÉELLE DU PLAT:", sourceDish);
-    const sideIds = parseDishSideIds(sourceDish);
-    const sideMap = new Map<string, string>();
-    sidesLibrary.forEach((side) => {
-      const label =
-        String(side.name_fr || "").trim() ||
-        String(side.name_en || "").trim() ||
-        String(side.name_es || "").trim() ||
-        String(side.name_de || "").trim() ||
-        String(side.id);
-      sideMap.set(String(side.id), label);
-    });
-
-    setModalDish(sourceDish);
-    setModalQty(1);
-    setModalSideChoices(sideIds.map((id) => sideMap.get(String(id)) || String(id)));
-    setModalSelectedSides([]);
-    const inlineProductOptions = parseDishProductOptions(sourceDish);
-    const dbProductOptions =
-      inlineProductOptions.length === 0 && sourceDish.id != null
-        ? await loadDishProductOptionsFromDatabase(sourceDish.id)
-        : [];
-    setModalProductOptions(inlineProductOptions.length > 0 ? inlineProductOptions : dbProductOptions);
-    setModalSelectedProductOptionId("");
-    const parsedExtras = parseDishExtras(sourceDish);
-    const relationExtras =
-      parsedExtras.length === 0 && sourceDish.id != null ? await loadDishExtrasFromRelations(sourceDish.id) : [];
-    setModalExtraChoices(parsedExtras.length > 0 ? parsedExtras : relationExtras);
-    setModalSelectedExtras([]);
-    setModalCooking("");
-    setModalKitchenComment("");
-    setModalOpen(true);
-  };
-
-  const handleAddFormulaLine = async () => {
-    if (!formulaModalDish) return;
-    if (formulaOptionModalOpen) {
-      setFormulaModalError("Validez les options du plat sélectionné avant d'ajouter la formule.");
-      return;
-    }
-    const missingCategory = normalizedFormulaCategoryIds.find((categoryId) => {
-      const normalizedCategoryId = String(categoryId || "").trim();
-      if (!normalizedCategoryId) return false;
-      const options = formulaOptionsByCategory.get(normalizedCategoryId) || [];
-      if (options.length === 0) return false;
-      return !formulaModalSelections[normalizedCategoryId];
-    });
-    if (missingCategory) {
-      setFormulaModalError(formulaUi.missing);
-      return;
-    }
-    const resolvedSelectionsByCategory = new Map<string, DishItem>();
-    for (const categoryId of normalizedFormulaCategoryIds) {
-      const normalizedCategoryId = String(categoryId || "").trim();
-      if (!normalizedCategoryId) continue;
-      const selectedId = String(formulaModalSelections[normalizedCategoryId] || "").trim();
-      if (!selectedId) continue;
-      const sourceDish = resolveFormulaDishRecord(dishById.get(selectedId)) || dishById.get(selectedId);
-      if (!sourceDish) continue;
-      const loadedDish = await ensureFormulaDishDetails(sourceDish);
-      if (loadedDish) resolvedSelectionsByCategory.set(normalizedCategoryId, loadedDish);
-    }
-    const missingRequiredOptionsCategory = normalizedFormulaCategoryIds
-      .map((categoryId) => {
-        const normalizedCategoryId = String(categoryId || "").trim();
-        if (!normalizedCategoryId) return null;
-        const selectedId = String(formulaModalSelections[normalizedCategoryId] || "").trim();
-        if (!selectedId) return null;
-        const selectedDish =
-          resolvedSelectionsByCategory.get(normalizedCategoryId) ||
-          resolveFormulaDishRecord(dishById.get(selectedId));
-        if (!selectedDish) return null;
-        const config = getFormulaDishConfig(selectedDish);
-        const details = getFormulaSelectionDetails(normalizedCategoryId);
-        const missingProductOption =
-          config.productOptions.length > 0 && details.selectedProductOptionIds.length === 0;
-        const missingSides = config.hasRequiredSides && details.selectedSides.length === 0;
-        const missingCooking = config.askCooking && !String(details.selectedCooking || "").trim();
-        if (!missingProductOption && !missingSides && !missingCooking) return null;
-        return {
-          categoryId: normalizedCategoryId,
-          selectedDish,
-        };
-      })
-      .find(Boolean);
-    if (missingRequiredOptionsCategory) {
-      setFormulaModalError(formulaUi.missingOptions);
-      void openFormulaItemOptionsModal(
-        missingRequiredOptionsCategory.categoryId,
-        missingRequiredOptionsCategory.selectedDish,
-        false
-      );
-      return;
-    }
-
-    const selections: FormulaSelection[] = normalizedFormulaCategoryIds
-      .map((categoryId, categoryIndex) => {
-        const normalizedCategoryId = String(categoryId || "").trim();
-        const selectedId = String(formulaModalSelections[normalizedCategoryId] || "").trim();
-        if (!normalizedCategoryId || !selectedId) return null;
-        const category = categoryById.get(normalizedCategoryId);
-        const selectedDish =
-          resolvedSelectionsByCategory.get(normalizedCategoryId) ||
-          resolveFormulaDishRecord(dishById.get(selectedId));
-        if (!selectedDish) return null;
-        const config = getFormulaDishConfig(selectedDish);
-        const details = getFormulaSelectionDetails(normalizedCategoryId);
-        const selectedOptions = config.productOptions.filter((option) =>
-          details.selectedProductOptionIds.includes(String(option.id || "").trim())
-        );
-        const selectedOptionNames = selectedOptions
-          .map((option) => String(option.name || "").trim())
-          .filter(Boolean);
-        const selectedOptionPrice = selectedOptions.reduce(
-          (sum, option) => sum + parsePriceNumber(option.price),
-          0
-        );
-        const linkedSequence = formulaSequenceByDishId.get(selectedId);
-        const sequence =
-          Number.isFinite(Number(linkedSequence))
-            ? Number(linkedSequence)
-            : categoryIndex + 1;
-        const categoryLabel = category ? getCategoryLabel(category) : "";
-        const selectionContext = {
-          sequence,
-          destination: undefined,
-          categoryId: normalizedCategoryId,
-          categoryLabel,
-        };
-        return {
-          categoryId: normalizedCategoryId,
-          categoryLabel,
-          dishId: selectedId,
-          dishName: getDishName(selectedDish),
-          destination: resolveFormulaSelectionDestination(selectionContext, selectedDish),
-          sequence,
-          selectedSideIds: details.selectedSideIds,
-          selectedSides: details.selectedSides,
-          selectedCooking: details.selectedCooking,
-          selectedOptionIds: details.selectedProductOptionIds,
-          selectedOptionNames,
-          selectedOptionPrice,
-        } as FormulaSelection;
-      })
-      .filter(Boolean) as FormulaSelection[];
-    appendFormulaLine(formulaModalDish, selections);
-    closeFormulaModal();
-  };
-
-  const handleAddOptionLine = () => {
-    if (!modalDish) return;
-    const selectedProductOption =
-      modalProductOptions.find((option) => String(option.id) === String(modalSelectedProductOptionId)) || null;
-    const sideRequired = isSideSelectionRequired(modalDish, modalSideChoices);
-    const sideMaxSelections = getSideMaxSelections(modalDish, modalSideChoices);
-    const optionRequired = isProductOptionSelectionRequired(modalDish, modalProductOptions);
-
-    if (sideRequired && modalSelectedSides.length === 0) {
-      alert("Veuillez choisir au moins un accompagnement.");
-      return;
-    }
-    if (sideMaxSelections > 0 && modalSelectedSides.length > sideMaxSelections) {
-      alert(`Vous pouvez choisir au maximum ${sideMaxSelections} accompagnement${sideMaxSelections > 1 ? "s" : ""}.`);
-      return;
-    }
-    if (optionRequired && !selectedProductOption) {
-      alert("Veuillez choisir une option obligatoire.");
-      return;
-    }
-    if (dishNeedsCooking(modalDish) && !modalCooking.trim()) {
-      alert("Veuillez choisir une cuisson.");
-      return;
-    }
-    const category = getDishCategoryLabel(modalDish);
-    const destination = resolveDishDestination(modalDish);
-    const optionUnit = parsePriceNumber(selectedProductOption?.price ?? 0);
-    const extrasUnit = modalSelectedExtras.reduce((sum, extra) => sum + parsePriceNumber(extra.price), 0);
-    const normalizedSelectedSides =
-      sideMaxSelections > 0 ? modalSelectedSides.slice(0, sideMaxSelections) : modalSelectedSides;
-    const line: FastOrderLine = {
-      lineId: makeLineId(),
-      dishId: String(modalDish.id),
-      dishName: getDishName(modalDish),
-      category,
-      categoryId: modalDish.category_id ?? null,
-      quantity: modalQty,
-      unitPrice: Number((getDishPrice(modalDish) + optionUnit + extrasUnit).toFixed(2)),
-      selectedSides: normalizedSelectedSides,
-      selectedExtras: modalSelectedExtras,
-      selectedProductOptionId: selectedProductOption?.id || null,
-      selectedProductOptionName: selectedProductOption?.name || null,
-      selectedProductOptionPrice: optionUnit,
+  
+  const handleFormulaOptionModalSave = () => {
+    if (!formulaOptionModalState) return;
+    const { categoryId, dishId } = formulaOptionModalState;
+    handleUpdateFormulaSelectionDetails(categoryId, {
       selectedCooking: modalCooking,
-      specialRequest: modalKitchenComment,
-      destination,
-      isDrink: destination === "bar",
-    };
-    setFastOptionLines((prev) => [...prev, line]);
-    setModalOpen(false);
-    setModalDish(null);
-    setModalProductOptions([]);
-    setModalSelectedProductOptionId("");
-  };
-
-  const removeFastLine = (lineId: string) => {
-    if (lineId.startsWith("base-")) {
-      const dishId = lineId.replace("base-", "");
-      setFastQtyByDish((prev) => {
-        const next = { ...prev };
-        delete next[dishId];
-        return next;
-      });
-      setBaseLineComments((prev) => {
-        const next = { ...prev };
-        delete next[dishId];
-        return next;
-      });
-      return;
-    }
-    setFastOptionLines((prev) => prev.filter((line) => line.lineId !== lineId));
-  };
-
-  const updateLineKitchenComment = (lineId: string, comment: string) => {
-    if (lineId.startsWith("base-")) {
-      const dishId = lineId.replace("base-", "");
-      setBaseLineComments((prev) => ({ ...prev, [dishId]: comment }));
-      return;
-    }
-    setFastOptionLines((prev) =>
-      prev.map((line) => (line.lineId === lineId ? { ...line, specialRequest: comment } : line))
-    );
-  };
-
-  const ensureTableIsOrderableForServer = async (tableNumber: number, covers?: number | null) => {
-    const targetRestaurantId = String(restaurantId || scopedRestaurantId || "").trim();
-    if (!targetRestaurantId) return null;
-    const markTableAsOccupied = async () => {
-      const occupancyPayloads = [
-        { status: "occupied", occupied: true, restaurant_id: targetRestaurantId || undefined },
-        { status: "occupied", restaurant_id: targetRestaurantId || undefined },
-        { occupied: true, restaurant_id: targetRestaurantId || undefined },
-        { status: "occupied", occupied: true },
-        { status: "occupied" },
-        { occupied: true },
-      ];
-      let updateQuery = supabase.from("table_assignments").update(occupancyPayloads[0]).eq("table_number", tableNumber);
-      if (targetRestaurantId) updateQuery = updateQuery.eq("restaurant_id", targetRestaurantId);
-      let updated = await updateQuery;
-      for (let i = 1; updated.error && i < occupancyPayloads.length; i += 1) {
-        const code = String((updated.error as { code?: string })?.code || "");
-        const msg = String(updated.error.message || "").toLowerCase();
-        const missingColumn = code === "42703" || msg.includes("column") || msg.includes("schema cache");
-        if (!missingColumn) break;
-        let nextUpdateQuery = supabase.from("table_assignments").update(occupancyPayloads[i]).eq("table_number", tableNumber);
-        if (targetRestaurantId && i < 3) nextUpdateQuery = nextUpdateQuery.eq("restaurant_id", targetRestaurantId);
-        updated = await nextUpdateQuery;
-      }
-      return updated.error || null;
-    };
-
-    let selectPrimaryQuery = supabase.from("table_assignments").select("table_number,pin_code").eq("table_number", tableNumber).limit(1);
-    if (targetRestaurantId) selectPrimaryQuery = selectPrimaryQuery.eq("restaurant_id", targetRestaurantId);
-    let selectPrimary = await selectPrimaryQuery;
-    if (selectPrimary.error && String((selectPrimary.error as { code?: string }).code || "") === "42703" && targetRestaurantId) {
-      selectPrimary = await supabase.from("table_assignments").select("table_number,pin_code").eq("table_number", tableNumber).limit(1);
-    }
-
-    if (selectPrimary.error) return selectPrimary.error;
-
-    const row =
-      Array.isArray(selectPrimary.data) && selectPrimary.data[0]
-        ? (selectPrimary.data[0] as { pin_code?: unknown })
-        : null;
-    const currentPin = String(row?.pin_code || "").trim();
-
-    if (!row) {
-      const normalizedCovers = normalizeCoversValue(covers);
-      const upsertPayloads = normalizedCovers
-        ? [
-            { table_number: tableNumber, pin_code: "SERVEUR", covers: normalizedCovers, guest_count: normalizedCovers, customer_count: normalizedCovers, restaurant_id: targetRestaurantId || undefined },
-            { table_number: tableNumber, pin_code: "SERVEUR", covers: normalizedCovers, guest_count: normalizedCovers, restaurant_id: targetRestaurantId || undefined },
-            { table_number: tableNumber, pin_code: "SERVEUR", covers: normalizedCovers, restaurant_id: targetRestaurantId || undefined },
-            { table_number: tableNumber, pin_code: "SERVEUR", guest_count: normalizedCovers, restaurant_id: targetRestaurantId || undefined },
-            { table_number: tableNumber, pin_code: "SERVEUR", customer_count: normalizedCovers, restaurant_id: targetRestaurantId || undefined },
-            { table_number: tableNumber, pin_code: "SERVEUR", restaurant_id: targetRestaurantId || undefined },
-            { table_number: tableNumber, pin_code: "SERVEUR", covers: normalizedCovers, guest_count: normalizedCovers, customer_count: normalizedCovers },
-          ]
-        : [
-            { table_number: tableNumber, pin_code: "SERVEUR", restaurant_id: targetRestaurantId || undefined },
-            { table_number: tableNumber, pin_code: "SERVEUR" },
-          ];
-      let inserted = await supabase
-        .from("table_assignments")
-        .upsert([upsertPayloads[0]], { onConflict: "table_number" });
-      for (let i = 1; inserted.error && i < upsertPayloads.length; i += 1) {
-        const code = String((inserted.error as { code?: string })?.code || "");
-        const msg = String(inserted.error.message || "").toLowerCase();
-        const missingColumn = code === "42703" || msg.includes("column") || msg.includes("schema cache");
-        if (!missingColumn) break;
-        inserted = await supabase.from("table_assignments").upsert([upsertPayloads[i]], { onConflict: "table_number" });
-      }
-      if (inserted.error) return inserted.error;
-      return await markTableAsOccupied();
-    }
-
-    if (!currentPin || currentPin === "0000" || normalizeCoversValue(covers)) {
-      const normalizedCovers = normalizeCoversValue(covers);
-      const updatePayloads = normalizedCovers
-        ? [
-            { pin_code: "SERVEUR", covers: normalizedCovers, guest_count: normalizedCovers, customer_count: normalizedCovers, restaurant_id: targetRestaurantId || undefined },
-            { pin_code: "SERVEUR", covers: normalizedCovers, guest_count: normalizedCovers, restaurant_id: targetRestaurantId || undefined },
-            { pin_code: "SERVEUR", covers: normalizedCovers, restaurant_id: targetRestaurantId || undefined },
-            { pin_code: "SERVEUR", guest_count: normalizedCovers, restaurant_id: targetRestaurantId || undefined },
-            { pin_code: "SERVEUR", customer_count: normalizedCovers, restaurant_id: targetRestaurantId || undefined },
-            { pin_code: "SERVEUR", restaurant_id: targetRestaurantId || undefined },
-            { pin_code: "SERVEUR", covers: normalizedCovers, guest_count: normalizedCovers, customer_count: normalizedCovers },
-          ]
-        : [{ pin_code: "SERVEUR", restaurant_id: targetRestaurantId || undefined }, { pin_code: "SERVEUR" }];
-      let updateQuery = supabase.from("table_assignments").update(updatePayloads[0]).eq("table_number", tableNumber);
-      if (targetRestaurantId) updateQuery = updateQuery.eq("restaurant_id", targetRestaurantId);
-      let updated = await updateQuery;
-      for (let i = 1; updated.error && i < updatePayloads.length; i += 1) {
-        const code = String((updated.error as { code?: string })?.code || "");
-        const msg = String(updated.error.message || "").toLowerCase();
-        const missingColumn = code === "42703" || msg.includes("column") || msg.includes("schema cache");
-        if (!missingColumn) break;
-        let nextUpdateQuery = supabase.from("table_assignments").update(updatePayloads[i]).eq("table_number", tableNumber);
-        if (targetRestaurantId && i < 6) nextUpdateQuery = nextUpdateQuery.eq("restaurant_id", targetRestaurantId);
-        updated = await nextUpdateQuery;
-      }
-      if (updated.error) return updated.error;
-    }
-
-    return await markTableAsOccupied();
-  };
-
-  const handleSubmitFastOrder = async () => {
-    setFastMessage("");
-    const resetFastEntryForm = () => {
-      setFastQtyByDish({});
-      setBaseLineComments({});
-      setFastOptionLines([]);
-      setModalOpen(false);
-      setModalDish(null);
-      setModalQty(1);
-      setModalSideChoices([]);
-      setModalSelectedSides([]);
-      setModalProductOptions([]);
-      setModalSelectedProductOptionId("");
-      setModalExtraChoices([]);
-      setModalSelectedExtras([]);
-      setModalCooking("");
-      setModalKitchenComment("");
-    };
-
-    const tableNumber = Number(String(selectedFastTableNumber || "").trim());
-    const enteredCovers = normalizeCoversValue(fastCoversInput);
-    if (!Number.isFinite(tableNumber) || tableNumber <= 0) {
-      setFastMessage(fastOrderText.tableInvalid);
-      return;
-    }
-    if (!enteredCovers) {
-      setFastMessage("Nombre de couverts invalide.");
-      return;
-    }
-    if (fastLines.length === 0) {
-      setFastMessage(fastOrderText.addItem);
-      return;
-    }
-
-    const items: Item[] = fastLines
-      .flatMap((line, lineIndex) => {
-        const quantity = Number(line.quantity || 0);
-        const rawUnitPrice = Number(line.unitPrice || 0);
-        const formulaDishId = String(line.formulaDishId || "").trim() || null;
-        const formulaInstanceId = formulaDishId
-          ? `admin:${tableNumber}:${lineIndex}:${formulaDishId}`
-          : null;
-        const formulaDishName = String(line.formulaDishName || "").trim() || null;
-        const formulaSelections = Array.isArray(line.formulaSelections) ? line.formulaSelections : [];
-        const resolveSelectionDestination = (selection: FormulaSelection): "cuisine" | "bar" => {
-          const selectedDish = dishById.get(String(selection.dishId || "").trim()) || null;
-          return resolveFormulaSelectionDestination(selection, selectedDish);
-        };
-        const isFormulaLine = Boolean(line.isFormula || formulaDishId || formulaSelections.length > 0);
-        const formulaDishRecord = formulaDishId ? dishById.get(formulaDishId) || null : null;
-        const formulaUnitPriceRaw = Number(line.formulaUnitPrice);
-        const formulaUnitPrice =
-          isFormulaLine
-            ? Number.isFinite(formulaUnitPriceRaw) && formulaUnitPriceRaw > 0
-              ? Number(formulaUnitPriceRaw.toFixed(2))
-              : formulaDishRecord
-                ? Number(getFormulaPackPrice(formulaDishRecord).toFixed(2))
-                : 0
-            : null;
-        const unitPrice = formulaUnitPrice != null ? formulaUnitPrice : rawUnitPrice;
-        const optionPrice = parsePriceNumber(line.selectedProductOptionPrice);
-        const extrasPrice = isFormulaLine
-          ? 0
-          : (line.selectedExtras || []).reduce((sum, extra) => sum + parsePriceNumber(extra.price), 0);
-        const baseUnitPrice = Number((unitPrice - extrasPrice - optionPrice).toFixed(2));
-        const selectedSideIds = (line.selectedSides || [])
-          .map((label) => sideIdByAlias.get(normalizeLookupText(label)) || "")
-          .filter(Boolean);
-        const cookingLabel = String(line.selectedCooking || "").trim();
-        const cookingKey = toCookingKeyFromLabel(cookingLabel);
-        const selectedOptionId = String(line.selectedProductOptionId || "").trim() || null;
-        const selectedOptionName = String(line.selectedProductOptionName || "").trim() || null;
-        const selectedOptionsPayload: Array<Record<string, unknown>> = [];
-        if (selectedOptionName) {
-          selectedOptionsPayload.push({
-            kind: "option",
-            id: selectedOptionId,
-            value: selectedOptionName,
-            label_fr: selectedOptionName,
-            price: optionPrice,
-          });
-        }
-        if (selectedSideIds.length > 0) {
-          selectedOptionsPayload.push({
-            kind: "side",
-            ids: selectedSideIds,
-            values: line.selectedSides,
-          });
-        }
-        if (cookingLabel) {
-          selectedOptionsPayload.push({
-            kind: "cooking",
-            key: cookingKey || null,
-            value: cookingLabel,
-            label_fr: cookingLabel,
-          });
-        }
-        if (formulaSelections.length > 0) {
-          formulaSelections.forEach((selection) => {
-            if (!selection?.dishId) return;
-            const sequence = normalizeFormulaStepValue(selection.sequence, true);
-            const selectionSideIds = Array.isArray(selection.selectedSideIds) ? selection.selectedSideIds : [];
-            const selectionSides = Array.isArray(selection.selectedSides) ? selection.selectedSides : [];
-            const selectionCooking = String(selection.selectedCooking || "").trim();
-            const selectionOptionIds = Array.isArray(selection.selectedOptionIds) ? selection.selectedOptionIds : [];
-            const selectionOptionNames = Array.isArray(selection.selectedOptionNames) ? selection.selectedOptionNames : [];
-            const selectionSideLabelFr = selectionSides.join(", ");
-            const selectionOptionLabelFr = selectionOptionNames.join(", ");
-            const selectionCookingKey = toCookingKeyFromLabel(selectionCooking);
-            const selectionDestination = resolveSelectionDestination(selection);
-            selectedOptionsPayload.push({
-              kind: "formula",
-              formula_dish_id: formulaDishId,
-              formula_dish_name: formulaDishName,
-              category_id: selection.categoryId || null,
-              category_label: selection.categoryLabel || null,
-              dish_id: selection.dishId || null,
-              value: selection.dishName || null,
-              label_fr: selection.dishName || null,
-              name_fr: selection.dishName || null,
-              price: 0,
-              destination: selectionDestination,
-              selected_side_ids: selectionSideIds,
-              selected_sides: selectionSides,
-              selected_side_label_fr: selectionSideLabelFr || null,
-              selected_cooking: selectionCooking || null,
-              selected_cooking_key: selectionCookingKey || null,
-              selected_cooking_label_fr: selectionCooking || null,
-              selected_option_ids: selectionOptionIds,
-              selected_option_names: selectionOptionNames,
-              selected_option_label_fr: selectionOptionLabelFr || null,
-              selected_option_price: 0,
-              sequence,
-            });
-            if (selectionSides.length > 0 || selectionSideIds.length > 0) {
-              selectedOptionsPayload.push({
-                kind: "side",
-                source: "formula",
-                formula_dish_id: formulaDishId,
-                dish_id: selection.dishId || null,
-                destination: selectionDestination,
-                ids: selectionSideIds,
-                values: selectionSides,
-                label_fr: selectionSideLabelFr || null,
-                sequence,
-              });
-            }
-            if (selectionCooking) {
-              selectedOptionsPayload.push({
-                kind: "cooking",
-                source: "formula",
-                formula_dish_id: formulaDishId,
-                dish_id: selection.dishId || null,
-                destination: selectionDestination,
-                key: selectionCookingKey || null,
-                value: selectionCooking,
-                label_fr: selectionCooking,
-                sequence,
-              });
-            }
-            if (selectionOptionNames.length > 0 || selectionOptionIds.length > 0) {
-              selectedOptionsPayload.push({
-                kind: "option",
-                source: "formula",
-                formula_dish_id: formulaDishId,
-                dish_id: selection.dishId || null,
-                destination: selectionDestination,
-                id: selectionOptionIds.length > 0 ? selectionOptionIds.join(",") : null,
-                values: selectionOptionNames,
-                value: selectionOptionLabelFr || null,
-                label_fr: selectionOptionLabelFr || null,
-                sequence,
-              });
-            }
-          });
-        }
-        const formulaItemsPayload = formulaSelections
-          .map((selection) => {
-            if (!selection?.dishId) return null;
-            const sequence = normalizeFormulaStepValue(selection.sequence, true);
-            const selectionSideIds = Array.isArray(selection.selectedSideIds) ? selection.selectedSideIds : [];
-            const selectionSides = Array.isArray(selection.selectedSides) ? selection.selectedSides : [];
-            const selectionCooking = String(selection.selectedCooking || "").trim();
-            const selectionOptionIds = Array.isArray(selection.selectedOptionIds) ? selection.selectedOptionIds : [];
-            const selectionOptionNames = Array.isArray(selection.selectedOptionNames) ? selection.selectedOptionNames : [];
-            const selectionSideLabelFr = selectionSides.join(", ");
-            const selectionOptionLabelFr = selectionOptionNames.join(", ");
-            const selectionCookingKey = toCookingKeyFromLabel(selectionCooking);
-            const selectionDestination = resolveSelectionDestination(selection);
-            return {
-              formula_dish_id: formulaDishId,
-              formula_dish_name: formulaDishName,
-              category_id: selection.categoryId || null,
-              category_label: selection.categoryLabel || null,
-              dish_id: selection.dishId || null,
-              dish_name: selection.dishName || null,
-              dish_name_fr: selection.dishName || null,
-              destination: selectionDestination,
-              is_drink: selectionDestination === "bar",
-              price: 0,
-              base_price: 0,
-              unit_total_price: 0,
-              selected_side_ids: selectionSideIds,
-              selected_sides: selectionSides,
-              selected_side_label_fr: selectionSideLabelFr || null,
-              selected_cooking: selectionCooking || null,
-              selected_cooking_key: selectionCookingKey || null,
-              selected_cooking_label_fr: selectionCooking || null,
-              selected_option_ids: selectionOptionIds,
-              selected_option_names: selectionOptionNames,
-              selected_option_label_fr: selectionOptionLabelFr || null,
-              selected_option_price: 0,
-              sequence,
-              is_main: String(selection.dishId || "").trim() === String(formulaDishId || "").trim(),
-            };
-          })
-          .filter(Boolean);
-        const formulaSequenceValues = formulaSelections
-          .map((selection) => Number(selection.sequence))
-          .filter((value) => Number.isFinite(value) && value > 0)
-          .map((value) => Math.max(1, Math.trunc(value)));
-        const formulaCurrentSequence =
-          formulaSequenceValues.length > 0 ? Math.min(...formulaSequenceValues) : null;
-        const currentFormulaSelection =
-          formulaCurrentSequence == null
-            ? [...formulaSelections].sort((a, b) => Number(a.sequence || 0) - Number(b.sequence || 0))[0] || null
-            : formulaSelections.find(
-                (selection) => normalizeFormulaStepValue(selection.sequence, true) === formulaCurrentSequence
-              ) || null;
-        const formulaCurrentDestination = currentFormulaSelection
-          ? resolveSelectionDestination(currentFormulaSelection)
-          : null;
-        const explicitLineDestination = String(line.destination || "").trim().toLowerCase();
-        const destination: "cuisine" | "bar" =
-          explicitLineDestination === "bar"
-            ? "bar"
-            : explicitLineDestination === "cuisine" || explicitLineDestination === "kitchen"
-              ? "cuisine"
-              : formulaCurrentDestination ||
-                resolveDestinationForCategory(line.categoryId, line.category || "");
-        const formulaPayload =
-          isFormulaLine && formulaDishName
-            ? {
-                name: formulaDishName,
-                price: Number((formulaUnitPrice != null ? formulaUnitPrice : unitPrice).toFixed(2)),
-                items: formulaSelections
-                  .map((selection) => {
-                    const dishLabel = String(selection.dishName || "").trim();
-                    if (!dishLabel) return null;
-                    const selectedSides = Array.isArray(selection.selectedSides) ? selection.selectedSides.filter(Boolean) : [];
-                    const selectedOptions = Array.isArray(selection.selectedOptionNames)
-                      ? selection.selectedOptionNames.filter(Boolean)
-                      : [];
-                    const selectedCooking = String(selection.selectedCooking || "").trim();
-                    const options: Record<string, unknown> = {};
-                    if (selectedCooking) options.cuisson = selectedCooking;
-                    if (selectedSides.length === 1) options.accompagnement = selectedSides[0];
-                    if (selectedSides.length > 1) options.accompagnements = selectedSides;
-                    if (selectedOptions.length === 1) options.option = selectedOptions[0];
-                    if (selectedOptions.length > 1) options.options = selectedOptions;
-                    return {
-                      dish: dishLabel,
-                      destination: resolveSelectionDestination(selection),
-                      price: 0,
-                      options,
-                    };
-                  })
-                  .filter(Boolean),
-              }
-            : null;
-        if (!line.dishId || !line.dishName || !Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(unitPrice)) {
-          return [] as Item[];
-        }
-
-        const lineInstructions = buildLineInstructions(line);
-        const resolvedFormulaLinePrice = Number((formulaUnitPrice != null ? formulaUnitPrice : unitPrice).toFixed(2));
-        const formulaMainItemIndex = (() => {
-          if (!isFormulaLine || formulaItemsPayload.length === 0) return 0;
-          const entries = formulaItemsPayload as Array<Record<string, unknown>>;
-          const formulaId = String(formulaDishId || "").trim();
-          const explicitMainIndex = entries.findIndex((entry) => {
-            const entryDishId = String(entry.dish_id || "").trim();
-            return readBooleanFlag(entry.is_main, false) || (formulaId && entryDishId === formulaId);
-          });
-          if (explicitMainIndex >= 0) return explicitMainIndex;
-          const firstStepOneIndex = entries.findIndex((entry) => {
-            const step = normalizeFormulaStepValue(entry.sequence ?? entry.step, true);
-            return step === 1;
-          });
-          if (firstStepOneIndex >= 0) return firstStepOneIndex;
-          return 0;
-        })();
-
-        if (isFormulaLine && formulaItemsPayload.length > 0) {
-          const formulaSelectionItems = (formulaItemsPayload as Array<Record<string, unknown>>).map((entry, index) => {
-            const entryDishId = String(entry.dish_id || "").trim();
-            const entryDishName = String(
-              entry.dish_name_fr ?? entry.dish_name ?? entry.dishName ?? entry.value ?? line.dishName
-            ).trim();
-            const entryCategoryLabel = String((entry.category_label ?? entry.categoryLabel ?? line.category) || "").trim();
-            const entryCategoryId = String(entry.category_id ?? entry.categoryId ?? line.categoryId ?? "").trim() || null;
-            const normalizedEntrySequence = normalizeFormulaStepValue(entry.sequence ?? entry.step, true);
-            const entrySequence =
-              normalizedEntrySequence != null
-                ? normalizedEntrySequence
-                : normalizeFormulaStepValue(formulaCurrentSequence, true) ?? 1;
-            const entryDestinationRaw = String(entry.destination || "").trim().toLowerCase();
-            const entryDestination: "cuisine" | "bar" =
-              isDirectFormulaSequence(entrySequence)
-                ? "bar"
-                : entryDestinationRaw === "bar"
-                  ? "bar"
-                  : entryDestinationRaw === "cuisine" || entryDestinationRaw === "kitchen"
-                    ? "cuisine"
-                    : resolveDestinationForCategory(entryCategoryId, entryCategoryLabel);
-            const entrySideIds = Array.isArray(entry.selected_side_ids)
-              ? entry.selected_side_ids.map((value) => String(value || "").trim()).filter(Boolean)
-              : [];
-            const entrySides = Array.isArray(entry.selected_sides)
-              ? entry.selected_sides.map((value) => String(value || "").trim()).filter(Boolean)
-              : [];
-            const entryCooking = String(entry.selected_cooking || "").trim();
-            const entryCookingKey = String(entry.selected_cooking_key || "").trim() || toCookingKeyFromLabel(entryCooking);
-            const entryOptionIds = Array.isArray(entry.selected_option_ids)
-              ? entry.selected_option_ids.map((value) => String(value || "").trim()).filter(Boolean)
-              : [];
-            const entryOptionNames = Array.isArray(entry.selected_option_names)
-              ? entry.selected_option_names.map((value) => String(value || "").trim()).filter(Boolean)
-              : [];
-            const entryOptionLabelFr = entryOptionNames.join(", ");
-            const entryOptionsPayload: Array<Record<string, unknown>> = [];
-            if (entryOptionNames.length > 0 || entryOptionIds.length > 0) {
-              entryOptionsPayload.push({
-                kind: "option",
-                source: "formula",
-                id: entryOptionIds.length > 0 ? entryOptionIds.join(",") : null,
-                values: entryOptionNames,
-                value: entryOptionLabelFr || null,
-                label_fr: entryOptionLabelFr || null,
-                price: 0,
-                sequence: entrySequence,
-              });
-            }
-            if (entrySides.length > 0 || entrySideIds.length > 0) {
-              entryOptionsPayload.push({
-                kind: "side",
-                source: "formula",
-                ids: entrySideIds,
-                values: entrySides,
-                label_fr: entrySides.join(", ") || null,
-                sequence: entrySequence,
-              });
-            }
-            if (entryCooking) {
-              entryOptionsPayload.push({
-                kind: "cooking",
-                source: "formula",
-                key: entryCookingKey || null,
-                value: entryCooking,
-                label_fr: entryCooking,
-                sequence: entrySequence,
-              });
-            }
-
-            const entryUnitPrice = index === formulaMainItemIndex ? resolvedFormulaLinePrice : 0;
-            return {
-              id: entryDishId || line.dishId,
-              dish_id: entryDishId || line.dishId,
-              name: entryDishName || line.dishName,
-              name_fr: entryDishName || line.dishName,
-              quantity,
-              category: entryCategoryLabel || line.category,
-              categorie: entryCategoryLabel || line.category,
-              category_id: entryCategoryId,
-              price: Number(entryUnitPrice.toFixed(2)),
-              base_price: Number(entryUnitPrice.toFixed(2)),
-              extras_price: 0,
-              unit_total_price: Number(entryUnitPrice.toFixed(2)),
-              selected_option_id: entryOptionIds.length > 0 ? entryOptionIds[0] : null,
-              selected_option_name: entryOptionNames.length > 0 ? entryOptionNames[0] : null,
-              selected_option_price: 0,
-              selected_option: entryOptionsPayload.find((option) => String(option.kind || "").trim() === "option") || null,
-              selected_options: entryOptionsPayload,
-              selectedOptions: entryOptionsPayload,
-              options: entryOptionsPayload,
-              selectedSides: entrySides,
-              selected_side_ids: entrySideIds,
-              side: entrySides.length > 0 ? entrySides[0] : null,
-              accompagnement: entrySides.length > 0 ? entrySides[0] : null,
-              accompagnements: entrySides,
-              selectedExtras: [],
-              selected_extras: [],
-              selected_extra_ids: [],
-              supplements: [],
-              supplement: [],
-              destination: entryDestination,
-              is_drink: entryDestination === "bar",
-              cooking: entryCooking || null,
-              cuisson: entryCooking || null,
-              selected_cooking_label_fr: entryCooking || null,
-              selected_cooking_label: entryCooking || null,
-              selected_cooking_key: entryCookingKey || null,
-              formula_dish_id: formulaDishId,
-              formula_dish_name: formulaDishName,
-              formula_unit_price: resolvedFormulaLinePrice,
-              formula_instance_id: formulaInstanceId,
-              is_formula_parent: index === formulaMainItemIndex,
-              formula_current_sequence: entrySequence,
-              sequence: entrySequence,
-              step: entrySequence,
-              formula_items: [entry],
-              formula: index === formulaMainItemIndex ? formulaPayload : null,
-              special_request: String(line.specialRequest || "").trim(),
-              instructions: lineInstructions,
-              status: isDirectFormulaSequence(entrySequence) ? "pending" : entrySequence > 1 ? "waiting" : "pending",
-              from_recommendation: false,
-              is_formula: true,
-            } as Item;
-          });
-          return formulaSelectionItems;
-        }
-
-        return [{
-          id: line.dishId,
-          name: line.dishName,
-          quantity,
-          category: line.category,
-          categorie: line.category,
-          price: Number(unitPrice.toFixed(2)),
-          base_price: Number.isFinite(baseUnitPrice) ? baseUnitPrice : Number(unitPrice.toFixed(2)),
-          extras_price: Number(extrasPrice.toFixed(2)),
-          unit_total_price: Number(unitPrice.toFixed(2)),
-          selected_option_id: selectedOptionId,
-          selected_option_name: selectedOptionName,
-          selected_option_price: optionPrice,
-          selected_option: selectedOptionsPayload.find((entry) => String(entry.kind || "").trim() === "option") || null,
-          selected_options: selectedOptionsPayload,
-          selectedOptions: selectedOptionsPayload,
-          options: selectedOptionsPayload,
-          selectedSides: line.selectedSides,
-          selected_side_ids: selectedSideIds,
-          side: line.selectedSides.length > 0 ? line.selectedSides[0] : null,
-          accompagnement: line.selectedSides.length > 0 ? line.selectedSides[0] : null,
-          accompagnements: line.selectedSides,
-          selectedExtras: line.selectedExtras.map((extra) => ({ name: extra.name, price: extra.price })),
-          selected_extras: line.selectedExtras.map((extra, index) => ({
-            id: buildStableExtraId(line.dishId, extra.name, extra.price, index),
-            label_fr: String(extra.name || "").trim(),
-            price: parsePriceNumber(extra.price),
-          })),
-          selected_extra_ids: line.selectedExtras.map((extra, index) =>
-            buildStableExtraId(line.dishId, extra.name, extra.price, index)
-          ),
-          supplements: line.selectedExtras.map((extra) => String(extra.name || "").trim()).filter(Boolean),
-          supplement: line.selectedExtras.map((extra) => String(extra.name || "").trim()).filter(Boolean),
-          destination,
-          is_drink: destination === "bar",
-          cooking: cookingLabel || null,
-          cuisson: cookingLabel || null,
-          selected_cooking_label_fr: cookingLabel || null,
-          selected_cooking_label: cookingLabel || null,
-          selected_cooking_key: cookingKey || null,
-          formula_dish_id: formulaDishId,
-          formula_dish_name: formulaDishName,
-          formula_unit_price: formulaUnitPrice,
-          formula_instance_id: formulaInstanceId,
-          is_formula_parent: Boolean(formulaDishId),
-          is_formula: Boolean(formulaDishId),
-          formula_current_sequence: formulaCurrentSequence,
-          formula_items: formulaItemsPayload.length > 0 ? formulaItemsPayload : null,
-          formula: formulaPayload,
-          special_request: String(line.specialRequest || "").trim(),
-          instructions: lineInstructions,
-          status: "pending",
-          from_recommendation: false,
-        } as Item];
-      });
-
-    if (items.length === 0) {
-      setFastMessage(fastOrderText.noValidItem);
-      return;
-    }
-
-    const normalizedItems = normalizeFormulaItemsForOrderPayload(
-      items as Array<Record<string, unknown>>
-    ) as Item[];
-    normalizedItems.forEach((item) => {
-      if ((item as Record<string, unknown>).formula_dish_id || (item as Record<string, unknown>).is_formula) {
-        console.log("DEBUG FORMULE:", item);
-      }
+      selectedSideIds: modalSelectedSides,
+      selectedProductOptionIds: modalSelectedProductOptionId ? [modalSelectedProductOptionId] : [],
     });
-    const currentStep = resolveInitialCurrentStepFromItems(
-      normalizedItems as Array<Record<string, unknown>>
-    );
-    const totalPrice = Number(
-      normalizedItems.reduce(
-        (sum, item) => sum + parsePriceNumber((item as Record<string, unknown>).price) * Math.max(1, Number(item.quantity || 1)),
-        0
-      ).toFixed(2)
-    );
-    const resolvedRestaurantId = String(restaurantId || scopedRestaurantId || "").trim();
-    if (!resolvedRestaurantId) {
-      setFastMessage("ID restaurant manquant dans l'URL.");
-      return;
-    }
-    const sessionCovers = enteredCovers;
-    const payload = {
-      restaurant_id: resolvedRestaurantId,
-      table_number: tableNumber,
-      covers: sessionCovers,
-      guest_count: sessionCovers,
-      customer_count: sessionCovers,
-      items: normalizedItems,
-      total_price: totalPrice,
-      status: "pending",
-      service_step: resolveLegacyServiceStepFromCurrentStep(currentStep || 1),
-      current_step: currentStep > 0 ? currentStep : 1,
-    };
-    const payloadWithoutId = [{
-      restaurant_id: payload.restaurant_id,
-      table_number: payload.table_number,
-      covers: payload.covers,
-      guest_count: payload.guest_count,
-      customer_count: payload.customer_count,
-      items: normalizedItems,
-      total_price: payload.total_price,
-      status: "pending",
-      service_step: payload.service_step,
-      current_step: payload.current_step,
-    }];
-    const forcedOrderId = crypto.randomUUID();
-
-    setFastLoading(true);
-    console.log("Données envoyées à Supabase:", payload);
-    console.log("CONTENU EXACT DU PAYLOAD ENVOYÉ:", payloadWithoutId);
-    const orderInsertPayloads = [
-      {
-        id: forcedOrderId,
-        restaurant_id: payload.restaurant_id,
-        table_number: payload.table_number,
-        covers: payload.covers,
-        guest_count: payload.guest_count,
-        customer_count: payload.customer_count,
-        items: payload.items,
-        total_price: payload.total_price,
-        status: "pending",
-        service_step: payload.service_step,
-        current_step: payload.current_step,
-      },
-      {
-        id: forcedOrderId,
-        restaurant_id: payload.restaurant_id,
-        table_number: payload.table_number,
-        covers: payload.covers,
-        guest_count: payload.guest_count,
-        items: payload.items,
-        total_price: payload.total_price,
-        status: "pending",
-        service_step: payload.service_step,
-        current_step: payload.current_step,
-      },
-      {
-        id: forcedOrderId,
-        restaurant_id: payload.restaurant_id,
-        table_number: payload.table_number,
-        covers: payload.covers,
-        items: payload.items,
-        total_price: payload.total_price,
-        status: "pending",
-        service_step: payload.service_step,
-        current_step: payload.current_step,
-      },
-      {
-        id: forcedOrderId,
-        restaurant_id: payload.restaurant_id,
-        table_number: payload.table_number,
-        items: payload.items,
-        total_price: payload.total_price,
-        status: "pending",
-        service_step: payload.service_step,
-        current_step: payload.current_step,
-      },
-      {
-        id: forcedOrderId,
-        restaurant_id: payload.restaurant_id,
-        table_number: payload.table_number,
-        items: payload.items,
-        total_price: payload.total_price,
-        status: "pending",
-        service_step: payload.service_step,
-      },
-    ];
-    let insertError: { message?: string; code?: string; details?: string; hint?: string } | null = null;
-    for (const candidate of orderInsertPayloads) {
-      const result = await supabase.from("orders").insert([candidate]);
-      if (!result.error) {
-        insertError = null;
-        break;
-      }
-      insertError = result.error as { message?: string; code?: string; details?: string; hint?: string };
-      const code = String(insertError.code || "");
-      const msg = String(insertError.message || "").toLowerCase();
-      const missingColumn = code === "42703" || msg.includes("column") || msg.includes("schema cache");
-      if (!missingColumn) break;
-    }
-    setFastLoading(false);
-
-    if (insertError) {
-      console.error("DÉTAIL ERREUR SQL:", insertError.message, {
-        code: insertError.code,
-        details: insertError.details,
-        hint: insertError.hint,
-        restaurant_id: restaurantId,
-        table_number: payload.table_number,
-        items_count: items.length,
-        total_price: payload.total_price,
-        status: payload.status,
-      });
-      setFastMessage(fastOrderText.sendError);
-      resetFastEntryForm();
-      return;
-    }
-
-    const activationError = await ensureTableIsOrderableForServer(tableNumber, sessionCovers);
-    if (activationError) {
-      console.warn("Activation table serveur impossible après envoi commande:", activationError);
-    }
-
-    resetFastEntryForm();
-    setFastMessage(fastOrderText.sent);
-    fetchOrders();
-    fetchActiveTables();
+    resetFormulaOptionModal();
+    resetModal();
   };
+  
+  const handleOpenFormulaOptionModal = (categoryId: string, dishId: string) => {
+    const dish = dishById.get(dishId);
+    if (!dish) return;
 
-  function normalizeOrderStatus(value: unknown) {
-    return String(value || "")
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .toLowerCase()
-      .trim();
-  }
+    const details = getFormulaSelectionDetails(categoryId);
+    const config = getFormulaDishConfig(dish);
 
-  function isPaidStatus(status: unknown) {
-    const normalized = normalizeOrderStatus(status);
-    return normalized === "paid" || normalized === "paye" || normalized === "payee";
-  }
+    setModalDish(dish); // For shared modal state
+    setModalSideChoices(config.sideOptions);
+    setModalSelectedSides(details.selectedSideIds);
+    setModalCooking(details.selectedCooking);
+    setModalProductOptions(config.productOptions);
 
-  function isServedOrArchivedStatus(status: unknown) {
-    const normalized = normalizeOrderStatus(status);
-    return (
-      normalized === "served" ||
-      normalized === "servi" ||
-      normalized === "servie" ||
-      normalized === "archived" ||
-      normalized === "archive" ||
-      normalized === "archivee"
-    );
-  }
+    const defaultOptionIds = formulaDefaultOptionsByDishId.get(dishId) || [];
+    const currentOptionId = details.selectedProductOptionIds.length > 0 ? details.selectedProductOptionIds[0] : (defaultOptionIds.length > 0 ? defaultOptionIds[0] : "");
+    setModalSelectedProductOptionId(currentOptionId);
 
-  const serviceVisibleOrders = useMemo(
-    () => orders.filter((order) => !isServedOrArchivedStatus(order.status) && !isPaidStatus(order.status)),
-    [orders]
-  );
-
-  const preparingOrders = useMemo(
-    () =>
-      serviceVisibleOrders.filter((order) => {
-        const progress = getOrderItemProgress(order);
-        return progress.pendingOrPreparingItems.length > 0;
-      }),
-    [serviceVisibleOrders]
-  );
-
-  const readyOrders = useMemo(
-    () =>
-      serviceVisibleOrders.filter((order) => {
-        const progress = getOrderItemProgress(order);
-        return progress.readyItems.length > 0;
-      }),
-    [serviceVisibleOrders]
-  );
-
-  const normalizeWorkflowItemStatus = (item: Item) => {
-    const record = item as unknown as Record<string, unknown>;
-    return String(
-      record.status ??
-        record.item_status ??
-        record.preparation_status ??
-        record.prep_status ??
-        record.state ??
-        ""
-    )
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .trim()
-      .toLowerCase();
+    setFormulaOptionModalState({ categoryId, dishId });
   };
-
-  const isItemWaitingForNextStep = (item: Item) => {
-    const normalized = normalizeWorkflowItemStatus(item);
-    return ["waiting", "en_attente", "attente", "queued", "queue"].includes(normalized);
-  };
-
-  const resolveWorkflowStepForItem = (item: Item) => {
-    const record = item as unknown as Record<string, unknown>;
-    const directStep = normalizeFormulaStepValue(
-      record.step ?? record.sequence ?? record.formula_current_sequence ?? record.formulaCurrentSequence,
-      true
-    );
-    if (directStep != null && directStep > 0) return directStep;
-    const fallback = resolveCurrentFormulaSequenceForItem(item);
-    if (!Number.isFinite(fallback) || Number(fallback) <= 0) return null;
-    return Math.max(1, Math.trunc(Number(fallback)));
-  };
-  const resolveOrderCurrentStep = (order: Order) => {
-    const direct = normalizeFormulaStepValue(
-      (order as unknown as Record<string, unknown>).current_step ??
-        (order as unknown as Record<string, unknown>).currentStep,
-      true
-    );
-    if (direct != null) return direct;
-    const fromService = normalizeServiceStep(order.service_step);
-    if (fromService === "entree") return 1;
-    if (fromService === "plat") return 2;
-    if (fromService === "dessert") return 3;
-    const steps = parseItems(order.items)
-      .map((item) => resolveWorkflowStepForItem(item))
-      .filter((value): value is number => Number.isFinite(value));
-    const positive = steps.filter((value) => value > 0);
-    if (positive.length > 0) return Math.min(...positive);
-    return 0;
-  };
-
-  const checkStepFinished = (order: Order) => {
-    if (resolveOrderCurrentStep(order) !== 1) return false;
-    const formulaItems = parseItems(order.items).filter((item) => isFormulaOrderItem(item));
-    if (formulaItems.length === 0) return false;
-    const stepOneItems = formulaItems.filter((item) => resolveWorkflowStepForItem(item) === 1);
-    const stepTwoWaitingItems = formulaItems.filter(
-      (item) => resolveWorkflowStepForItem(item) === 2 && isItemWaitingForNextStep(item)
-    );
-    if (stepOneItems.length === 0 || stepTwoWaitingItems.length === 0) return false;
-    return stepOneItems.every((item) => isItemServed(item));
-  };
-
-  const tableStatusRows = useMemo(() => {
-    const activeTableOrders = orders.filter((order) => {
-      const status = normalizeOrderStatus(order.status);
-      return !isPaidStatus(status) && !["archived", "archive", "archivee"].includes(status);
-    });
-    const byTable = new Map<number, Order[]>();
-    activeTableOrders.forEach((order) => {
-      const table = Number(order.table_number);
-      if (!Number.isFinite(table) || table <= 0) return;
-      byTable.set(table, [...(byTable.get(table) || []), order]);
-    });
-
-    return Array.from(byTable.entries())
-      .map(([tableNumber, tableOrders]) => {
-        const allServed = tableOrders.length > 0 && tableOrders.every((order) => {
-          const status = normalizeOrderStatus(order.status);
-          return ["served", "servi", "servie"].includes(status);
-        });
-
-        let waitingMinutes: number | null = null;
-        if (!allServed) {
-          const latestPendingItemTimestamp = tableOrders
-            .flatMap((order) => {
-              const status = normalizeOrderStatus(order.status);
-              if (["served", "servi", "servie"].includes(status)) return [];
-
-              const parsedItems = parseItems(order.items);
-              const itemTimestamps = parsedItems
-                .map((item) => {
-                  const candidates = [
-                    item?.created_at,
-                    item?.added_at,
-                    item?.inserted_at,
-                    item?.updated_at,
-                    item?.timestamp,
-                  ];
-                  const firstValid = candidates.find((value) => {
-                    const time = new Date(String(value || "")).getTime();
-                    return Number.isFinite(time);
-                  });
-                  if (!firstValid) return null;
-                  const time = new Date(String(firstValid)).getTime();
-                  return Number.isFinite(time) ? time : null;
-                })
-                .filter((value): value is number => Number.isFinite(value));
-
-              if (itemTimestamps.length > 0) return itemTimestamps;
-
-              const orderTimestamp = new Date(order.created_at).getTime();
-              return Number.isFinite(orderTimestamp) ? [orderTimestamp] : [];
-            })
-            .filter((value) => Number.isFinite(value))
-            .sort((a, b) => b - a)[0];
-          if (Number.isFinite(latestPendingItemTimestamp)) {
-            waitingMinutes = Math.max(0, Math.floor((waitClockMs - latestPendingItemTimestamp) / 60000));
-            }
-        }
-
-        const formulaActionOrder = tableOrders.find((order) => checkStepFinished(order)) || null;
-        const canLaunchStep2 = Boolean(formulaActionOrder);
-
-        return {
-          tableNumber,
-          allServed,
-          waitingMinutes,
-          count: tableOrders.length,
-          formulaActionOrder,
-          canLaunchStep2,
-        };
-      })
-      .sort((a, b) => a.tableNumber - b.tableNumber);
-  }, [orders, waitClockMs]);
-
-  const pendingNotifications = useMemo(
-    () => serviceNotifications.filter((n) => !n.status || String(n.status).toLowerCase() === "pending"),
-    [serviceNotifications]
-  );
-  const resolvedActiveTab: "orders" | "sessions" | "new-order" =
-    !showNewOrderTab && activeTab === "new-order"
-      ? "orders"
-      : activeTab;
-
-  const resolveOrderItemLabel = (item: Item) => {
-    const directLabel =
-      String(item.name || "").trim() ||
-      String(item.name_fr || "").trim() ||
-      String(item.label || "").trim() ||
-      String(item.product_name || "").trim() ||
-      String(item.productName || "").trim() ||
-      String(item.dish_name || "").trim() ||
-      String(item.dishName || "").trim() ||
-      String(item.product?.name_fr || "").trim() ||
-      String(item.product?.name || "").trim() ||
-      String(item.product?.label || "").trim() ||
-      String(item.dish?.name_fr || "").trim() ||
-      String(item.dish?.name || "").trim();
-    if (directLabel) return directLabel;
-
-    const dishId = String(item.dish_id ?? item.id ?? "").trim();
-    if (dishId) {
-      const sourceDish = dishes.find((dish) => String(dish.id || "").trim() === dishId);
-      const catalogLabel =
-        String(sourceDish?.name_fr || "").trim() ||
-        String(sourceDish?.name || "").trim() ||
-        String(sourceDish?.nom || "").trim();
-      if (catalogLabel) return catalogLabel;
-    }
-
-    return isDrink(item) ? "Boisson" : "Plat inconnu";
-  };
-
-  const getReadyItemEntries = (order: Order) => {
-    const activeEntries = parseItems(order.items)
-      .map((item, index) => ({ item, index }))
-      .filter((entry) => !isItemServed(entry.item));
-    const hasAnyItemStatus = activeEntries.some((entry) => hasExplicitItemStatus(entry.item));
-    if (!hasAnyItemStatus && isReadyLikeOrderStatus(order.status)) {
-      return activeEntries;
-    }
-    return activeEntries.filter((entry) => isItemReady(entry.item));
-  };
-
-  const handleSendNextServiceStep = async (order: Order, nextStep: number) => {
-    const normalizedNextStep = normalizeFormulaStepValue(nextStep, true);
-    if (normalizedNextStep == null || normalizedNextStep <= 0) return;
-    const orderId = String(order.id || "").trim();
-    if (!orderId) return;
-    if (sendingNextStepOrderIds[orderId]) return;
-
-    setSendingNextStepOrderIds((prev) => ({ ...prev, [orderId]: true }));
-
+  
+  const handleSendNextStep = async (orderId: string, nextStep: string) => {
+    setSendingNextStepOrderIds(prev => ({ ...prev, [orderId]: true }));
     try {
-      setOrders((prev) =>
-        prev.map((row) =>
-          String(row.id) === orderId
-            ? {
-                ...row,
-                current_step: normalizedNextStep,
-              }
-            : row
-        )
-      );
       const { error } = await supabase
         .from("orders")
-        .update({
-          current_step: normalizedNextStep,
-        })
+        .update({ service_step: nextStep, status: `pending_${nextStep}` })
         .eq("id", orderId);
-      if (error) {
-        console.error("Erreur update current_step:", error);
-        await fetchOrders();
-      }
+      if (error) throw error;
+      await fetchOrders();
+    } catch (error) {
+      console.error("Erreur envoi étape suivante:", error);
     } finally {
-      setSendingNextStepOrderIds((prev) => {
-        const next = { ...prev };
-        delete next[orderId];
-        return next;
-      });
+      setSendingNextStepOrderIds(prev => ({ ...prev, [orderId]: false }));
     }
   };
 
-  const renderOrderCard = (
-    order: Order,
-    mode: "all" | "drinks" | "foods",
-    actionLabel?: string,
-    actionHandler?: () => void,
-    actionColorClass = "bg-black text-white",
-    itemVisibility: "all_active" | "pending_preparing" = "all_active"
-  ) => {
-    const resolvedCovers = (() => {
-      const direct =
-        normalizeCoversValue((order as unknown as Record<string, unknown>).covers) ??
-        normalizeCoversValue((order as unknown as Record<string, unknown>).guest_count) ??
-        normalizeCoversValue((order as unknown as Record<string, unknown>).customer_count);
-      if (direct) return direct;
-      return tableCoversByNumber.get(Number(order.table_number)) || null;
-    })();
-    const getOrderItemLabel = (item: Item) => resolveOrderItemLabel(item);
-    const flattenChoiceTexts = (value: unknown): string[] => {
-      if (value == null) return [];
-      if (Array.isArray(value)) return value.flatMap((entry) => flattenChoiceTexts(entry));
-      if (typeof value === "string" || typeof value === "number") {
-        const text = String(value || "").trim();
-        return text ? [text] : [];
-      }
-      if (typeof value === "object") {
-        const rec = value as Record<string, unknown>;
-        return [
-          rec.label_fr,
-          rec.label,
-          rec.name_fr,
-          rec.name,
-          rec.value_fr,
-          rec.value,
-          rec.choice,
-          rec.selected,
-          rec.text,
-          rec.title,
-        ]
-          .map((entry) => String(entry || "").trim())
-          .filter(Boolean);
-      }
-      return [];
+  useEffect(() => {
+    fetchRestaurantSettings();
+  }, [scopedRestaurantId]);
+
+  useEffect(() => {
+    if (!restaurantId) return;
+    fetchOrders();
+    fetchNotifications();
+    fetchActiveTables();
+
+    const ordersChannel = supabase
+      .channel(`public:orders:restaurant_id=eq.${restaurantId}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, (payload) =>
+        handleOrderUpdate(payload as { new: Order })
+      )
+      .subscribe();
+
+    const notificationsChannel = supabase
+      .channel(`public:notifications:restaurant_id=eq.${restaurantId}`)
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "notifications" }, (payload) =>
+        handleNotification(payload as { new: Record<string, unknown> })
+      )
+      .subscribe();
+
+    const tablesChannel = supabase
+      .channel(`public:table_assignments:restaurant_id=eq.${restaurantId}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "table_assignments" }, (payload) =>
+        handleTableAssignmentUpdate(payload as { new: TableAssignment })
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(ordersChannel);
+      supabase.removeChannel(notificationsChannel);
+      supabase.removeChannel(tablesChannel);
     };
-    const uniqueTexts = (values: string[]) => {
-      const seen = new Set<string>();
-      return values.filter((value) => {
-        const normalized = String(value || "")
-          .trim()
-          .toLowerCase()
-          .normalize("NFD")
-          .replace(/[\u0300-\u036f]/g, "");
-        if (!normalized || seen.has(normalized)) return false;
-        seen.add(normalized);
-        return true;
+  }, [restaurantId]);
+
+  useEffect(() => {
+    const activeDishNamesFromOrders = new Set<string>();
+    orders.forEach((order) => {
+      parseItems(order.items).forEach((item) => {
+        const dishName = String((item as { name?: string }).name || "").trim();
+        if (dishName) activeDishNamesFromOrders.add(dishName.toLowerCase());
       });
-    };
-    const stripDetailPrefix = (text: string, type: "side" | "cooking" | "extra") => {
-      const raw = String(text || "").trim();
-      if (!raw) return "";
-      if (type === "side" && /^(accompagnements|sides|acompa(:n|ñ)amientos|beilage(:n)?)\s*:/i.test(raw)) {
-        return raw.replace(/^[^:]+:\s*/i, "").trim();
+    });
+  }, [orders]);
+  
+  useEffect(() => {
+    if (orders.length === 0) return;
+    const now = Date.now();
+    let hasAnyAlert = false;
+    orders.forEach(order => {
+      const { readyItems, pendingOrPreparingItems } = getOrderItemProgress(order);
+      if (readyItems.length > 0 && pendingOrPreparingItems.length === 0) {
+        const orderTimestamp = new Date(order.created_at).getTime();
+        const shouldAlert = (now - orderTimestamp) > 10000;
+        if (shouldAlert && !readyAlertOrderIds[order.id] && !readyAlertTimeoutsRef.current[order.id]) {
+          triggerReadyOrderAlert(order.id, true);
+        }
       }
-      if (type === "cooking" && /^(cuisson|cooking|garstufe|cocci[oó]n)\s*:/i.test(raw)) {
-        return raw.replace(/^[^:]+:\s*/i, "").trim();
+      if (readyAlertOrderIds[order.id]) {
+        hasAnyAlert = true;
       }
-      if (type === "extra" && /^(supplements?|extras?|suplementos?)\s*:/i.test(raw)) {
-        return raw.replace(/^[^:]+:\s*/i, "").trim();
-      }
-      return raw;
-    };
-    const getOrderItemDetails = (item: Item) => {
-      const rec = item as unknown as Record<string, unknown>;
-      const selectedOptions = rec.selected_options ?? rec.options;
-      const optionEntries = Array.isArray(selectedOptions)
-        ? selectedOptions
-        : selectedOptions && typeof selectedOptions === "object"
-          ? Object.values(selectedOptions as Record<string, unknown>)
-          : [];
+    });
+    setHasReadyTabAlert(hasAnyAlert);
+  }, [orders, waitClockMs]);
 
-      const optionValuesByKind = optionEntries.reduce(
-        (acc, entry) => {
-          if (entry == null) return acc;
-          if (typeof entry === "string" || typeof entry === "number") {
-            const raw = String(entry || "").trim();
-            if (!raw) return acc;
-            if (/^(accompagnements|sides|acompa(:n|ñ)amientos|beilage(:n)?)\s*:/i.test(raw)) acc.side.push(stripDetailPrefix(raw, "side"));
-            else if (/^(cuisson|cooking|garstufe|cocci[oó]n)\s*:/i.test(raw)) acc.cooking.push(stripDetailPrefix(raw, "cooking"));
-            else if (/^(supplements?|extras?|suplementos?)\s*:/i.test(raw)) acc.extras.push(stripDetailPrefix(raw, "extra"));
-            return acc;
-          }
-          const optionRec = entry as Record<string, unknown>;
-          const kind = String(optionRec.kind || optionRec.type || optionRec.key || optionRec.group || optionRec.category || "")
-            .toLowerCase()
-            .normalize("NFD")
-            .replace(/[\u0300-\u036f]/g, "")
-            .trim();
-          const values = flattenChoiceTexts(
-            optionRec.values ??
-              optionRec.value ??
-              optionRec.selection ??
-              optionRec.selected ??
-              optionRec.choice ??
-              optionRec.option ??
-              optionRec
-          );
-          if (/(side|accompagnement|acomp|beilage)/.test(kind)) acc.side.push(...values.map((v) => stripDetailPrefix(v, "side")));
-          else if (/(cooking|cuisson|garstufe|cocc)/.test(kind)) acc.cooking.push(...values.map((v) => stripDetailPrefix(v, "cooking")));
-          else if (/(extra|supplement|suplemento)/.test(kind)) acc.extras.push(...values.map((v) => stripDetailPrefix(v, "extra")));
-          return acc;
-        },
-        { side: [] as string[], cooking: [] as string[], extras: [] as string[] }
-      );
+  useEffect(() => {
+    if (!restaurantId || fastEntryInitializedRef.current) return;
+    (async () => {
+      const fetchMenu = async () => {
+        const { data, error } = await supabase.from("dishes").select(DISH_SELECT_WITH_OPTIONS).eq("restaurant_id", restaurantId).order("sort_order", { ascending: true });
+        if (error) throw error;
+        return data.map(d => ({ ...d, id: String(d.id) }));
+      };
+      const fetchCategories = async () => {
+        const { data, error } = await supabase.from("categories").select("*").eq("restaurant_id", restaurantId).order("sort_order", { ascending: true });
+        if (error) throw error;
+        return data.map(c => ({ ...c, id: String(c.id) }));
+      };
+      const fetchSides = async () => {
+        const { data, error } = await supabase.from("sides_library").select("*").eq("restaurant_id", restaurantId);
+        if (error) throw error;
+        return data.map(s => ({ ...s, id: String(s.id) }));
+      };
+      const fetchFormulas = async () => {
+        const { data, error } = await supabase.from('restaurant_formulas').select('id, name, price, image_url, restaurant_id').eq('restaurant_id', restaurantId);
+        if (error) {
+          // setFormulasTableAvailable(false);
+          return [];
+        }
+        // setFormulasTableAvailable(true);
+        return (data || []).map(f => ({ ...f, id: String(f.id) }));
+      };
+      const fetchFormulaDishLinks = async () => {
+        const { data, error } = await supabase.from('formula_dish_links').select('*, formula_id(id, name, image_url, restaurant_id)').eq('formula_id.restaurant_id', restaurantId);
+        if (error) return [];
+        return data || [];
+      };
 
-      const sideValues = uniqueTexts(
-        [
-          ...flattenChoiceTexts(rec.side),
-          ...flattenChoiceTexts(rec.accompaniment),
-          ...flattenChoiceTexts(rec.accompagnement),
-          ...flattenChoiceTexts(rec.accompaniments),
-          ...flattenChoiceTexts(rec.accompagnements),
-          ...flattenChoiceTexts(rec.side_dish),
-          ...flattenChoiceTexts(rec.sideDish),
-          ...optionValuesByKind.side,
-        ].map((v) => stripDetailPrefix(v, "side"))
-      );
-      const cookingValues = uniqueTexts(
-        [
-          String(rec.cooking || "").trim(),
-          String(rec.cuisson || "").trim(),
-          String(item.selected_cooking_label_fr || "").trim(),
-          String(item.selected_cooking_key || "").trim(),
-          ...optionValuesByKind.cooking,
-        ].map((v) => stripDetailPrefix(v, "cooking"))
-      );
-      const extraValues = uniqueTexts(
-        [
-          ...flattenChoiceTexts(rec.supplement),
-          ...flattenChoiceTexts(rec.supplements),
-          ...(Array.isArray(item.selected_extras)
-            ? item.selected_extras.map((extra) => String(extra?.label_fr || "").trim()).filter(Boolean)
-            : []),
-          ...(Array.isArray(item.selectedExtras)
-            ? item.selectedExtras.map((extra) => String(extra?.name || "").trim()).filter(Boolean)
-            : []),
-          ...optionValuesByKind.extras,
-        ].map((v) => stripDetailPrefix(v, "extra"))
-      );
+      try {
+        setFastLoading(true);
+        const [dishes, categories, sides, formulas, links] = await Promise.all([
+          fetchMenu(),
+          fetchCategories(),
+          fetchSides(),
+          fetchFormulas(),
+          fetchFormulaDishLinks(),
+        ]);
+        
+        const formulaDishIds = new Set(dishes.filter(d => readBooleanFlag(d.is_formula)).map(d => String(d.id)));
+        const formulaIdsFromLinks = new Set(links.map(l => String(l.formula_id.id)));
+        const formulaIdsFromFormulas = new Set(formulas.map(f => String(f.id)));
+        const allFormulaIds = new Set([...formulaDishIds, ...formulaIdsFromLinks, ...formulaIdsFromFormulas]);
+        
+        const activeDishes = dishes.filter(d => readBooleanFlag(d.active, true) && !allFormulaIds.has(String(d.id)));
+        const activeCategories = categories.filter(c => readBooleanFlag(c.is_active, true));
 
-      const parts: string[] = [];
-      if (cookingValues.length > 0) parts.push(`Cuisson: ${cookingValues.join(", ")}`);
-      if (sideValues.length > 0) parts.push(`Accompagnements: ${sideValues.join(", ")}`);
-      if (extraValues.length > 0) parts.push(`Suppléments: ${extraValues.join(", ")}`);
-      return parts.join(" | ");
-    };
-
-    const items = parseItems(order.items)
-      .filter((item) => {
-        if (mode === "drinks") return isDrink(item);
-        if (mode === "foods") return !isDrink(item);
-        return true;
-      })
-      .filter((item) => !isItemServed(item))
-      .filter((item) => (itemVisibility === "pending_preparing" ? !isItemReady(item) : true));
-    if (items.length === 0) return null;
-    const foodItems = items.filter((item) => !isDrink(item));
-    const drinkItems = items.filter((item) => isDrink(item));
-    const hasFormulaItems = items.some((item) => isFormulaOrderItem(item));
-    const currentServiceStep = hasFormulaItems ? resolveOrderServiceStep(order, items) : "";
-    const serviceStepLabel = currentServiceStep ? SERVICE_STEP_LABELS[currentServiceStep] : "";
-    const itemProgress = summarizeItems(items);
-    const isReadyCard = itemProgress.total > 0 && itemProgress.ready === itemProgress.total;
-    const isReadyHighlighted = isReadyCard && !!readyAlertOrderIds[String(order.id)];
-    const hasPartiallyReadyItems = !isReadyCard && itemProgress.ready > 0;
-    const readyToneClass = isReadyCard
-      ? "bg-green-100 border-green-500"
-      : hasPartiallyReadyItems
-        ? "bg-amber-50 border-amber-400"
-        : "bg-white border-black";
-    const buildItemDetailLine = (item: Item) => {
-      const details = getOrderItemDetails(item);
-      const instructionValues = uniqueTexts(
-        [String(item.instructions || "").trim(), String(item.special_request || "").trim()]
-          .map((value) =>
-            String(value || "")
-              .replace(/^details?\s*:\s*/i, "")
-              .replace(/^commentaire cuisine\s*:\s*/i, "")
-              .trim()
-          )
-          .filter(Boolean)
-      );
-      const parts = details ? [details] : [];
-      instructionValues.forEach((value) => {
-        const normalizedValue = normalizeLookupText(value);
-        const alreadyIncluded = parts.some((part) => {
-          const normalizedPart = normalizeLookupText(part);
-          return normalizedPart.includes(normalizedValue) || normalizedValue.includes(normalizedPart);
+        const displays = formulas.map(f => {
+          const formulaLinks = (links || [])
+            .filter(l => String(l.formula_id.id) === String(f.id))
+            .map(l => ({
+              formulaDishId: String(l.formula_id.id),
+              dishId: String(l.dish_id),
+              sequence: normalizeFormulaStepValue(l.step_number),
+              step: normalizeFormulaStepValue(l.step_number),
+              isMain: Boolean(l.is_main_dish),
+              defaultProductOptionIds: [],
+              formulaName: f.name,
+              formulaImageUrl: f.image_url,
+            }));
+          return {
+            id: String(f.id),
+            name: f.name,
+            price: parsePriceNumber(f.price),
+            imageUrl: f.image_url,
+            formulaLinks,
+          };
         });
-        if (!alreadyIncluded) parts.push(value);
+
+        const linksByFormulaId = new Map<string, FormulaDishLink[]>();
+        const linksByDishId = new Map<string, FormulaDishLink[]>();
+        const dishIdsWithLinks = new Set<string>();
+
+        (links || []).forEach(link => {
+          const formulaId = String((link.formula_id as { id: string }).id);
+          const dishId = String(link.dish_id);
+          const record = {
+              formulaDishId: formulaId,
+              dishId: dishId,
+              sequence: normalizeFormulaStepValue(link.step_number),
+              step: normalizeFormulaStepValue(link.step_number),
+              isMain: Boolean(link.is_main_dish),
+              defaultProductOptionIds: [],
+              formulaName: (link.formula_id as {name: string}).name,
+              formulaImageUrl: (link.formula_id as {image_url: string}).image_url,
+          };
+          const formulaList = linksByFormulaId.get(formulaId) || [];
+          formulaList.push(record);
+          linksByFormulaId.set(formulaId, formulaList);
+
+          const dishList = linksByDishId.get(dishId) || [];
+          dishList.push(record);
+          linksByDishId.set(dishId, dishList);
+          dishIdsWithLinks.add(dishId);
+        });
+
+        const priceMap = new Map<string, number>();
+        formulas.forEach(f => priceMap.set(String(f.id), parsePriceNumber(f.price)));
+
+        const displayMap = new Map<string, { name?: string; imageUrl?: string }>();
+        formulas.forEach(f => displayMap.set(String(f.id), { name: f.name, imageUrl: f.image_url }));
+        
+        const formulaDishes = dishes.filter(d => allFormulaIds.has(String(d.id)));
+        const finalDishes = [...activeDishes, ...formulaDishes];
+
+        setDishes(finalDishes);
+        setCategories(activeCategories);
+        setSidesLibrary(sides);
+        setFormulaDisplays(displays);
+        setFormulaLinksByFormulaId(linksByFormulaId);
+        setFormulaLinksByDishId(linksByDishId);
+        setFormulaDishIdsFromLinks(dishIdsWithLinks);
+        setFormulaPriceByDishId(priceMap);
+        setFormulaDisplayById(displayMap);
+        
+        const idsWithExtras = new Set<string>();
+        finalDishes.forEach(d => {
+          if (parseDishExtras(d).length > 0) {
+            idsWithExtras.add(String(d.id));
+          }
+        });
+        setDishIdsWithLinkedExtras(idsWithExtras);
+        
+      } catch (error) {
+        console.error("Menu init error:", error);
+      } finally {
+        setFastLoading(false);
+        fastEntryInitializedRef.current = true;
+      }
+    })();
+  }, [restaurantId]);
+  
+  useEffect(() => {
+    if (!fastEntryInitializedRef.current || selectedCategoryInitializedRef.current) return;
+    if (categories.length > 0) {
+      const firstSelectable = categories.find(c => {
+        const key = normalizeCategoryKey(getCategoryLabel(c));
+        return !key.includes('formule');
       });
-      const merged = uniqueTexts(parts);
-      return merged.length > 0 ? `Détails: ${merged.join(" | ")}` : "";
-    };
-    const renderItemsSection = (sectionLabel: "Plats" | "Boissons", sectionItems: Item[]) => {
-      if (sectionItems.length === 0) return null;
-      const sectionProgress = summarizeItems(sectionItems);
-      return (
-        <div className="space-y-2">
-          <div className="flex items-center justify-between rounded border border-black bg-white px-2 py-1">
-            <span className="text-xs font-black uppercase">{sectionLabel}</span>
-            <span className="text-[11px] font-bold text-gray-700">
-              {sectionProgress.ready}/{sectionProgress.total} prêts
-            </span>
-          </div>
-          {sectionItems.map((item, idx) => {
-            const detailsLine = buildItemDetailLine(item);
-            const statusLabel = getItemStatusLabel(item);
-            const statusClass = getItemStatusClass(item);
-            return (
-              <div key={`${sectionLabel}-${idx}-${String(item.dish_id ?? item.id ?? idx)}`} className="bg-gray-100 px-2 py-2 border border-gray-200">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="font-bold text-base">
-                    <span className="bg-black text-white px-2 mr-2 rounded">{Number(item.quantity) || 1}x</span>
-                    <span translate="no" className="notranslate">
-                      {getOrderItemLabel(item)}
-                    </span>
-                  </div>
-                  <span className={`mt-0.5 rounded border px-2 py-0.5 text-[10px] font-black uppercase ${statusClass}`}>
-                    {statusLabel}
-                  </span>
-                </div>
-                {detailsLine ? (
-                  <div className="mt-1 text-xs italic text-gray-800 notranslate" translate="no">
-                    {detailsLine}
-                  </div>
-                ) : null}
-              </div>
-            );
-          })}
-        </div>
-      );
-    };
+      if (firstSelectable) {
+        setSelectedCategory(String(firstSelectable.id));
+        selectedCategoryInitializedRef.current = true;
+      }
+    }
+  }, [categories, fastEntryInitializedRef.current]);
 
-    return (
-      <div
-        key={`${order.id}-${mode}`}
-        className={`${readyToneClass} border-2 p-4 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] flex flex-col justify-between transition-all ${
-          isReadyHighlighted ? "ring-4 ring-green-400 animate-pulse bg-green-50" : ""
-        }`}
-      >
-        <div className="flex items-start justify-between mb-3 border-b-2 border-black pb-2">
-          <div>
-            <div className="text-2xl font-black uppercase">
-              T-{order.table_number ?? "?"}
-              {resolvedCovers ? ` | 👥 ${resolvedCovers}` : ""}
-            </div>
-            {serviceStepLabel ? (
-              <div className="mt-1 inline-flex items-center rounded border-2 border-black bg-white px-2 py-1 text-[11px] font-black">
-                {serviceStepLabel}
-              </div>
-            ) : null}
-          </div>
-          <div className="text-xs font-mono text-gray-500">#{String(order.id).slice(0, 4)}</div>
-        </div>
-        <div className="space-y-3 text-sm text-black">
-          {mode !== "drinks" ? renderItemsSection("Plats", foodItems) : null}
-          {mode !== "foods" ? renderItemsSection("Boissons", drinkItems) : null}
-        </div>
-
-        {actionLabel && actionHandler ? (
-          <button
-            onClick={actionHandler}
-className={`mt-4 w-full border-2 border-black py-3 text-base font-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all ${actionColorClass}`}
-          >
-            {actionLabel}
-          </button>
-        ) : null}
-      </div>
-    );
-  };
-
-  console.log("Current Orders:", orders);
+  const sortedOrders = useMemo(() => {
+    return [...orders].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+  }, [orders]);
+  
+  const fastOrderCategoryDishes = useMemo(() => {
+    if (!selectedCategory) return [];
+    return dishes.filter(dish => {
+      const isActive = readBooleanFlag(dish.active, true);
+      if (!isActive) return false;
+      const isFormula = readBooleanFlag(dish.is_formula, false);
+      const isLinkedToFormula = formulaLinksByDishId.has(String(dish.id));
+      if (isFormula || isLinkedToFormula) return false;
+      return String(dish.category_id) === selectedCategory;
+    });
+  }, [dishes, selectedCategory, formulaLinksByDishId]);
+  
+  const formulaDishesForFastOrder = useMemo(() => {
+    return formulaDisplays.map(display => {
+      const dish: DishItem = {
+        id: display.id,
+        name: display.name,
+        name_fr: display.name,
+        price: display.price,
+        image_url: display.imageUrl,
+        is_formula: true,
+        category_id: FORMULAS_CATEGORY_KEY,
+      };
+      return dish;
+    });
+  }, [formulaDisplays]);
 
   return (
-    <div className="min-h-screen bg-gray-100 p-4 font-sans text-black notranslate" translate="no" data-disable-client-ordering={disableClientOrderingEnabled ? "1" : "0"}>
-      <h1 className="text-2xl font-bold mb-6 uppercase">Serveur</h1>
-      {restaurantSettingsError ? (
-        <div className="mb-4 rounded border-2 border-red-700 bg-red-50 px-3 py-2 text-sm font-semibold text-red-800">
-          {restaurantSettingsError}
-        </div>
-      ) : null}
+    <div className="p-4 bg-gray-50 min-h-screen">
+      <div className="max-w-7xl mx-auto">
+        <h1 className="text-2xl font-bold mb-4">
+          Interface de Service - Restaurant {restaurantId || scopedRestaurantId}
+        </h1>
 
-      {pendingNotifications.length > 0 ? (
-        <section className="mb-4 rounded border-2 border-black bg-white p-3 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
-          <div className="mb-2 flex items-center justify-between gap-2">
-            <div className="font-black uppercase">Live Alerts ({pendingNotifications.length})</div>
-            <div className="text-xs font-bold text-gray-600">Temps réel</div>
-          </div>
-          <div className="space-y-2">
-            {pendingNotifications.map((notification) => {
-              const type = String(notification.type || "").trim().toUpperCase();
-              const isCuisine = type === "CUISINE";
-              const tableLabel = String(notification.table_number || "").trim();
-              const titleLabel = isCuisine ? "CUISINE" : `TABLE ${tableLabel || "?"}`;
-              const detailLabel = String(notification.message || "Appel simple").trim() || "Appel simple";
-              return (
-                <div
-                  key={`notif-${notification.id}`}
-                  className={`flex items-center justify-between gap-3 border-2 p-2 ${
-                    isCuisine ? "border-red-500 bg-red-50 animate-pulse" : "border-blue-300 bg-blue-50"
-                  }`}
-                >
-                  <div>
-                    <div className={`font-black ${isCuisine ? "text-red-700" : "text-blue-900"}`}>{titleLabel}</div>
-                    <div className="text-sm font-semibold text-black">{detailLabel}</div>
-                    <div className="text-xs text-gray-600">
-                      {notification.created_at ? new Date(notification.created_at).toLocaleTimeString("fr-FR") : "-"}
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => void markNotificationRead(notification.id)}
-                    className="inline-flex items-center gap-2 border-2 border-black bg-green-700 px-3 py-2 text-sm font-black text-white"
-                  >
-                    <Check className="h-4 w-4" />
-                    Marquer comme lu
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        </section>
-      ) : null}
-
-      <div className="mb-4 w-full overflow-x-auto whitespace-nowrap">
-        <div className="inline-flex gap-2">
-          {showNewOrderTab ? (
-            <button onClick={() => setActiveTab("new-order")} className={`px-4 py-3 border-2 border-black font-black ${resolvedActiveTab === "new-order" ? "bg-black text-white" : "bg-white text-black"}`}>
-              Prendre une commande
-            </button>
-          ) : null}
-          <button onClick={() => setActiveTab("orders")} className={`relative px-4 py-3 border-2 border-black font-black ${resolvedActiveTab === "orders" ? "bg-black text-white" : "bg-white text-black"}`}>
-            Commandes
-            {hasReadyTabAlert && resolvedActiveTab !== "orders" ? <span className="absolute -top-1 -right-1 h-3 w-3 rounded-full bg-red-500 animate-pulse border border-black" /> : null}
-          </button>
-          <button onClick={() => setActiveTab("sessions")} className={`px-4 py-3 border-2 border-black font-black ${resolvedActiveTab === "sessions" ? "bg-black text-white" : "bg-white text-black"}`}>
-            Ouvrir une table
-          </button>
-        </div>
-      </div>
-
-      {resolvedActiveTab === "new-order" ? (
-        <section className="bg-white border-2 border-black rounded-lg p-4">
-          <h2 className="text-lg font-bold mb-3">Nouvelle Commande (Saisie rapide)</h2>
-
-          <div className="mb-4 flex flex-wrap items-end gap-4">
-            <div className="flex flex-wrap items-end gap-3">
-              <div>
-              <label className="block text-sm font-bold mb-1">Numéro de table</label>
-              <select
-                value={selectedFastTableNumber}
-                onChange={(e) => {
-                  const nextValue = e.target.value;
-                  setSelectedFastTableNumber(nextValue);
-                  const tableNum = Number(nextValue);
-                  const knownCovers = tableCoversByNumber.get(tableNum);
-                  if (knownCovers) setFastCoversInput(String(knownCovers));
-                }}
-                className="h-12 w-40 border-2 border-black px-3 text-lg font-bold bg-white"
-              >
-                <option value="">Choisir</option>
-                {tableSelectOptions.map((table) => (
-                  <option key={table} value={table}>
-                    Table {table}
-                  </option>
-                ))}
-              </select>
-              </div>
-              <div>
-                <label className="block text-sm font-bold mb-1">Couverts</label>
-                <div className="flex items-center gap-1">
-                  <button
-                    type="button"
-                    onClick={() => setFastCoversInput(String(Math.max(1, Number(fastCoversInput || 1) - 1)))}
-                    className="h-12 w-10 border-2 border-black bg-white font-black text-lg"
-                    aria-label="Diminuer les couverts"
-                  >
-                    -
-                  </button>
-                  <input
-                    type="number"
-                    min={1}
-                    required
-                    value={fastCoversInput}
-                    onChange={(e) => setFastCoversInput(e.target.value)}
-                    className="h-12 w-24 border-2 border-black px-2 text-lg font-bold bg-white text-center"
-                    placeholder="Couverts"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setFastCoversInput(String(Math.max(1, Number(fastCoversInput || 0) + 1)))}
-                    className="h-12 w-10 border-2 border-black bg-white font-black text-lg"
-                    aria-label="Augmenter les couverts"
-                  >
-                    +
-                  </button>
-                </div>
-              </div>
-            </div>
-          <div className="text-sm font-bold">Articles: {fastItemCount}</div>
-          <div className="text-sm font-bold">Total: {fastTotal.toFixed(2)}&euro;</div>
-        </div>
-       {/* Temporairement désactivé pour forcer le build */}
-{false && <div id="debug-formula"></div>}
-        <div className="mb-4 flex flex-wrap gap-2">
-          {categoriesForFastEntry.map((category) => (
-            <button
-              key={category.key}
-              type="button"
-                onClick={() => setSelectedCategory(category.key)}
-                className={`px-4 py-2 border-2 border-black font-bold ${
-                  effectiveSelectedFastCategoryKey === category.key ? "bg-black text-white" : "bg-white text-black"
-                }`}
-              >
-                {category.label}
-              </button>
-            ))}
-          </div>
-
-          <div className="border-2 border-black rounded overflow-hidden">
-            <div className="grid grid-cols-[1fr_auto_auto] bg-gray-100 border-b-2 border-black px-3 py-2 font-bold text-sm">
-              <div>Produit</div>
-              <div className="pr-4">Prix</div>
-              <div className="text-center">Action</div>
-            </div>
-            {visibleFastEntryDishes.length === 0 ? <div className="px-3 py-3 text-sm">Aucun article.</div> : null}
-            {visibleFastEntryDishes.map((dish) => {
-              const dishId = String(dish.id);
-              const isFormulaDish = formulaParentDishIds.has(String(dish.id || "").trim());
-              const displayName = isFormulaDish ? getFormulaDisplayName(dish) : getDishName(dish);
-              const displayPrice = isFormulaDish ? getFormulaPackPrice(dish) : getDishPrice(dish);
-              const linkedDishOptions =
-                Array.isArray((dish as DishItem & { dish_options?: unknown }).dish_options)
-                  ? (((dish as DishItem & { dish_options?: unknown }).dish_options as unknown[]) || [])
-                  : [];
-              console.log("Plat:", dish.name, "Options trouvées:", linkedDishOptions);
-              const hasOptions = isFormulaDish
-                ? true
-                : dishNeedsCooking(dish) ||
-                  parseDishProductOptions(dish).length > 0 ||
-                  parseDishExtras(dish).length > 0 ||
-                  linkedDishOptions.length > 0 ||
-                  dishIdsWithLinkedExtras.has(dishId) ||
-                  parseDishSideIds(dish).length > 0;
-              return (
-                <div key={dishId} className="grid grid-cols-[1fr_auto_auto] items-center px-3 py-2 border-t border-gray-200">
-                  <div>
-                    <div className="font-bold">{displayName}</div>
-                  </div>
-                  <div className="pr-4 text-sm">{displayPrice.toFixed(2)}&euro;</div>
-                  <div className="text-center">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (isFormulaDish) {
-                          void handleSelectFormula(dish);
-                          return;
-                        }
-                        void openOptionsModal(dish);
-                      }}
-                      className={`h-10 px-3 border-2 border-black text-xs font-bold ${hasOptions ? "bg-white" : "bg-gray-100"}`}
-                    >
-                      {hasOptions ? "Configurer" : "Ajouter"}
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          <div className="mt-4 rounded border-2 border-black p-3 max-h-56 overflow-y-auto">
-            <h3 className="font-bold mb-2">Récapitulatif commande</h3>
-            {fastLines.length === 0 ? <p className="text-sm text-gray-600">Aucune ligne.</p> : null}
-            <div className="space-y-2">
-              {fastLines.map((line) => (
-                <div key={line.lineId} className="border border-gray-300 rounded p-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-semibold">
-                      {line.quantity}x {line.dishName}
-                    </span>
-                    <div className="flex items-center gap-2">
-                      <span className="font-bold">
-                        {(resolveFastLineUnitPrice(line) * line.quantity).toFixed(2)}&euro;
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => removeFastLine(line.lineId)}
-                        className="px-2 py-1 text-xs font-bold border border-black bg-white"
-                      >
-                        Retirer
-                      </button>
-                    </div>
-                  </div>
-                  {Array.isArray(line.formulaSelections) && line.formulaSelections.length > 0 ? (
-                    <div className="mt-1 space-y-1 text-xs text-gray-700">
-                      {line.formulaSelections.map((selection, index) => (
-                        <div key={`fast-summary-formula-${line.lineId}-${selection.dishId || index}`}>
-                          Inclus: {selection.dishName} (0.00&euro;)
-                        </div>
-                      ))}
-                    </div>
-                  ) : null}
-                  {buildLineInstructions(line) ? (
-                    <div className="mt-1 text-xs text-gray-700">{buildLineInstructions(line)}</div>
-                  ) : null}
-                  <div className="mt-2">
-                    <label className="block text-xs font-bold mb-1">Commentaire cuisine</label>
-                    <textarea
-                      value={line.specialRequest}
-                      onChange={(event) => updateLineKitchenComment(line.lineId, event.target.value)}
-                      placeholder="Ex: sans oignons"
-                      className="w-full border border-black px-2 py-1 text-xs"
-                      rows={2}
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <button
-            type="button"
-            onClick={handleSubmitFastOrder}
-            disabled={fastLoading || fastLines.length === 0 || !selectedFastTableNumber.trim() || !normalizeCoversValue(fastCoversInput)}
-            className="mt-4 w-full h-14 bg-green-700 text-white text-xl font-bold border-2 border-black disabled:bg-gray-400 disabled:cursor-not-allowed"
-          >
-            <span className="inline-flex items-center gap-2">
-              <Check className="h-5 w-5" />
-              {fastLoading ? "ENVOI..." : "Valider la commande"}
-            </span>
-          </button>
-          {fastMessage ? <p className="mt-2 text-sm font-semibold">{fastMessage}</p> : null}
-        </section>
-      ) : null}
-
-      {resolvedActiveTab === "sessions" ? (
-        <section className="bg-white border-2 border-black p-5 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
-          <h2 className="text-xl font-bold mb-4 uppercase bg-emerald-100 p-2 rounded">Disponibilité des tables</h2>
-          <div className="grid grid-cols-1 gap-3 max-w-md">
-            <input type="number" placeholder="Numéro de table" value={tableNumberInput} onChange={(e) => setTableNumberInput(e.target.value)} className="h-11 px-3 border-2 border-black bg-white text-black" />
-            <input type="text" placeholder="Code PIN" value={pinInput} onChange={(e) => setPinInput(e.target.value)} className="h-11 px-3 border-2 border-black bg-white text-black" />
-            <div className="flex items-center gap-2">
+        <div className="mb-4">
+          <div className="border-b border-gray-200">
+            <nav className="-mb-px flex space-x-8" aria-label="Tabs">
               <button
-                type="button"
-                onClick={() => setCoversInput(String(Math.max(1, Number(coversInput || 1) - 1)))}
-                className="h-11 w-11 border-2 border-black bg-white font-black text-xl"
+                onClick={() => setActiveTab("orders")}
+                className={`${
+                  activeTab === "orders"
+                    ? "border-indigo-500 text-indigo-600"
+                    : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm relative`}
               >
-                -
+                Commandes
+                {hasReadyTabAlert && (
+                  <span className="ml-2 px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 animate-pulse">
+                    Prêt !
+                  </span>
+                )}
               </button>
-              <input
-                type="number"
-                min={1}
-                placeholder="Nombre de couverts"
-                value={coversInput}
-                onChange={(e) => setCoversInput(e.target.value)}
-                className="h-11 flex-1 px-3 border-2 border-black bg-white text-black"
-              />
               <button
-                type="button"
-                onClick={() => setCoversInput(String(Math.max(1, Number(coversInput || 0) + 1)))}
-                className="h-11 w-11 border-2 border-black bg-white font-black text-xl"
+                onClick={() => setActiveTab("sessions")}
+                className={`${
+                  activeTab === "sessions"
+                    ? "border-indigo-500 text-indigo-600"
+                    : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm`}
               >
-                +
+                Sessions Tables
               </button>
-            </div>
-            <button onClick={handleSaveTable} disabled={saving} className="h-11 bg-green-700 text-white border-2 border-black font-black disabled:opacity-60">
-              <span className="inline-flex items-center gap-2">
-                <Check className="h-4 w-4" />
-                {saving ? "Enregistrement..." : "Valider"}
-              </span>
-            </button>
-            {message ? <p className="text-sm font-semibold">{message}</p> : null}
-          </div>
-
-          <div className="mt-6">
-            <h3 className="text-base font-bold mb-2 uppercase">État des tables (1 à {configuredTotalTables})</h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {tableSlots.map((slot) => (
-                <div
-                  key={`table-slot-${slot.tableNumber}`}
-                  className={`border-2 border-black p-3 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] flex items-center justify-between gap-2 ${
-                    slot.isOccupied ? "bg-red-100" : "bg-green-100"
-                  }`}
+              {showNewOrderTab && (
+                <button
+                  onClick={() => setActiveTab("new-order")}
+                  className={`${
+                    activeTab === "new-order"
+                      ? "border-indigo-500 text-indigo-600"
+                      : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                  } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm`}
                 >
-                  <div className="font-bold text-sm">
-                    TABLE {slot.tableNumber} | {slot.isOccupied ? "Occupée" : "Libre"}
-                    {slot.isOccupied ? ` | PIN: ${String(slot.row?.pin_code || "")}` : ""}
-                    {slot.isOccupied
-                      ? (() => {
-                          const covers = readCoversFromRow((slot.row || null) as unknown as Record<string, unknown>);
-                          return covers ? ` | 👥 ${covers}` : "";
-                        })()
-                      : ""}
-                  </div>
-                  {slot.isOccupied && slot.row ? (
-                    <div className="flex items-center gap-2">
-                      <button onClick={() => fillFormForEdit(slot.row as TableAssignment)} className="px-3 py-1 border-2 border-black bg-white font-black text-xs">
-                        Modifier
-                      </button>
-                      <button onClick={() => handleDeleteTable(slot.row as TableAssignment)} className="px-3 py-1 border-2 border-black bg-red-700 text-white font-black text-xs">
-                        Fermer la Table
-                      </button>
-                    </div>
-                  ) : null}
-                </div>
-              ))}
-            </div>
-          </div>
-
-        </section>
-      ) : null}
-
-      {resolvedActiveTab === "orders" ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-          <section className="bg-amber-50 border-2 border-amber-300 p-4">
-            <h2 className="text-xl font-bold mb-4 uppercase bg-amber-100 p-2 rounded">En préparation</h2>
-            <div className="space-y-2">
-              {preparingOrders.length === 0 ? (
-                <p className="text-sm text-gray-500 italic">Aucune commande en préparation.</p>
-              ) : (
-                preparingOrders.map((order) => renderOrderCard(order, "all", undefined, undefined, undefined, "pending_preparing"))
+                  Nouvelle Commande
+                </button>
               )}
-            </div>
-          </section>
+            </nav>
+          </div>
+        </div>
 
-          <section className="bg-green-50 border-2 border-green-300 p-4">
-            <h2 className="text-xl font-bold mb-4 uppercase bg-green-100 p-2 rounded">Prêt</h2>
-            <div className="space-y-2">
-              {readyOrders.length === 0 ? (
-                <p className="text-sm text-gray-500 italic">Aucune commande prête.</p>
-              ) : (
-                readyOrders.map((order) => {
-                  const readyEntries = getReadyItemEntries(order);
-                  if (readyEntries.length === 0) return null;
-                  const readyFoodEntries = readyEntries.filter((entry) => !isDrink(entry.item));
-                  const readyDrinkEntries = readyEntries.filter((entry) => isDrink(entry.item));
-                  const covers =
-                    normalizeCoversValue((order as unknown as Record<string, unknown>).covers) ??
-                    normalizeCoversValue((order as unknown as Record<string, unknown>).guest_count) ??
-                    normalizeCoversValue((order as unknown as Record<string, unknown>).customer_count) ??
-                    tableCoversByNumber.get(Number(order.table_number)) ??
-                    null;
-                  const renderReadyBlock = (
-                    title: "PLATS" | "BOISSONS",
-                    entries: Array<{ item: Item; index: number }>
-                  ) => {
-                    if (entries.length === 0) return null;
-                    const isFoodBlock = title === "PLATS";
-                    return (
-                      <div className={`border-2 p-2 ${isFoodBlock ? "border-orange-300 bg-orange-50" : "border-blue-300 bg-blue-50"}`}>
-                        <div className="mb-2 text-xs font-black uppercase">{title}</div>
-                        <div className="space-y-2">
-                          {entries.map(({ item, index }) => (
-                            <div key={`ready-line-${order.id}-${title}-${index}`} className="border border-gray-300 bg-white p-2">
-                              <div className="font-bold text-sm">
-                                <span className="bg-black text-white px-2 mr-2 rounded">{Number(item.quantity) || 1}x</span>
-                                <span className="notranslate" translate="no">
-                                  {resolveOrderItemLabel(item)}
+        {activeTab === "orders" && (
+          <div>
+            <h2 className="text-xl font-semibold mb-2">Commandes Actives</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              {sortedOrders.map((order) => {
+                const { readyItems, pendingOrPreparingItems, all, food, drink } = getOrderItemProgress(order);
+                const orderTime = new Date(order.created_at);
+                const totalMinutes = Math.floor((waitClockMs - orderTime.getTime()) / 60000);
+                const isUrgent = totalMinutes >= 15;
+                const isReady = readyItems.length > 0 && pendingOrPreparingItems.length === 0;
+                
+                const currentServiceStep = resolveOrderServiceStep(order, parseItems(order.items));
+                const nextServiceStep = resolveNextServiceStep(order, parseItems(order.items));
+
+                return (
+                  <div
+                    key={order.id}
+                    className={`bg-white rounded-lg shadow-md p-4 border-2 ${
+                      readyAlertOrderIds[order.id]
+                        ? "border-green-500 animate-pulse-border"
+                        : isUrgent
+                        ? "border-red-500"
+                        : "border-transparent"
+                    }`}
+                  >
+                    <div className="flex justify-between items-center mb-2">
+                      <h3 className="text-lg font-bold">Table {order.table_number}</h3>
+                      <span
+                        className={`px-2 py-1 rounded-full text-xs font-semibold ${
+                          isReady ? "bg-green-100 text-green-800" : isUrgent ? "bg-red-100 text-red-800" : "bg-gray-100 text-gray-800"
+                        }`}
+                      >
+                        {totalMinutes} min
+                      </span>
+                    </div>
+                    
+                    {readCoversFromRow(order) && (
+                      <p className="text-sm text-gray-500 mb-2">Couverts: {readCoversFromRow(order)}</p>
+                    )}
+
+                    <div className="space-y-2">
+                      {pendingOrPreparingItems.length > 0 && (
+                        <div className="border-t pt-2">
+                          <h4 className="font-semibold text-gray-700 mb-1">En attente / préparation</h4>
+                          {pendingOrPreparingItems.map((item) => {
+                            const isFormula = isFormulaOrderItem(item);
+                            // Create a synthetic DishItem for formula items to pass to helpers
+                            const dishForFormula = isFormula
+                              ? ({
+                                  id: item.formula_id,
+                                  ...item,
+                                } as DishItem)
+                              : null;
+
+                            const name = dishForFormula
+                              ? getFormulaDisplayName(dishForFormula)
+                              : getDishName(item as unknown as DishItem);
+                            const unitPrice = dishForFormula
+                              ? getFormulaPackPrice(dishForFormula)
+                              : parsePriceNumber(item.price);
+
+                            const total = unitPrice * (item.quantity ?? 1);
+
+                            return (
+                              <div key={item.id} className="mb-2 text-sm">
+                                <div className="flex justify-between">
+                                  <span className="font-semibold">
+                                    {item.quantity}x {name}
+                                  </span>
+                                  <span className="font-semibold">{total.toFixed(2)}€</span>
+                                </div>
+
+                                {(item.cooking || item.cuisson) && !isFormula && (
+                                  <div className="pl-4 text-xs text-gray-600">
+                                    - Cuisson:{" "}
+                                    {getCookingLabelFr(
+                                      normalizeCookingKey(
+                                        (item.cooking || item.cuisson) as "rare" | "medium_rare" | "medium" | "well_done"
+                                      )
+                                    )}
+                                  </div>
+                                )}
+                                {isFormulaOrderItem(item) &&
+                                  resolveFormulaSequenceListForItem(item).map((sequence) => {
+                                    const entry = resolveFormulaEntryForSequence(item, sequence);
+                                    if (!entry) return null;
+
+                                    const dishName = String(entry.dish_name || entry.dishName || entry.name || "").trim();
+                                    if (!dishName) return null;
+
+                                    const cookingLabel =
+                                      getCookingLabelFr(
+                                        normalizeCookingKey(
+                                          (entry.cuisson || entry.cooking || "") as
+                                            | "rare"
+                                            | "medium_rare"
+                                            | "medium"
+                                            | "well_done"
+                                        )
+                                      ) || "";
+
+                                    const sides =
+                                      parseSideSource(entry.accompagnement || entry.accompagnements || entry.side || entry.sides)
+                                        .map((side) => (typeof side === "string" ? side : side.toString()))
+                                        .join(", ") || "";
+
+                                    return (
+                                      <div key={`${item.id}-formula-${sequence}`} className="pl-4 text-xs text-gray-600">
+                                        - Étape {sequence}: {dishName}
+                                        {cookingLabel && <span className="ml-2">({cookingLabel})</span>}
+                                        {sides && <div className="pl-6">Accompagnements: {sides}</div>}
+                                      </div>
+                                    );
+                                  })}
+
+                                {(item.side || item.accompagnement) && !isFormula && (
+                                  <div className="pl-4 text-xs text-gray-600">
+                                    - Accompagnement: {String(item.side || item.accompagnement)}
+                                  </div>
+                                )}
+
+                                {Array.isArray((item as any).selected_extras) &&
+                                  (item as any).selected_extras.length > 0 && (
+                                    <div className="pl-4 text-xs text-gray-600">
+                                      - Suppléments:{" "}
+                                      {(item as any).selected_extras
+                                        .map((extra: { label_fr: string; price: number }) =>
+                                          `${extra.label_fr}${
+                                            extra.price > 0 ? ` (+${extra.price.toFixed(2)}€)` : ""
+                                          }`
+                                        )
+                                        .join(", ")}
+                                    </div>
+                                  )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                      
+                      {readyItems.length > 0 && (
+                        <div className="border-t pt-2">
+                          <h4 className="font-semibold text-green-700 mb-1">Prêts à servir</h4>
+                          {readyItems.map((item) => (
+                            <div key={item.id} className="mb-2 text-sm bg-green-50 p-1 rounded">
+                               <div className="flex justify-between">
+                                <span className="font-semibold">
+                                  {item.quantity}x {getDishName(item as unknown as DishItem)}
                                 </span>
                               </div>
-                              {String(item.instructions || "").trim() ? (
-                                <div className="mt-1 text-xs italic text-gray-700 notranslate" translate="no">
-                                  {String(item.instructions || "").trim()}
+                               {(item.cooking || item.cuisson) && (
+                                <div className="pl-4 text-xs text-gray-600">
+                                  - Cuisson:{" "}
+                                  {getCookingLabelFr(
+                                    normalizeCookingKey(
+                                      (item.cooking || item.cuisson) as "rare" | "medium_rare" | "medium" | "well_done"
+                                    )
+                                  )}
                                 </div>
-                              ) : null}
+                              )}
                             </div>
                           ))}
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => void handleServeItems(String(order.id), entries.map((entry) => entry.index))}
-                          className={`mt-3 w-full border-2 border-black text-black shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none ${
-                            isFoodBlock ? "bg-yellow-400" : "bg-blue-200"
-                          }`}
-                          style={{ width: "100%", padding: "15px", fontWeight: 800 }}
+                      )}
+                    </div>
+                    
+                    {nextServiceStep && (
+                      <div className="mt-4 pt-2 border-t">
+                        <button 
+                          onClick={() => handleSendNextStep(order.id, nextServiceStep)}
+                          disabled={sendingNextStepOrderIds[order.id]}
+                          className="w-full bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded disabled:bg-gray-400"
                         >
-                          {isFoodBlock ? "TOUT SERVIR" : "TOUT SERVIR BOISSONS"}
+                          {sendingNextStepOrderIds[order.id] ? "Envoi..." : `Envoyer ${SERVICE_STEP_LABELS[nextServiceStep] || nextServiceStep.toUpperCase()}`}
                         </button>
                       </div>
-                    );
-                  };
-                  return (
-                    <div
-                      key={`ready-items-${order.id}`}
-                      className="border-2 border-green-500 bg-white p-3 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]"
-                    >
-                      <div className="mb-2 flex items-center justify-between border-b-2 border-black pb-2">
-                        <div className="text-xl font-black uppercase">
-                          T-{order.table_number ?? "?"}
-                          {covers ? ` | 👥 ${covers}` : ""}
-                        </div>
-                        <div className="text-xs font-mono text-gray-500">#{String(order.id).slice(0, 4)}</div>
-                      </div>
-                      <div className="space-y-3">
-                        {renderReadyBlock("PLATS", readyFoodEntries)}
-                        {renderReadyBlock("BOISSONS", readyDrinkEntries)}
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          </section>
+                    )}
 
-          <section className="bg-emerald-50 border-2 border-emerald-300 p-4">
-            <h2 className="text-xl font-bold mb-4 uppercase bg-emerald-100 p-2 rounded">Statut des Tables</h2>
-            <div className="space-y-2">
-              {tableStatusRows.length === 0 ? (
-                <p className="text-sm text-gray-500 italic">Aucune table active.</p>
-              ) : (
-                tableStatusRows.map((row) => (
-                  <div key={`table-status-${row.tableNumber}`} className="border border-emerald-300 bg-white p-3 rounded">
-                    <div className="font-bold">
-                      {row.allServed
-                        ? `Table ${row.tableNumber} est en train de manger`
-                        : `Table ${row.tableNumber} attend sa commande`}
-                    </div>
-                    <div className="mt-1 text-xs text-gray-700">
-                      {row.allServed ? `Commandes servies : ${row.count}` : `Commandes en cours : ${row.count}`}
-                    </div>
-                    {!row.allServed && row.waitingMinutes != null ? (
-                      <div className="mt-1 text-sm font-black text-orange-700">Attente : {row.waitingMinutes} min</div>
-                    ) : null}
-                    {row.formulaActionOrder && row.canLaunchStep2 ? (
-                      <button
-                        type="button"
-                        disabled={Boolean(sendingNextStepOrderIds[String((row.formulaActionOrder as Order).id || "")])}
-                        onClick={() => void handleSendNextServiceStep(row.formulaActionOrder as Order, 2)}
-                        className="mt-2 w-full border-2 border-black bg-orange-500 px-3 py-3 text-sm font-black uppercase text-white shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        ENVOYER ÉTAPE 2
-                      </button>
-                    ) : null}
                   </div>
-                ))
-              )}
-            </div>
-          </section>
-        </div>
-      ) : null}
-
-      {formulaModalOpen && formulaModalDish ? (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
-          <div className="relative w-full max-w-2xl bg-white border-2 border-black rounded-lg flex flex-col max-h-[90vh]">
-            <div className="relative p-4 border-b-2 border-black">
-              <button
-                type="button"
-                onClick={closeFormulaModal}
-                className="absolute top-3 right-3 h-9 w-9 border-2 border-black bg-white font-black"
-                aria-label="Fermer"
-              >
-                <X className="h-4 w-4 mx-auto" />
-              </button>
-              <div className="text-center">
-                <div className="text-lg font-black">{formulaUi.title}</div>
-                <div className="text-sm text-gray-600">{formulaUi.subtitle}</div>
-              </div>
-            </div>
-            <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-24 pt-4">
-              <h2 className="text-xl font-black mb-1">{getFormulaDisplayName(formulaModalDish)}</h2>
-              <div className="text-base font-black inline-flex items-center gap-1 mb-4">
-                {Number(getFormulaPackPrice(formulaModalDish) || 0).toFixed(2)}
-                <Euro className="h-4 w-4" />
-              </div>
-              {formulaCategories.length === 0 ? (
-                <div className="text-sm text-gray-600">{formulaUi.noDishes}</div>
-              ) : (
-                <div className="flex flex-col gap-4">
-                  {formulaCategories.map((category) => {
-                    const categoryId = String(category.id || "").trim();
-                    const options = formulaOptionsByCategory.get(categoryId) || [];
-                    const selectedId = formulaModalSelections[categoryId] || "";
-                    const selectedDishForCategory = selectedId
-                      ? resolveFormulaDishRecord(dishById.get(String(selectedId || "").trim()))
-                      : null;
-                    const formulaDishConfig = selectedDishForCategory
-                      ? getFormulaDishConfig(selectedDishForCategory)
-                      : null;
-                    const categoryDetails = getFormulaSelectionDetails(categoryId);
-                    const allowMultiOptionSelection = Boolean(
-                      (selectedDishForCategory as unknown as { allow_multi_select?: unknown })?.allow_multi_select
-                    );
-                    const selectedDishIdForDefaults = selectedDishForCategory
-                      ? String(selectedDishForCategory.id || "").trim()
-                      : "";
-                    const formulaOptionsPanelId = `formula-options-${categoryId}`;
-                    const rawDefaultOptionIdsForSelectedDish = selectedDishIdForDefaults
-                      ? formulaDefaultOptionsByDishId.get(selectedDishIdForDefaults) || []
-                      : [];
-                    const availableOptionIdSet = new Set(
-                      (formulaDishConfig?.productOptions || [])
-                        .map((option) => String(option.id || "").trim())
-                        .filter(Boolean)
-                    );
-                    const defaultOptionIdsForSelectedDish = rawDefaultOptionIdsForSelectedDish.filter((id) =>
-                      availableOptionIdSet.has(String(id || "").trim())
-                    );
-                    return (
-                      <div key={`formula-category-${categoryId}`} className="border-2 border-black rounded-lg p-3">
-                        <div className="font-black text-base mb-2">{getCategoryLabel(category)}</div>
-                        {options.length === 0 ? (
-                          <div className="text-sm text-gray-500">{formulaUi.noDishes}</div>
-                        ) : (
-                          <div className="grid grid-cols-1 gap-2">
-                            {options.map((optionDish) => {
-                              const optionId = String(optionDish.id || "").trim();
-                              if (!optionId) return null;
-                              const isSelected = selectedId === optionId;
-                              const optionDishResolved = resolveFormulaDishRecord(optionDish) || optionDish;
-                              const optionConfig = getFormulaDishConfig(optionDishResolved);
-                              const isDetailsOpen = Boolean(formulaModalItemDetailsOpen[optionId]);
-                              const optionDescription = getDishCleanDescription(optionDishResolved);
-                              const canEditWithModal =
-                                optionConfig.productOptions.length > 0 ||
-                                optionConfig.hasRequiredSides ||
-                                optionConfig.askCooking;
-                              return (
-                                <div key={`formula-option-${categoryId}-${optionId}`} className="flex flex-col gap-2">
-                                  <div className="flex gap-2">
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        setFormulaModalItemDetailsOpen((prev) => ({
-                                          ...prev,
-                                          [optionId]: true,
-                                        }));
-                                        void openFormulaItemOptionsModal(categoryId, optionDishResolved, true);
-                                      }}
-                                      className={`flex-1 text-left px-3 py-2 rounded border-2 font-black ${
-                                        isSelected ? "bg-black text-white border-black" : "bg-white text-black border-black"
-                                      }`}
-                                    >
-                                      <div className="flex items-center gap-2">
-                                        {optionDishResolved.image_url ? (
-                                          <img
-                                            src={optionDishResolved.image_url}
-                                            alt={getDishName(optionDishResolved)}
-                                            className="h-9 w-9 rounded object-cover border border-black/20"
-                                            onError={(event) => {
-                                              event.currentTarget.style.display = "none";
-                                            }}
-                                          />
-                                        ) : null}
-                                        <span>{getDishName(optionDishResolved)}</span>
-                                      </div>
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        setFormulaModalItemDetailsOpen((prev) => ({
-                                          ...prev,
-                                          [optionId]: !prev[optionId],
-                                        }));
-                                        if (isSelected && canEditWithModal) {
-                                          void openFormulaItemOptionsModal(categoryId, optionDishResolved, false);
-                                        }
-                                      }}
-                                      className="px-3 py-2 rounded border-2 border-black bg-white text-xs font-black text-black whitespace-nowrap"
-                                    >
-                                      {formulaItemDetailsLabel}
-                                    </button>
-                                  </div>
-                                  {isDetailsOpen ? (
-                                    <div className="text-sm text-gray-700 rounded border border-black/10 bg-white px-3 py-2 space-y-2">
-                                      <div>{optionDescription || "Aucune description."}</div>
-                                      <div className="text-xs text-black/80">
-                                        Catégorie: {getCategoryLabel(category)} | Prix carte: {getDishPrice(optionDishResolved).toFixed(2)}€
-                                      </div>
-                                      <div className="text-xs text-black/80">
-                                        Options: {optionConfig.productOptions.length} | Accompagnements: {optionConfig.sideOptions.length} | Cuisson: {optionConfig.askCooking ? "Oui" : "Non"}
-                                      </div>
-                                      {isSelected ? (
-                                        <div className="text-xs text-black/80">
-                                          Sélection actuelle:
-                                          {" "}
-                                          {[
-                                            categoryDetails.selectedProductOptionIds.length > 0
-                                              ? `options ${optionConfig.productOptions
-                                                  .filter((option) =>
-                                                    categoryDetails.selectedProductOptionIds.includes(
-                                                      String(option.id || "").trim()
-                                                    )
-                                                  )
-                                                  .map((option) => String(option.name || "").trim())
-                                                  .filter(Boolean)
-                                                  .join(", ")}`
-                                              : "",
-                                            categoryDetails.selectedSides.length > 0
-                                              ? `accompagnements ${categoryDetails.selectedSides.join(", ")}`
-                                              : "",
-                                            String(categoryDetails.selectedCooking || "").trim()
-                                              ? `cuisson ${String(categoryDetails.selectedCooking || "").trim()}`
-                                              : "",
-                                          ]
-                                            .filter(Boolean)
-                                            .join(" | ") || "Aucune option choisie."}
-                                        </div>
-                                      ) : null}
-                                      {isSelected && canEditWithModal ? (
-                                        <button
-                                          type="button"
-                                          onClick={() => void openFormulaItemOptionsModal(categoryId, optionDishResolved, false)}
-                                          className="h-9 px-3 border-2 border-black bg-black text-white text-xs font-black"
-                                        >
-                                          Modifier les options
-                                        </button>
-                                      ) : null}
-                                    </div>
-                                  ) : null}
-                                </div>
-                              );
-                            })}
-                          </div>
-                        )}
-                        {selectedDishForCategory && formulaDishConfig ? (
-                          <div id={formulaOptionsPanelId} className="mt-3 space-y-3 border-t border-black/20 pt-3">
-                            {formulaDishConfig.productOptions.length > 0 ? (
-                              <div>
-                                <div className="text-xs font-black uppercase tracking-wide mb-2">
-                                  {formulaOptionsLabel}
-                                </div>
-                                <div className="grid grid-cols-1 gap-2">
-                                  {formulaDishConfig.productOptions.map((option) => {
-                                    const optionId = String(option.id || "").trim();
-                                    if (!optionId) return null;
-                                    const optionPrice = parsePriceNumber(option.price);
-                                    const isPaidOption = optionPrice > 0;
-                                    const isDefaultOption = defaultOptionIdsForSelectedDish.includes(optionId);
-                                    const isLocked = isPaidOption && !isDefaultOption;
-                                    const selected = categoryDetails.selectedProductOptionIds.includes(optionId);
-                                    return (
-                                      <label
-                                        key={`formula-option-detail-${categoryId}-${optionId}`}
-                                        className={`flex items-center gap-2 text-sm font-bold ${
-                                          isLocked ? "text-gray-400" : "text-black"
-                                        }`}
-                                      >
-                                        <input
-                                          type={allowMultiOptionSelection ? "checkbox" : "radio"}
-                                          name={`formula-product-option-${categoryId}`}
-                                          checked={selected}
-                                          disabled={isLocked}
-                                          onChange={(event) => {
-                                            if (isLocked) return;
-                                            setFormulaModalError("");
-                                            setFormulaModalSelectionDetails((prev) => {
-                                              const current = prev[categoryId] || {
-                                                selectedSideIds: [],
-                                                selectedSides: [],
-                                                selectedCooking: "",
-                                                selectedProductOptionIds: [],
-                                              };
-                                              const nextIds = allowMultiOptionSelection
-                                                ? event.target.checked
-                                                  ? [...current.selectedProductOptionIds, optionId]
-                                                  : current.selectedProductOptionIds.filter((id) => id !== optionId)
-                                                : event.target.checked
-                                                  ? [optionId]
-                                                  : [];
-                                              return {
-                                                ...prev,
-                                                [categoryId]: {
-                                                  ...current,
-                                                  selectedProductOptionIds: Array.from(new Set(nextIds)),
-                                                },
-                                              };
-                                            });
-                                          }}
-                                        />
-                                        <span>
-                                          {String(option.name || "").trim()}
-                                          {optionPrice > 0 ? ` (+${optionPrice.toFixed(2)}\u20AC)` : ""}
-                                          {isLocked ? ` (${formulaOptionLockedLabel})` : ""}
-                                        </span>
-                                      </label>
-                                    );
-                                  })}
-                                </div>
-                              </div>
-                            ) : null}
-                            {formulaDishConfig.hasRequiredSides ? (
-                              <div>
-                                <div className="text-xs font-black uppercase tracking-wide mb-2">
-                                  Accompagnements ({Math.min(formulaDishConfig.maxSides, categoryDetails.selectedSides.length)}/
-                                  {formulaDishConfig.maxSides})
-                                </div>
-                                {formulaDishConfig.sideOptions.length === 0 ? (
-                                  <div className="text-xs font-bold text-red-600">Aucun accompagnement configuré.</div>
-                                ) : (
-                                  <div className="grid grid-cols-1 gap-2">
-                                    {formulaDishConfig.sideOptions.map((sideLabel) => {
-                                      const sideId = sideIdByAlias.get(normalizeLookupText(sideLabel)) || sideLabel;
-                                      const checked = categoryDetails.selectedSideIds.includes(sideId);
-                                      return (
-                                        <label
-                                          key={`formula-side-${categoryId}-${sideId}`}
-                                          className="flex items-center gap-2 text-sm font-bold"
-                                        >
-                                          <input
-                                            type="checkbox"
-                                            checked={checked}
-                                            onChange={(event) => {
-                                              setFormulaModalError("");
-                                              setFormulaModalSelectionDetails((prev) => {
-                                                const current = prev[categoryId] || {
-                                                  selectedSideIds: [],
-                                                  selectedSides: [],
-                                                  selectedCooking: "",
-                                                  selectedProductOptionIds: [],
-                                                };
-                                                const maxSides = formulaDishConfig.maxSides;
-                                                const nextPairs = current.selectedSideIds.map((id, index) => ({
-                                                  id,
-                                                  label: current.selectedSides[index] || id,
-                                                }));
-                                                const exists = nextPairs.some((entry) => entry.id === sideId);
-                                                const canAdd = nextPairs.length < maxSides;
-                                                const updatedPairs = event.target.checked
-                                                  ? exists
-                                                    ? nextPairs
-                                                    : canAdd
-                                                      ? [...nextPairs, { id: sideId, label: sideLabel }]
-                                                      : nextPairs
-                                                  : nextPairs.filter((entry) => entry.id !== sideId);
-                                                return {
-                                                  ...prev,
-                                                  [categoryId]: {
-                                                    ...current,
-                                                    selectedSideIds: updatedPairs.map((entry) => entry.id),
-                                                    selectedSides: updatedPairs.map((entry) => entry.label),
-                                                  },
-                                                };
-                                              });
-                                            }}
-                                          />
-                                          <span>{sideLabel}</span>
-                                        </label>
-                                      );
-                                    })}
-                                  </div>
-                                )}
-                              </div>
-                            ) : null}
-                            {formulaDishConfig.askCooking ? (
-                              <div>
-                                <div className="text-xs font-black uppercase tracking-wide mb-2">Cuisson</div>
-                                <div className="grid grid-cols-1 gap-2">
-                                  {COOKING_CHOICES.map((cookingLabel) => (
-                                    <label
-                                      key={`formula-cooking-${categoryId}-${cookingLabel}`}
-                                      className="flex items-center gap-2 text-sm font-bold"
-                                    >
-                                      <input
-                                        type="radio"
-                                        name={`formula-cooking-${categoryId}`}
-                                        checked={categoryDetails.selectedCooking === cookingLabel}
-                                        onChange={() => {
-                                          setFormulaModalError("");
-                                          setFormulaModalSelectionDetails((prev) => {
-                                            const current = prev[categoryId] || {
-                                              selectedSideIds: [],
-                                              selectedSides: [],
-                                              selectedCooking: "",
-                                              selectedProductOptionIds: [],
-                                            };
-                                            return {
-                                              ...prev,
-                                              [categoryId]: {
-                                                ...current,
-                                                selectedCooking: cookingLabel,
-                                              },
-                                            };
-                                          });
-                                        }}
-                                      />
-                                      <span>{cookingLabel}</span>
-                                    </label>
-                                  ))}
-                                </div>
-                              </div>
-                            ) : null}
-                          </div>
-                        ) : null}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-              {formulaModalError ? <div className="mt-4 text-sm text-red-600 font-bold">{formulaModalError}</div> : null}
-            </div>
-            <div className="absolute bottom-0 left-0 right-0 p-4 border-t-2 border-black bg-white">
-              <button
-                type="button"
-                disabled={formulaAddDisabled}
-                onClick={handleAddFormulaLine}
-                className="w-full h-12 bg-black text-white font-black border-2 border-black disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Ajouter la formule
-              </button>
+                );
+              })}
             </div>
           </div>
-        </div>
-      ) : null}
+        )}
 
-      {formulaOptionModalOpen && formulaOptionModalDish && formulaOptionModalConfig ? (
-        <div className="fixed inset-0 z-[60] bg-black/70 flex items-center justify-center p-4">
-          <div className="w-full max-w-xl bg-white border-2 border-black rounded-lg max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between border-b-2 border-black px-4 py-3">
-              <div>
-                <div className="text-xs uppercase font-black text-black/60">ProductOptionsModal</div>
-                <div className="text-lg font-black">{getDishName(formulaOptionModalDish)}</div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setFormulaOptionModalState(null)}
-                className="h-9 w-9 border-2 border-black bg-white font-black"
-                aria-label="Fermer"
-              >
-                &times;
-              </button>
-            </div>
-
-            <div className="p-4 space-y-4">
-              {formulaOptionModalConfig.productOptions.length > 0 ? (
-                <div>
-                  <div className="text-xs font-black uppercase tracking-wide mb-2">{formulaOptionsLabel}</div>
-                  <div className="grid grid-cols-1 gap-2">
-                    {formulaOptionModalConfig.productOptions.map((option) => {
-                      const optionId = String(option.id || "").trim();
-                      if (!optionId) return null;
-                      const optionPrice = parsePriceNumber(option.price);
-                      const isPaidOption = optionPrice > 0;
-                      const isDefaultOption = formulaOptionModalDefaultOptionIds.includes(optionId);
-                      const isLocked = isPaidOption && !isDefaultOption;
-                      const selected = formulaOptionModalDetails.selectedProductOptionIds.includes(optionId);
-                      return (
-                        <label
-                          key={`formula-option-modal-option-${formulaOptionModalCategoryId}-${optionId}`}
-                          className={`flex items-center gap-2 text-sm font-bold ${isLocked ? "text-gray-400" : "text-black"}`}
-                        >
-                          <input
-                            type={formulaOptionModalAllowMulti ? "checkbox" : "radio"}
-                            name={`formula-option-modal-${formulaOptionModalCategoryId}`}
-                            checked={selected}
-                            disabled={isLocked}
-                            onChange={(event) => {
-                              if (isLocked) return;
-                              setFormulaModalError("");
-                              setFormulaModalSelectionDetails((prev) => {
-                                const current = prev[formulaOptionModalCategoryId] || {
-                                  selectedSideIds: [],
-                                  selectedSides: [],
-                                  selectedCooking: "",
-                                  selectedProductOptionIds: [],
-                                };
-                                const nextIds = formulaOptionModalAllowMulti
-                                  ? event.target.checked
-                                    ? [...current.selectedProductOptionIds, optionId]
-                                    : current.selectedProductOptionIds.filter((id) => id !== optionId)
-                                  : event.target.checked
-                                    ? [optionId]
-                                    : [];
-                                return {
-                                  ...prev,
-                                  [formulaOptionModalCategoryId]: {
-                                    ...current,
-                                    selectedProductOptionIds: Array.from(new Set(nextIds)),
-                                  },
-                                };
-                              });
-                            }}
-                          />
-                          <span>
-                            {String(option.name || "").trim()}
-                            {optionPrice > 0 ? ` (+${optionPrice.toFixed(2)}\u20AC)` : ""}
-                            {isLocked ? ` (${formulaOptionLockedLabel})` : ""}
-                          </span>
-                        </label>
-                      );
-                    })}
-                  </div>
-                </div>
-              ) : null}
-
-              {formulaOptionModalConfig.hasRequiredSides ? (
-                <div>
-                  <div className="text-xs font-black uppercase tracking-wide mb-2">
-                    Accompagnements ({Math.min(formulaOptionModalConfig.maxSides, formulaOptionModalDetails.selectedSides.length)}/{formulaOptionModalConfig.maxSides})
-                  </div>
-                  {formulaOptionModalConfig.sideOptions.length === 0 ? (
-                    <div className="text-xs font-bold text-red-600">Aucun accompagnement configuré.</div>
-                  ) : (
-                    <div className="grid grid-cols-1 gap-2">
-                      {formulaOptionModalConfig.sideOptions.map((sideLabel) => {
-                        const sideId = sideIdByAlias.get(normalizeLookupText(sideLabel)) || sideLabel;
-                        const checked = formulaOptionModalDetails.selectedSideIds.includes(sideId);
-                        return (
-                          <label
-                            key={`formula-option-modal-side-${formulaOptionModalCategoryId}-${sideId}`}
-                            className="flex items-center gap-2 text-sm font-bold"
-                          >
-                            <input
-                              type="checkbox"
-                              checked={checked}
-                              onChange={(event) => {
-                                setFormulaModalError("");
-                                setFormulaModalSelectionDetails((prev) => {
-                                  const current = prev[formulaOptionModalCategoryId] || {
-                                    selectedSideIds: [],
-                                    selectedSides: [],
-                                    selectedCooking: "",
-                                    selectedProductOptionIds: [],
-                                  };
-                                  const maxSides = formulaOptionModalConfig.maxSides;
-                                  const nextPairs = current.selectedSideIds.map((id, index) => ({
-                                    id,
-                                    label: current.selectedSides[index] || id,
-                                  }));
-                                  const exists = nextPairs.some((entry) => entry.id === sideId);
-                                  const canAdd = nextPairs.length < maxSides;
-                                  const updatedPairs = event.target.checked
-                                    ? exists
-                                      ? nextPairs
-                                      : canAdd
-                                        ? [...nextPairs, { id: sideId, label: sideLabel }]
-                                        : nextPairs
-                                    : nextPairs.filter((entry) => entry.id !== sideId);
-                                  return {
-                                    ...prev,
-                                    [formulaOptionModalCategoryId]: {
-                                      ...current,
-                                      selectedSideIds: updatedPairs.map((entry) => entry.id),
-                                      selectedSides: updatedPairs.map((entry) => entry.label),
-                                    },
-                                  };
-                                });
-                              }}
-                            />
-                            <span>{sideLabel}</span>
-                          </label>
-                        );
-                      })}
-                    </div>
+        {activeTab === "sessions" && (
+          <div>
+            <h2 className="text-xl font-semibold mb-2">Sessions Actives par Table</h2>
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-2 text-center">
+              {tableSlots.map(({ tableNumber, isOccupied, row }) => (
+                <div
+                  key={tableNumber}
+                  className={`p-2 border-2 rounded-lg ${
+                    isOccupied ? "bg-red-500 border-red-700 text-white" : "bg-green-500 border-green-700 text-white"
+                  }`}
+                >
+                  <div className="font-bold text-lg">{tableNumber}</div>
+                  <div className="text-xs">{isOccupied ? "Occupée" : "Libre"}</div>
+                  {isOccupied && row && readCoversFromRow(row) && (
+                    <div className="text-xs mt-1">({readCoversFromRow(row)} couv.)</div>
                   )}
                 </div>
-              ) : null}
-
-              {formulaOptionModalConfig.askCooking ? (
-                <div>
-                  <div className="text-xs font-black uppercase tracking-wide mb-2">Cuisson</div>
-                  <div className="grid grid-cols-1 gap-2">
-                    {COOKING_CHOICES.map((cookingLabel) => (
-                      <label
-                        key={`formula-option-modal-cooking-${formulaOptionModalCategoryId}-${cookingLabel}`}
-                        className="flex items-center gap-2 text-sm font-bold"
-                      >
-                        <input
-                          type="radio"
-                          name={`formula-option-modal-cooking-${formulaOptionModalCategoryId}`}
-                          checked={formulaOptionModalDetails.selectedCooking === cookingLabel}
-                          onChange={() => {
-                            setFormulaModalError("");
-                            setFormulaModalSelectionDetails((prev) => {
-                              const current = prev[formulaOptionModalCategoryId] || {
-                                selectedSideIds: [],
-                                selectedSides: [],
-                                selectedCooking: "",
-                                selectedProductOptionIds: [],
-                              };
-                              return {
-                                ...prev,
-                                [formulaOptionModalCategoryId]: {
-                                  ...current,
-                                  selectedCooking: cookingLabel,
-                                },
-                              };
-                            });
-                          }}
-                        />
-                        <span>{cookingLabel}</span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
-
-              <button
-                type="button"
-                onClick={() => setFormulaOptionModalState(null)}
-                disabled={formulaOptionModalMissingRequired}
-                className="w-full h-11 border-2 border-black bg-black text-white font-black disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Valider ce plat de formule
-              </button>
+              ))}
             </div>
           </div>
-        </div>
-      ) : null}
+        )}
 
-      {modalOpen && modalDish ? (
-        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
-          <div className="w-full max-w-lg bg-white border-2 border-black rounded-lg p-4">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-lg font-black">Options - {getDishName(modalDish)}</h3>
-              <button type="button" onClick={() => setModalOpen(false)} className="h-9 w-9 border-2 border-black font-black">&times;</button>
-            </div>
-            <div className="flex items-center gap-2 mb-3">
-              <span className="font-black">Quantité</span>
-              <button type="button" onClick={() => setModalQty((prev) => Math.max(1, prev - 1))} className="h-9 w-9 border-2 border-black font-black">-</button>
-              <span className="min-w-8 text-center font-black text-lg">{modalQty}</span>
-              <button type="button" onClick={() => setModalQty((prev) => prev + 1)} className="h-9 w-9 border-2 border-black font-black">+</button>
-            </div>
-
-            <div className="mb-3 text-sm font-bold">
-              {(() => {
-                const basePrice = getDishPrice(modalDish);
-                const selectedOption =
-                  modalProductOptions.find((option) => String(option.id) === String(modalSelectedProductOptionId)) || null;
-                const optionPrice = parsePriceNumber(selectedOption?.price ?? 0);
-                const extrasPrice = modalSelectedExtras.reduce((sum, extra) => sum + parsePriceNumber(extra.price), 0);
-                const unitTotal = basePrice + optionPrice + extrasPrice;
-                const lineTotal = unitTotal * modalQty;
-                if (optionPrice > 0 || extrasPrice > 0) {
-                  return `Prix: ${basePrice.toFixed(2)}\u20AC + option ${optionPrice.toFixed(2)}\u20AC + suppléments ${extrasPrice.toFixed(2)}\u20AC = ${unitTotal.toFixed(2)}\u20AC (x${modalQty} = ${lineTotal.toFixed(2)}\u20AC)`;
-                }
-                return `Prix: ${unitTotal.toFixed(2)}\u20AC (x${modalQty} = ${lineTotal.toFixed(2)}\u20AC)`;
-              })()}
-            </div>
-
-            {modalProductOptions.length > 0 ? (
-              <div className="mb-3">
-                {(() => {
-                  const optionRequired = isProductOptionSelectionRequired(modalDish, modalProductOptions);
+        {activeTab === "new-order" && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+            <div>
+              <h2 className="text-xl font-semibold mb-2">Menu</h2>
+               <div className="flex flex-wrap gap-2 mb-4">
+                 <button
+                    onClick={() => setSelectedCategory(FORMULAS_CATEGORY_KEY)}
+                    className={`px-3 py-1 text-sm font-medium rounded-full ${
+                      selectedCategory === FORMULAS_CATEGORY_KEY
+                        ? "bg-indigo-600 text-white"
+                        : "bg-white text-gray-700 border border-gray-300 hover:bg-gray-50"
+                    }`}
+                  >
+                    Formules
+                  </button>
+                {categories.map((cat) => {
+                  const key = normalizeCategoryKey(getCategoryLabel(cat));
+                  if (key.includes('formule')) return null;
                   return (
-                    <>
-                      <div className="font-black mb-1">
-                        Options / Variantes{" "}
-                        {optionRequired ? <span className="text-red-700 text-xs">(Obligatoire)</span> : <span className="text-gray-500 text-xs">(Facultatif)</span>}
-                      </div>
-                      <div className="space-y-1">
-                        {!optionRequired ? (
-                          <label className="flex items-center gap-2 text-sm">
-                            <input
-                              type="radio"
-                              name="modal-product-option"
-                              checked={!modalSelectedProductOptionId}
-                              onChange={() => setModalSelectedProductOptionId("")}
-                            />
-                            <span>Aucune option</span>
-                          </label>
-                        ) : null}
-                        {modalProductOptions.map((option) => {
-                          const checked = String(modalSelectedProductOptionId) === String(option.id);
-                          const optionPrice = parsePriceNumber(option.price);
-                          return (
-                            <label key={option.id} className="flex items-center gap-2 text-sm">
-                              <input
-                                type="radio"
-                                name="modal-product-option"
-                                checked={checked}
-                                onChange={() => setModalSelectedProductOptionId(String(option.id))}
-                              />
-                              <span>
-                                {option.name}
-                                {optionPrice > 0 ? ` (+${optionPrice.toFixed(2)}\u20AC)` : ""}
-                              </span>
-                            </label>
-                          );
-                        })}
-                      </div>
-                    </>
-                  );
-                })()}
+                    <button
+                      key={cat.id}
+                      onClick={() => setSelectedCategory(String(cat.id))}
+                      className={`px-3 py-1 text-sm font-medium rounded-full ${
+                        selectedCategory === String(cat.id)
+                          ? "bg-indigo-600 text-white"
+                          : "bg-white text-gray-700 border border-gray-300 hover:bg-gray-50"
+                      }`}
+                    >
+                      {getCategoryLabel(cat)}
+                    </button>
+                  )
+                })}
               </div>
-            ) : null}
+              
+              <div className="space-y-2">
+                {(selectedCategory === FORMULAS_CATEGORY_KEY ? formulaDishesForFastOrder : fastOrderCategoryDishes).map((dish) => (
+                  <div key={dish.id} className="bg-white p-2 rounded-md shadow-sm flex justify-between items-center">
+                    <div>
+                      <div className="font-semibold">{getDishName(dish)}</div>
+                      <div className="text-sm text-gray-600">{getDishPrice(dish).toFixed(2)}€</div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                       <button
+                          onClick={() => handleOpenModal(dish)}
+                          className="px-2 py-1 bg-gray-200 text-gray-800 rounded hover:bg-gray-300 text-xs"
+                        >
+                          Options
+                        </button>
+                      <button
+                        onClick={() =>
+                          setFastQtyByDish((prev) => ({ ...prev, [dish.id]: Math.max(0, (prev[dish.id] || 0) - 1) }))
+                        }
+                        className="px-2 py-1 bg-gray-200 text-gray-800 rounded hover:bg-gray-300"
+                      >
+                        -
+                      </button>
+                      <span>{fastQtyByDish[dish.id] || 0}</span>
+                      <button
+                        onClick={() =>
+                          setFastQtyByDish((prev) => ({ ...prev, [dish.id]: (prev[dish.id] || 0) + 1 }))
+                        }
+                        className="px-2 py-1 bg-gray-200 text-gray-800 rounded hover:bg-gray-300"
+                      >
+                        +
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            
+            <div className="sticky top-4 self-start">
+              <div className="bg-white p-4 rounded-lg shadow-lg">
+                <h2 className="text-xl font-semibold mb-4">Commande Rapide</h2>
+                  <div className="grid grid-cols-2 gap-4 mb-4">
+                  <div>
+                    <label htmlFor="fast-table-number" className="block text-sm font-medium text-gray-700">
+                      N° de Table
+                    </label>
+                    <input
+                      type="number"
+                      id="fast-table-number"
+                      value={selectedFastTableNumber}
+                      onChange={(e) => setSelectedFastTableNumber(e.target.value)}
+                      className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="fast-covers" className="block text-sm font-medium text-gray-700">
+                      Couverts
+                    </label>
+                    <input
+                      type="number"
+                      id="fast-covers"
+                      value={fastCoversInput}
+                      onChange={(e) => setFastCoversInput(e.target.value)}
+                      className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                      min="1"
+                    />
+                  </div>
+                </div>
 
-            {modalSideChoices.length > 0 ? (
-              <div className="mb-3">
-                {(() => {
-                  const sideRequired = isSideSelectionRequired(modalDish, modalSideChoices);
-                  const selectedSide = modalSelectedSides[0] || "";
-                  return (
-                    <>
-                      <div className="font-black mb-1">
-                        Accompagnements{" "}
-                        {sideRequired ? (
-                          <span className="text-red-700 text-xs">(Obligatoire)</span>
-                        ) : (
-                          <span className="text-gray-500 text-xs">(Facultatif)</span>
-                        )}
-                      </div>
-                      <div className="space-y-1">
-                        {!sideRequired ? (
-                          <label className="flex items-center gap-2 text-sm">
-                            <input
-                              type="radio"
-                              name="modal-side-option"
-                              checked={!selectedSide}
-                              onChange={() => setModalSelectedSides([])}
-                            />
-                            <span>Aucun accompagnement</span>
-                          </label>
-                        ) : null}
-                        {modalSideChoices.map((side) => {
-                          const checked = selectedSide === side;
-                          return (
-                            <label key={side} className="flex items-center gap-2 text-sm">
-                              <input
-                                type="radio"
-                                name="modal-side-option"
-                                checked={checked}
-                                onChange={() => setModalSelectedSides([side])}
-                              />
-                              <span>{side}</span>
-                            </label>
-                          );
-                        })}
-                      </div>
-                      {!sideRequired ? (
-                        <div className="mt-2">
-                          <button
-                            type="button"
-                            onClick={() => setModalSelectedSides([])}
-                            className="border-2 border-black bg-gray-100 px-3 py-2 text-sm font-bold text-black"
-                          >
-                            Réinitialiser
+                <div className="space-y-2 mb-4 max-h-96 overflow-y-auto">
+                 {fastOptionLines.map(line => (
+                    <div key={line.lineId} className="border-t pt-2">
+                       <div className="flex justify-between items-start">
+                        <div>
+                          <div className="font-semibold">{line.quantity}x {line.isFormula ? line.formulaDishName : line.dishName}</div>
+                           <div className="text-xs text-gray-500 pl-2">
+                            {line.selectedCooking && <span>{line.selectedCooking}, </span>}
+                            {line.selectedSides.length > 0 && <span>Acc: {line.selectedSides.join(", ")}, </span>}
+                            {line.selectedExtras.length > 0 && <span>Sup: {line.selectedExtras.map(e => e.name).join(", ")}, </span>}
+                            {line.specialRequest && <span>"{line.specialRequest}"</span>}
+                          </div>
+                          {line.isFormula && (line.formulaSelections || []).map(sel => (
+                            <div key={sel.dishId} className="text-xs text-gray-500 pl-4">
+                              - {sel.dishName}
+                            </div>
+                          ))}
+                        </div>
+                        <div className="text-right flex-shrink-0">
+                          <div className="font-semibold">{(line.unitPrice * line.quantity).toFixed(2)}€</div>
+                          <button onClick={() => setFastOptionLines(prev => prev.filter(l => l.lineId !== line.lineId))} className="text-red-500 hover:text-red-700 text-xs">
+                            Suppr.
                           </button>
                         </div>
-                      ) : null}
-                    </>
-                  );
-                })()}
-              </div>
-            ) : null}
+                      </div>
+                    </div>
+                  ))}
+                </div>
 
-            {modalExtraChoices.length > 0 ? (
-              <div className="mb-3">
-                <div className="font-black mb-1">Suppléments</div>
-                <div className="space-y-1">
-                  {modalExtraChoices.map((extra) => {
-                    const key = `${extra.name}-${extra.price}`;
-                    const checked = modalSelectedExtras.some((value) => `${value.name}-${value.price}` === key);
-                    return (
-                      <label key={key} className="flex items-center gap-2 text-sm">
+                <button
+                  onClick={handleNewOrderFromFastEntry}
+                  disabled={!isFastOrderReadyToSend || fastLoading}
+                  className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-md disabled:bg-gray-400 disabled:cursor-not-allowed"
+                >
+                  {fastLoading ? "Envoi..." : "Envoyer la Commande"}
+                </button>
+                {fastMessage && <p className="mt-2 text-sm text-center text-green-600">{fastMessage}</p>}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === "service" && (
+          <div>
+            <h2 className="text-xl font-semibold mb-2">Appels Service</h2>
+            <div className="space-y-4">
+              {serviceNotifications.map((notif) => (
+                <div key={notif.id} className="bg-yellow-100 border-l-4 border-yellow-500 text-yellow-700 p-4">
+                  <div className="flex">
+                    <div className="py-1">
+                      <svg className="h-6 w-6 text-yellow-500 mr-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth="2"
+                          d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"
+                        />
+                      </svg>
+                    </div>
+                    <div>
+                      <p className="font-bold">
+                        Table {notif.table_number || "?"} - {notif.title || "Appel"}
+                      </p>
+                      <p className="text-sm">{notif.message || "Un client demande de l'aide."}</p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+      
+      {/* Modals */}
+      {modalOpen && modalDish && (
+         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+          <div className="relative top-20 mx-auto p-5 border w-full max-w-md shadow-lg rounded-md bg-white">
+            <h3 className="text-lg font-medium leading-6 text-gray-900 mb-2">{getDishName(modalDish)}</h3>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Quantité</label>
+                <input type="number" value={modalQty} onChange={e => setModalQty(Number(e.target.value))} min="1" className="mt-1 w-full border border-gray-300 rounded-md p-2"/>
+              </div>
+              {dishNeedsCooking(modalDish) && (
+                 <div>
+                  <label className="block text-sm font-medium text-gray-700">Cuisson</label>
+                  <select value={modalCooking} onChange={e => setModalCooking(e.target.value)} className="mt-1 w-full border border-gray-300 rounded-md p-2">
+                    <option value="">Choisir</option>
+                    {COOKING_CHOICES.map(c => <option key={c} value={toCookingKeyFromLabel(c)}>{c}</option>)}
+                  </select>
+                </div>
+              )}
+               {modalSideChoices.length > 0 && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">
+                    Accompagnements ({getSideMaxSelections(modalDish, modalSideChoices)} max)
+                  </label>
+                  <div className="mt-2 space-y-2">
+                    {modalSideChoices.map(side => (
+                      <label key={side} className="flex items-center">
                         <input
                           type="checkbox"
-                          checked={checked}
-                          onChange={(event) => {
-                            if (event.target.checked) {
-                              setModalSelectedExtras((prev) => [...prev, extra]);
-                            } else {
-                              setModalSelectedExtras((prev) =>
-                                prev.filter((value) => `${value.name}-${value.price}` !== key)
-                              );
-                            }
+                          value={side}
+                          checked={modalSelectedSides.includes(side)}
+                          onChange={e => {
+                            const checked = e.target.checked;
+                            const max = getSideMaxSelections(modalDish, modalSideChoices);
+                            setModalSelectedSides(prev => {
+                              if (checked) {
+                                if (prev.length >= max) return prev;
+                                return [...prev, side];
+                              }
+                              return prev.filter(s => s !== side);
+                            });
                           }}
+                          className="h-4 w-4 text-indigo-600 border-gray-300 rounded"
                         />
-                        <span>
-                          {extra.name}
-                          {parsePriceNumber(extra.price) > 0 ? ` (+${parsePriceNumber(extra.price).toFixed(2)}\u20AC)` : ""}
-                        </span>
+                        <span className="ml-2 text-sm text-gray-700">{side}</span>
                       </label>
-                    );
-                  })}
-                </div>
-              </div>
-            ) : null}
-
-            <div className="mb-3">
-              {modalDish && dishNeedsCooking(modalDish) ? (
-                <>
-                  <label className="block font-black mb-1">Cuisson</label>
-                  <div className="grid grid-cols-2 gap-2 mb-2">
-                    {COOKING_CHOICES.map((choice) => (
-                      <button
-                        key={choice}
-                        type="button"
-                        onClick={() => setModalCooking((prev) => (prev === choice ? "" : choice))}
-                        className={`border-2 border-black px-2 py-2 text-sm font-bold ${
-                          modalCooking === choice ? "bg-black text-white" : "bg-white text-black"
-                        }`}
-                      >
-                        {choice}
-                      </button>
                     ))}
                   </div>
-                </>
-              ) : null}
-              <label className="block font-black mb-1">Commentaire cuisine</label>
-              <textarea
-                value={modalKitchenComment}
-                onChange={(event) => setModalKitchenComment(event.target.value)}
-                placeholder="Ex: sans oignons"
-                className="w-full border-2 border-black px-3 py-2"
-                rows={3}
-              />
+                </div>
+              )}
+              {modalProductOptions.length > 0 && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Options</label>
+                  <div className="mt-2 space-y-2">
+                    {modalProductOptions.map(option => (
+                       <label key={option.id} className="flex items-center">
+                        <input
+                          type="radio"
+                          name="product-option"
+                          value={option.id}
+                          checked={modalSelectedProductOptionId === option.id}
+                          onChange={e => setModalSelectedProductOptionId(e.target.value)}
+                          className="h-4 w-4 text-indigo-600 border-gray-300"
+                        />
+                        <span className="ml-2 text-sm text-gray-700">{option.name}</span>
+                        {option.price > 0 && <span className="ml-2 text-xs text-gray-500">(+{option.price.toFixed(2)}€)</span>}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {modalExtraChoices.length > 0 && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Suppléments</label>
+                   <div className="mt-2 space-y-2">
+                      {modalExtraChoices.map(extra => (
+                        <label key={extra.name} className="flex items-center">
+                          <input
+                            type="checkbox"
+                            value={extra.name}
+                            checked={modalSelectedExtras.some(e => e.name === extra.name)}
+                            onChange={e => {
+                              const checked = e.target.checked;
+                              setModalSelectedExtras(prev => {
+                                if (checked) return [...prev, extra];
+                                return prev.filter(e => e.name !== extra.name);
+                              })
+                            }}
+                            className="h-4 w-4 text-indigo-600 border-gray-300 rounded"
+                          />
+                          <span className="ml-2 text-sm text-gray-700">{extra.name} (+{extra.price.toFixed(2)}€)</span>
+                        </label>
+                      ))}
+                    </div>
+                </div>
+              )}
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Instructions cuisine</label>
+                <input type="text" value={modalKitchenComment} onChange={e => setModalKitchenComment(e.target.value)} className="mt-1 w-full border border-gray-300 rounded-md p-2"/>
+              </div>
             </div>
-
-            <button type="button" onClick={handleAddOptionLine} className="w-full h-12 bg-black text-white border-2 border-black font-black">
-              Ajouter avec options
-            </button>
+            <div className="mt-6 flex justify-end space-x-2">
+              <button onClick={resetModal} className="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300">Annuler</button>
+              <button onClick={handleAddOrUpdateFastOptionLine} className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700">Valider</button>
+            </div>
           </div>
         </div>
-      ) : null}
+      )}
+
+      {formulaModalOpen && formulaModalDish && (
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-75 overflow-y-auto h-full w-full z-50">
+          <div className="relative top-10 mx-auto p-5 border w-full max-w-2xl shadow-lg rounded-md bg-white">
+            <h3 className="text-xl font-bold leading-6 text-gray-900">{formulaUi.title}</h3>
+            <p className="text-sm text-gray-500 mb-4">{formulaUi.subtitle}: <span className="font-semibold">{getFormulaDisplayName(formulaModalDish)}</span></p>
+
+            <div className="space-y-6">
+              {formulaCategories.map(category => {
+                const categoryId = String(category.id);
+                const options = formulaOptionsByCategory.get(categoryId) || [];
+                const selectedDishId = formulaModalSelections[categoryId] || "";
+                const selectedDish = selectedDishId ? dishById.get(selectedDishId) : null;
+                const details = getFormulaSelectionDetails(categoryId);
+
+                return (
+                  <div key={categoryId}>
+                    <h4 className="font-semibold text-lg text-gray-800 border-b pb-1 mb-2">{getCategoryLabel(category)}</h4>
+                    {options.length === 0 ? (
+                      <p className="text-sm text-gray-500">{formulaUi.noDishes}</p>
+                    ) : (
+                      <div className="grid grid-cols-2 gap-2">
+                        {options.map(dish => (
+                          <button
+                            key={dish.id}
+                            onClick={() => setFormulaModalSelections(prev => ({ ...prev, [categoryId]: String(dish.id) }))}
+                            className={`p-2 border rounded-md text-left ${selectedDishId === String(dish.id) ? 'bg-indigo-100 border-indigo-500 ring-2 ring-indigo-500' : 'bg-white border-gray-300'}`}
+                          >
+                            <span className="font-semibold">{getDishName(dish)}</span>
+                            <p className="text-xs text-gray-600">{getDishCleanDescription(dish)}</p>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                     {selectedDish && (
+                      <div className="mt-2 pl-2">
+                        <button onClick={() => setFormulaModalItemDetailsOpen(prev => ({...prev, [categoryId]: !prev[categoryId]}))} className="text-sm text-indigo-600 hover:underline">
+                          {formulaModalItemDetailsOpen[categoryId] ? 'Masquer' : 'Afficher'} les détails
+                        </button>
+                        {formulaModalItemDetailsOpen[categoryId] && (
+                          <div className="mt-2 p-2 bg-gray-50 rounded-md space-y-2">
+                             {dishNeedsCooking(selectedDish) && (
+                               <div>
+                                <label className="block text-xs font-medium text-gray-500">Cuisson</label>
+                                <select 
+                                  value={details.selectedCooking} 
+                                  onChange={e => handleUpdateFormulaSelectionDetails(categoryId, { selectedCooking: e.target.value })} 
+                                  className="mt-1 text-sm w-full border border-gray-300 rounded-md p-1"
+                                >
+                                  <option value="">Choisir</option>
+                                  {COOKING_CHOICES.map(c => <option key={c} value={toCookingKeyFromLabel(c)}>{c}</option>)}
+                                </select>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        <button
+                          onClick={() => handleOpenFormulaOptionModal(categoryId, selectedDishId)}
+                          className="text-sm text-indigo-600 hover:underline ml-4"
+                        >
+                          {formulaOptionsLabel}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+            
+            {formulaModalError && <p className="mt-4 text-sm text-red-600">{formulaModalError}</p>}
+
+            <div className="mt-6 flex justify-end space-x-2">
+              <button onClick={resetFormulaModal} className="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300">Annuler</button>
+              <button onClick={handleAddFormulaToFastOrder} disabled={formulaAddDisabled} className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:bg-gray-400">Ajouter à la commande</button>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {formulaOptionModalOpen && (
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-75 overflow-y-auto h-full w-full z-50">
+           <div className="relative top-20 mx-auto p-5 border w-full max-w-md shadow-lg rounded-md bg-white">
+            <h3 className="text-lg font-medium leading-6 text-gray-900 mb-2">Options pour {getDishName(formulaOptionModalDish as DishItem)}</h3>
+            <div className="space-y-4">
+              {formulaOptionModalConfig?.askCooking && (
+                 <div>
+                  <label className="block text-sm font-medium text-gray-700">Cuisson</label>
+                  <select value={modalCooking} onChange={e => setModalCooking(e.target.value)} className="mt-1 w-full border border-gray-300 rounded-md p-2">
+                    <option value="">Choisir</option>
+                    {COOKING_CHOICES.map(c => <option key={c} value={toCookingKeyFromLabel(c)}>{c}</option>)}
+                  </select>
+                </div>
+              )}
+               {formulaOptionModalConfig && formulaOptionModalConfig.sideOptions.length > 0 && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">
+                    Accompagnements ({formulaOptionModalConfig.maxSides} max)
+                  </label>
+                  <div className="mt-2 space-y-2">
+                    {formulaOptionModalConfig.sideOptions.map(side => (
+                      <label key={side} className="flex items-center">
+                        <input
+                          type={formulaOptionModalConfig.maxSides === 1 ? "radio" : "checkbox"}
+                          name="formula-side-option"
+                          value={side}
+                          checked={modalSelectedSides.includes(side)}
+                          onChange={e => {
+                            const checked = e.target.checked;
+                            setModalSelectedSides(prev => {
+                              if (formulaOptionModalConfig.maxSides === 1) return [side];
+                              if (checked) {
+                                if (prev.length >= (formulaOptionModalConfig.maxSides || 1)) return prev;
+                                return [...prev, side];
+                              }
+                              return prev.filter(s => s !== side);
+                            });
+                          }}
+                          className="h-4 w-4 text-indigo-600 border-gray-300 rounded"
+                        />
+                        <span className="ml-2 text-sm text-gray-700">{side}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {formulaOptionModalConfig && formulaOptionModalConfig.productOptions.length > 0 && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Variante / Option</label>
+                  <div className="mt-2 space-y-2">
+                    {formulaOptionModalConfig.productOptions.map(option => (
+                       <label key={option.id} className="flex items-center">
+                        <input
+                          type="radio"
+                          name="formula-product-option"
+                          value={option.id}
+                          checked={modalSelectedProductOptionId === option.id}
+                          onChange={e => setModalSelectedProductOptionId(e.target.value)}
+                          className="h-4 w-4 text-indigo-600 border-gray-300"
+                        />
+                        <span className="ml-2 text-sm text-gray-700">{option.name}</span>
+                        {option.price > 0 && (
+                          <span className="ml-2 text-xs text-gray-500">
+                            (<strong>{formulaOptionLockedLabel}</strong>: +{option.price.toFixed(2)}€)
+                          </span>
+                        )}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="mt-6 flex justify-end space-x-2">
+              <button onClick={() => { resetFormulaOptionModal(); resetModal(); }} className="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300">Annuler</button>
+              <button onClick={handleFormulaOptionModalSave} className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700">Valider</button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
 
 export default function AdminPage() {
   return (
-    <Suspense fallback={<div className="p-10 text-center">Chargement de l&apos;administration...</div>}>
+    <Suspense fallback={<div>Chargement de l'interface...</div>}>
       <AdminContent />
     </Suspense>
   );
