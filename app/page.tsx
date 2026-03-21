@@ -950,7 +950,7 @@ function buildRuntimeUiText(
 }
 
 interface Dish {
-  id: number;
+  id: number | string;
   name: string;
   nom?: string;
   name_fr?: string;
@@ -1014,6 +1014,7 @@ interface Dish {
   is_formula?: boolean | null;
   formula_category_ids?: Array<string | number> | null;
   only_in_formula?: boolean | null;
+  formula_id?: string | number | null;
     promo_price?: number | null;
     is_suggestion?: boolean | null;
     available_days?: string[] | string | null;
@@ -1538,6 +1539,8 @@ interface FormulaDishLink {
   defaultProductOptionIds?: string[];
   formulaName?: string;
   formulaImageUrl?: string;
+  formulaMainDishId?: string | null;
+  formulaPrice?: number | null;
 }
 
 function parseOptionsFromDescription(description?: string | null): ParsedOptions {
@@ -2348,6 +2351,9 @@ export default function MenuDigital() {
   const [formulaSourceDish, setFormulaSourceDish] = useState<Dish | null>(null);
   const [formulaLinksByFormulaId, setFormulaLinksByFormulaId] = useState<Map<string, FormulaDishLink[]>>(new Map());
   const [formulaLinksByDishId, setFormulaLinksByDishId] = useState<Map<string, FormulaDishLink[]>>(new Map());
+  const [formulaInfoById, setFormulaInfoById] = useState<
+    Map<string, { name?: string; imageUrl?: string; dishId?: string | null; price?: number | null }>
+  >(new Map());
   const [formulaSelections, setFormulaSelections] = useState<Record<string, string>>({});
   const [formulaSelectionDetails, setFormulaSelectionDetails] = useState<Record<string, FormulaSelectionDetails>>({});
   const [formulaMainDetails, setFormulaMainDetails] = useState<FormulaSelectionDetails>({
@@ -3103,16 +3109,18 @@ export default function MenuDigital() {
 
     const formulasResult = await supabase
       .from("restaurant_formulas")
-      .select("*")
-      .eq("restaurant_id", scopedRestaurantId);
+      .select("*, dish:dish_id(id,image_url,name,name_fr,price)")
+      .eq("restaurant_id", scopedRestaurantId)
+      .eq("active", true);
     if (formulasResult.error) {
       console.warn("restaurant_formulas fetch failed (menu public):", toLoggableSupabaseError(formulasResult.error));
       setFormulaLinksByFormulaId(new Map());
       setFormulaLinksByDishId(new Map());
+      setFormulaInfoById(new Map());
       return;
     }
 
-    const formulaInfoById = new Map<string, { name?: string; imageUrl?: string }>();
+    const formulaInfoByIdLocal = new Map<string, { name?: string; imageUrl?: string; dishId?: string | null; price?: number | null }>();
     const formulaIds: string[] = [];
     (formulasResult.data || []).forEach((row: unknown) => {
       if (!row || typeof row !== "object") return;
@@ -3121,10 +3129,18 @@ export default function MenuDigital() {
       if (!formulaId) return;
       const isActive = record.active == null ? true : toBooleanFlag(record.active);
       if (!isActive) return;
-      const rawImage = sanitizeMediaUrl(record.image_url ?? record.image_path ?? record.image, "dishes-images-");
-      formulaInfoById.set(formulaId, {
+      const linkedDish = record.dish || null;
+      const linkedDishId = linkedDish?.id ? String(linkedDish.id) : null;
+      const linkedDishPrice = parsePriceNumber(linkedDish?.price);
+      const rawImage = sanitizeMediaUrl(
+        record.image_url ?? record.image_path ?? record.image ?? linkedDish?.image_url,
+        "dishes-images-"
+      );
+      formulaInfoByIdLocal.set(formulaId, {
         name: String(record.name || "").trim() || undefined,
         imageUrl: rawImage || undefined,
+        dishId: linkedDishId,
+        price: Number.isFinite(parsePriceNumber(record.price)) ? parsePriceNumber(record.price) : linkedDishPrice,
       });
       formulaIds.push(formulaId);
     });
@@ -3132,6 +3148,7 @@ export default function MenuDigital() {
     if (formulaIds.length === 0) {
       setFormulaLinksByFormulaId(new Map());
       setFormulaLinksByDishId(new Map());
+      setFormulaInfoById(new Map());
       return;
     }
 
@@ -3143,6 +3160,7 @@ export default function MenuDigital() {
       console.warn("formula_steps fetch failed (menu public):", toLoggableSupabaseError(stepsResult.error));
       setFormulaLinksByFormulaId(new Map());
       setFormulaLinksByDishId(new Map());
+      setFormulaInfoById(formulaInfoByIdLocal);
       return;
     }
 
@@ -3156,7 +3174,7 @@ export default function MenuDigital() {
       const dishId = String(row.dish_id || "").trim();
       if (!formulaDishId || !dishId || !formulaIdSet.has(formulaDishId)) return;
       const sequence = normalizeFormulaStepValue(row.step_number, true);
-      const formulaInfo = formulaInfoById.get(formulaDishId);
+      const formulaInfo = formulaInfoByIdLocal.get(formulaDishId);
       const link: FormulaDishLink = {
         formulaDishId,
         dishId,
@@ -3164,6 +3182,8 @@ export default function MenuDigital() {
         step: sequence,
         formulaName: formulaInfo?.name,
         formulaImageUrl: formulaInfo?.imageUrl,
+        formulaMainDishId: formulaInfo?.dishId || null,
+        formulaPrice: formulaInfo?.price ?? null,
       };
       const formulaLinks = byFormula.get(formulaDishId) || [];
       if (!formulaLinks.some((entry) => entry.dishId === dishId)) formulaLinks.push(link);
@@ -3174,6 +3194,7 @@ export default function MenuDigital() {
     });
     setFormulaLinksByFormulaId(byFormula);
     setFormulaLinksByDishId(byDish);
+    setFormulaInfoById(formulaInfoByIdLocal);
   };
 
   const fetchData = async () => {
@@ -3793,9 +3814,42 @@ export default function MenuDigital() {
       return String(a.name_fr || "").localeCompare(String(b.name_fr || ""));
     });
   }, [categories]);
+  const formulaMenuDishes = useMemo(() => {
+    const list: Dish[] = [];
+    formulaLinksByFormulaId.forEach((links, formulaId) => {
+      if (!links || links.length === 0) return;
+      const info = formulaInfoById.get(formulaId);
+      const baseDish =
+        (info?.dishId && dishes.find((dish) => String(dish.id || "").trim() === String(info.dishId))) ||
+        dishes.find((dish) => String(dish.id || "").trim() === String(formulaId)) ||
+        null;
+      const price = parsePriceNumber(info?.price ?? (baseDish as any)?.price);
+      const imageUrl = sanitizeMediaUrl(info?.imageUrl ?? (baseDish as any)?.image_url, "dishes-images-");
+      const name =
+        info?.name ||
+        (baseDish ? getDishName(baseDish, lang) : `Formule ${String(formulaId).slice(-4)}`);
+      const display: Dish = {
+        ...(baseDish || {
+          id: formulaId,
+          name,
+          name_fr: name,
+          price,
+          category_id: FORMULAS_CATEGORY_ID,
+          category: "Formules",
+        }),
+        image_url: imageUrl || (baseDish as any)?.image_url,
+        is_formula: true,
+        formula_id: formulaId,
+      };
+      list.push(display);
+    });
+    return list;
+  }, [formulaLinksByFormulaId, formulaInfoById, dishes, lang]);
   const hasFormulaDishes = useMemo(
-    () => dishes.some((dish) => toBooleanFlag((dish as any).is_formula ?? dish.is_formula)),
-    [dishes]
+    () =>
+      dishes.some((dish) => toBooleanFlag((dish as any).is_formula ?? dish.is_formula)) ||
+      formulaMenuDishes.length > 0,
+    [dishes, formulaMenuDishes.length]
   );
   const menuCategories = useMemo(() => {
     if (!hasFormulaDishes) return sortedCategories;
@@ -4451,12 +4505,14 @@ export default function MenuDigital() {
   }, [dishes, keepSuggestionsOnTop, availabilitySnapshot]);
 
   const filteredDishes = useMemo(() => {
+    if (String(selectedCategoryId) === FORMULAS_CATEGORY_ID) {
+      return formulaMenuDishes;
+    }
     const list = (dishes || []).filter((dish) => {
       if (dish.is_available === false) return false;
       if (!isDishVisibleInMenu(dish)) return false;
       if (!isDishAvailableNow(dish)) return false;
       const isFormulaDish = toBooleanFlag((dish as any).is_formula ?? dish.is_formula);
-      if (String(selectedCategoryId) === FORMULAS_CATEGORY_ID) return isFormulaDish;
       if (!selectedCategoryId) return true;
       return String(dish.category_id) === String(selectedCategoryId);
     });
@@ -4999,6 +5055,12 @@ export default function MenuDigital() {
       const formulaInstanceId = formulaDishId
         ? `client:${String(parsedTableNumber)}:${cartIndex}:${formulaDishId}`
         : null;
+      const formulaGroupId =
+        formulaDishId && typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+          ? crypto.randomUUID()
+          : formulaDishId
+            ? `${parsedTableNumber}:${cartIndex}:${formulaDishId}:${Date.now()}`
+            : null;
       const rawExtrasPrice = (item.selectedExtras || []).reduce(
         (sum, extra) => sum + parsePriceNumber(extra.price),
         0
@@ -5127,6 +5189,8 @@ export default function MenuDigital() {
           return {
             formula_dish_id: formulaDishId,
             formula_dish_name: formulaDishName,
+            formula_group_id: formulaGroupId,
+            formula_id: formulaDishId,
             category_id: selection.categoryId || null,
             category_label: selection.categoryLabel || null,
             dish_id: selection.dishId || null,
@@ -5139,6 +5203,11 @@ export default function MenuDigital() {
             selected_option_names: Array.isArray(selection.selectedOptionNames) ? selection.selectedOptionNames : [],
             selected_option_price: Number(selection.selectedOptionPrice || 0) || 0,
             sequence,
+            sort_order: sequence != null ? sequence : null,
+            step_number: sequence != null ? sequence : null,
+            is_formula: true,
+            is_formula_child: true,
+            is_formula_parent: false,
           };
         })
         .filter(Boolean);
@@ -5180,6 +5249,8 @@ export default function MenuDigital() {
                 return {
                   dish_id: selectionDishId || String(item.dish.id || "").trim(),
                   id: selectionDishId || String(item.dish.id || "").trim(),
+                  formula_group_id: formulaGroupId,
+                  formula_id: formulaDishId,
                   category_id: selectionCategoryId,
                   destination: "bar",
                   is_drink: true,
@@ -5205,10 +5276,13 @@ export default function MenuDigital() {
                   formula_unit_price: 0,
                   formula_instance_id: formulaInstanceId,
                   is_formula_parent: false,
+                  is_formula_child: true,
                   is_formula: true,
                   formula_current_sequence: selectionStep,
                   sequence: selectionStep,
                   step: selectionStep,
+                  sort_order: selectionStep ?? null,
+                  step_number: selectionStep ?? null,
                   special_request: String(item.specialRequest || "").trim(),
                   from_recommendation: !!item.fromRecommendation,
                   status: "pending",
@@ -5227,6 +5301,8 @@ export default function MenuDigital() {
       const baseOrderItem = {
           dish_id: String(item.dish.id || "").trim(),
           id: String(item.dish.id || "").trim(),
+          formula_group_id: formulaGroupId,
+          formula_id: formulaDishId,
           category_id: item.dish.category_id ?? null,
           destination: baseDestination,
           is_drink: baseDestination === "bar" ? true : drinkItem,
@@ -5256,7 +5332,10 @@ export default function MenuDigital() {
         formula_unit_price: formulaUnitPrice,
         formula_instance_id: formulaInstanceId,
         is_formula_parent: Boolean(formulaDishId),
+        is_formula_child: false,
         is_formula: Boolean(formulaDishId),
+        sort_order: formulaDishId ? 0 : null,
+        step_number: formulaDishId ? 0 : null,
         formula_current_sequence: formulaCurrentSequence,
         sequence: formulaCurrentSequence,
         step: formulaCurrentSequence,
