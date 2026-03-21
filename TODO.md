@@ -1,10 +1,16 @@
-# Menu-QR Admin Page Fix - Vercel Build Error
+# TODO: Fix Syntax Errors in TableConfigManager.tsx
+
+**Status: 0/6 Complete**
 
 ## Plan Steps:
-- [x] **Step 1**: Diagnose parsing error (identified broken template literal in TableConfigManager.tsx)
-- [ ] **Step 2**: Apply syntax fix to close broken template literal
-- [ ] **Step 3**: Verify local build works (`npm run build`)
-- [ ] **Step 4**: Test admin page functionality
-- [ ] **Step 5**: Deploy to Vercel and confirm build success
+1. [ ] Add missing `);` after first `formulaQueryResult = await formulaQuery` (~line 3705)
+2. [ ] Delete redundant `primaryDishesQuery = primaryDishesQueryRes;` (~line 3715)
+3. [ ] Complete `String(...)` expression, remove "let linksResult..." garbage (~lines 3780-3800)  
+4. [ ] Fix `applyFormulasRows` lambda braces/indentation
+5. [ ] Consolidate duplicated `formula_dish_links` queries (use single clean version)
+6. [ ] Preserve fallbacks/error handling (42703), formulaDisplays logic
 
-**Current Progress**: 1/5 completed
+**Next:** edit_file on app/admin/TableConfigManager.tsx
+
+**Followup:** `npx next dev` → test browser console → realtime OK → attempt_completion
+

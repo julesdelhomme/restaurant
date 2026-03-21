@@ -2219,12 +2219,31 @@ const getFormulaDisplayName = (dish: DishItem) => {
   };
 
   const fetchFastEntryResources = async () => {
-    const activeRestaurantId = '58c20c3b Ascending: true });
-        
-        formulaQueryResult = await formulaQuery;
-      }
+    const currentRestaurantId = String(restaurantId || scopedRestaurantId || "").trim();
+    
+    // Clean single formula query (SIMPLIFIED - no deprecated duplication)
+    let formulaQueryResult: any = null;
+    if (currentRestaurantId) {
+      const formulaQuery = supabase
+        .from("formula_dish_links")
+        .select(`
+          formula_id,
+          formula_dish_id,
+          formula_name,
+          formula_image_url,
+          step,
+          is_main,
+          dishes:formula_dish_id(price, image_url)
+        `)
+        .eq("restaurant_id", currentRestaurantId)
+        .order("formula_id", { ascending: true })
+        .order("step", { ascending: true });
+      
+      formulaQueryResult = await formulaQuery;
+    }
 
     const categoriesBaseQuery = supabase.from("categories").select("*").order("id", { ascending: true });
+
     const dishesBaseQuery = supabase.from("dishes").select(DISH_SELECT_WITH_OPTIONS).order("id", { ascending: true });
     const sidesBaseQuery = supabase.from("sides_library").select("*").order("id", { ascending: true });
     const tablesBaseQuery = supabase.from("table_assignments").select("table_number").order("table_number", { ascending: true });
