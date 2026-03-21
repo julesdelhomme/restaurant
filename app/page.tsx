@@ -3095,53 +3095,52 @@ export default function MenuDigital() {
   }, [tableNumber]);
 
   const fetchFormulaLinksForMenu = async (sourceDishes: Dish[]) => {
-    const formulaIds = sourceDishes
-      .filter((dish) => toBooleanFlag((dish as any).is_formula ?? dish.is_formula))
-      .map((dish) => String(dish.id || "").trim())
-      .filter(Boolean);
+    if (!scopedRestaurantId) {
+      setFormulaLinksByFormulaId(new Map());
+      setFormulaLinksByDishId(new Map());
+      return;
+    }
+
+    const formulasResult = await supabase
+      .from("restaurant_formulas")
+      .select("*")
+      .eq("restaurant_id", scopedRestaurantId);
+    if (formulasResult.error) {
+      console.warn("restaurant_formulas fetch failed (menu public):", toLoggableSupabaseError(formulasResult.error));
+      setFormulaLinksByFormulaId(new Map());
+      setFormulaLinksByDishId(new Map());
+      return;
+    }
+
+    const formulaInfoById = new Map<string, { name?: string; imageUrl?: string }>();
+    const formulaIds: string[] = [];
+    (formulasResult.data || []).forEach((row: unknown) => {
+      if (!row || typeof row !== "object") return;
+      const record = row as any;
+      const formulaId = String(record.id || "").trim();
+      if (!formulaId) return;
+      const isActive = record.active == null ? true : toBooleanFlag(record.active);
+      if (!isActive) return;
+      const rawImage = sanitizeMediaUrl(record.image_url ?? record.image_path ?? record.image, "dishes-images-");
+      formulaInfoById.set(formulaId, {
+        name: String(record.name || "").trim() || undefined,
+        imageUrl: rawImage || undefined,
+      });
+      formulaIds.push(formulaId);
+    });
+
     if (formulaIds.length === 0) {
       setFormulaLinksByFormulaId(new Map());
       setFormulaLinksByDishId(new Map());
       return;
     }
 
-    let result: any = null;
-    if (scopedRestaurantId) {
-      result = await supabase
-        .from("formula_dish_links")
-        .select("formula_dish_id,dish_id,restaurant_id,sequence,step,default_product_option_ids,formula_name,formula_image_url")
-        .eq("restaurant_id", scopedRestaurantId);
-      if (result.error && String((result.error as { code?: string })?.code || "") === "42703") {
-        result = await supabase
-          .from("formula_dish_links")
-          .select("formula_dish_id,dish_id,restaurant_id,sequence,step")
-          .eq("restaurant_id", scopedRestaurantId);
-      }
-      if (result.error && String((result.error as { code?: string })?.code || "") === "42703") {
-        result = await supabase
-          .from("formula_dish_links")
-          .select("formula_dish_id,dish_id,sequence,step,default_product_option_ids,formula_name,formula_image_url");
-      }
-    } else {
-      result = await supabase
-        .from("formula_dish_links")
-        .select("formula_dish_id,dish_id,sequence,step,default_product_option_ids,formula_name,formula_image_url");
-      if (result.error && String((result.error as { code?: string })?.code || "") === "42703") {
-        result = await supabase
-          .from("formula_dish_links")
-          .select("formula_dish_id,dish_id,sequence,step");
-      }
-    }
-    if (result.error && String((result.error as { code?: string })?.code || "") === "42703") {
-      result = await supabase
-        .from("formula_dish_links")
-        .select("formula_dish_id,dish_id,sequence,step");
-    }
-    if (result.error) {
-      const code = String((result.error as { code?: string })?.code || "").trim();
-      if (code !== "42P01") {
-        console.warn("formula_dish_links fetch failed (menu public):", toLoggableSupabaseError(result.error));
-      }
+    const stepsResult = await supabase
+      .from("formula_steps")
+      .select("formula_id,dish_id,step_number,is_required")
+      .in("formula_id", formulaIds as never);
+    if (stepsResult.error) {
+      console.warn("formula_steps fetch failed (menu public):", toLoggableSupabaseError(stepsResult.error));
       setFormulaLinksByFormulaId(new Map());
       setFormulaLinksByDishId(new Map());
       return;
@@ -3150,40 +3149,21 @@ export default function MenuDigital() {
     const formulaIdSet = new Set(formulaIds);
     const byFormula = new Map<string, FormulaDishLink[]>();
     const byDish = new Map<string, FormulaDishLink[]>();
-    (result.data || []).forEach((rawRow: unknown) => {
+    (stepsResult.data || []).forEach((rawRow: unknown) => {
       if (!rawRow || typeof rawRow !== "object") return;
       const row = rawRow as any;
-      const formulaDishId = String(row.formula_dish_id || "").trim();
+      const formulaDishId = String(row.formula_id || "").trim();
       const dishId = String(row.dish_id || "").trim();
       if (!formulaDishId || !dishId || !formulaIdSet.has(formulaDishId)) return;
-      const sequence = normalizeFormulaStepValue(row.step ?? row.sequence, true);
-      const formulaName = String(row.formula_name || "").trim();
-      const formulaImageUrl = sanitizeMediaUrl(row.formula_image_url ?? row.formula_image, "dishes-images-");
-      const rawDefaultOptionIds = row.default_product_option_ids;
-      let defaultProductOptionIds: string[] = [];
-      if (Array.isArray(rawDefaultOptionIds)) {
-        defaultProductOptionIds = rawDefaultOptionIds.map((value: unknown) => String(value || "").trim()).filter(Boolean);
-      } else if (typeof rawDefaultOptionIds === "string") {
-        try {
-          const parsed = JSON.parse(rawDefaultOptionIds) as unknown;
-          if (Array.isArray(parsed)) {
-            defaultProductOptionIds = parsed.map((value: unknown) => String(value || "").trim()).filter(Boolean);
-          }
-        } catch {
-          defaultProductOptionIds = rawDefaultOptionIds
-            .split(",")
-            .map((value) => String(value || "").trim())
-            .filter(Boolean);
-        }
-      }
+      const sequence = normalizeFormulaStepValue(row.step_number, true);
+      const formulaInfo = formulaInfoById.get(formulaDishId);
       const link: FormulaDishLink = {
         formulaDishId,
         dishId,
         sequence,
         step: sequence,
-        defaultProductOptionIds: defaultProductOptionIds.length > 0 ? defaultProductOptionIds : undefined,
-        formulaName: formulaName || undefined,
-        formulaImageUrl: formulaImageUrl || undefined,
+        formulaName: formulaInfo?.name,
+        formulaImageUrl: formulaInfo?.imageUrl,
       };
       const formulaLinks = byFormula.get(formulaDishId) || [];
       if (!formulaLinks.some((entry) => entry.dishId === dishId)) formulaLinks.push(link);
@@ -4066,6 +4046,13 @@ export default function MenuDigital() {
     return map;
   }, [formulaLinksByFormulaId]);
 
+  const getFormulaDisplayName = (formula: Dish | null) => {
+    if (!formula) return "";
+    const formulaId = String(formula.id || "").trim();
+    const display = formulaDisplayById.get(formulaId);
+    return String(display?.name || "").trim() || getDishName(formula, lang);
+  };
+
   const formulaLinkedOptionsByCategory = useMemo(() => {
     const map = new Map<string, Set<string>>();
     const formulaDishId = String(formulaDish?.id || "").trim();
@@ -4120,16 +4107,17 @@ export default function MenuDigital() {
     formulaCategories.forEach((category) => {
       const categoryId = String(category.id || "").trim();
       const linkedIds = formulaLinkedOptionsByCategory.get(categoryId);
-      const restrictToLinked = linkedIds != null && linkedIds.size > 0;
+      if (!linkedIds || linkedIds.size === 0) {
+        map.set(categoryId, []);
+        return;
+      }
       const options = dishes
         .filter((dish) => String(dish.category_id) === categoryId)
         .filter((dish) => dish.is_available !== false)
         .filter((dish) => isDishAvailableNow(dish))
         .filter((dish) => !toBooleanFlag((dish as any).is_formula))
         .filter((dish) => String(dish.id) !== String(formulaDish?.id || ""));
-      const filteredOptions = restrictToLinked
-        ? options.filter((dish) => linkedIds?.has(String(dish.id || "").trim()))
-        : options;
+      const filteredOptions = options.filter((dish) => linkedIds.has(String(dish.id || "").trim()));
       const sourceDishId = String(formulaSourceDish?.id || "").trim();
       const sourceCategoryId = String(formulaSourceDish?.category_id || "").trim();
       if (sourceDishId && sourceCategoryId === categoryId) {
@@ -6815,7 +6803,7 @@ export default function MenuDigital() {
               </div>
             </div>
             <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-28 pt-4 sm:pb-6">
-              <h2 className="text-2xl font-black text-black mb-1">{getDishName(formulaDish, lang)}</h2>
+              <h2 className="text-2xl font-black text-black mb-1">{getFormulaDisplayName(formulaDish)}</h2>
               <div className="text-base font-black inline-flex items-center gap-1 mb-4">
                 {Number(getFormulaPackPrice(formulaDish) || 0).toFixed(2)}
                 <Euro size={16} />
@@ -7276,7 +7264,7 @@ export default function MenuDigital() {
                     specialRequest: "",
                     formulaSelections: selections,
                     formulaDishId: String(formulaDish.id || "").trim() || undefined,
-                    formulaDishName: getDishName(formulaDish, lang),
+                    formulaDishName: getFormulaDisplayName(formulaDish),
                     formulaUnitPrice: getFormulaPackPrice(formulaDish),
                   });
                   setFormulaDish(null);
@@ -7358,7 +7346,7 @@ export default function MenuDigital() {
                         >
                           <div className="text-[11px] uppercase tracking-wide text-black/70">{viewFormulaLabel}</div>
                           <div className="text-base">
-                            {getDishName(formula, lang)} - {getFormulaPackPrice(formula).toFixed(2)} &euro;
+                            {getFormulaDisplayName(formula)} - {getFormulaPackPrice(formula).toFixed(2)} &euro;
                           </div>
                         </button>
                       );

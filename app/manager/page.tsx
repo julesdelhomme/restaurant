@@ -3034,7 +3034,7 @@ export default function MenuManager() {
 
     const formulasResult = await supabase
       .from("restaurant_formulas")
-      .select("id,name,price,active")
+      .select("*")
       .eq("restaurant_id", scopedRestaurantId);
     if (formulasResult.error) {
       console.warn("restaurant_formulas fetch failed:", toLoggableSupabaseError(formulasResult.error));
@@ -3054,9 +3054,10 @@ export default function MenuManager() {
       const formulaId = String(record.id || "").trim();
       if (!formulaId) return;
       formulaIds.push(formulaId);
+      const rawImage = String(record.image_url ?? record.image_path ?? record.image ?? "").trim();
       displayByFormula.set(formulaId, {
         name: String(record.name || "").trim(),
-        imageUrl: "",
+        imageUrl: rawImage,
         price: record.price == null ? null : Number(record.price),
       });
     });
@@ -5033,16 +5034,30 @@ export default function MenuManager() {
         const formulaTableMigrationHint = " Vérifiez la table restaurant_formulas.";
         if (formData.is_formula) {
           const formulaNameToPersist = String(formData.formula_name || formData.name_fr || "").trim();
-          const formulaPayload = {
+          const formulaImageUrlToPersist = String(formData.formula_image_url || "").trim();
+          const baseFormulaPayload: Record<string, unknown> = {
             id: savedDishIdRaw,
             restaurant_id: scopedRestaurantId,
             name: formulaNameToPersist || String(formData.name_fr || "").trim() || null,
             price: parsedFormulaPrice == null ? null : Number(parsedFormulaPrice),
             active: true,
+            image_url: formulaImageUrlToPersist || null,
+            image_path: formulaImageUrlToPersist || null,
           };
-          const upsertFormulaResult = await supabase
+          let formulaPayload = { ...baseFormulaPayload };
+          let upsertFormulaResult = await supabase
             .from("restaurant_formulas")
             .upsert(formulaPayload as never, { onConflict: "id" });
+          const optionalFormulaColumns = ["image_url", "image_path"];
+          for (const column of optionalFormulaColumns) {
+            if (!upsertFormulaResult.error || !hasMissingColumnError(upsertFormulaResult.error, column)) continue;
+            const trimmedPayload = { ...formulaPayload };
+            delete (trimmedPayload as Record<string, unknown>)[column];
+            formulaPayload = trimmedPayload;
+            upsertFormulaResult = await supabase
+              .from("restaurant_formulas")
+              .upsert(formulaPayload as never, { onConflict: "id" });
+          }
           if (upsertFormulaResult.error) {
             console.warn("Erreur sauvegarde restaurant_formulas:", upsertFormulaResult.error.message);
             if (String((upsertFormulaResult.error as { code?: string })?.code || "") === "42P01") {
