@@ -3816,18 +3816,14 @@ export default function MenuDigital() {
   }, [categories]);
   const formulaMenuDishes = useMemo(() => {
     const list: Dish[] = [];
-    formulaLinksByFormulaId.forEach((links, formulaId) => {
-      if (!links || links.length === 0) return;
-      const info = formulaInfoById.get(formulaId);
+    formulaInfoById.forEach((info, formulaId) => {
       const baseDish =
         (info?.dishId && dishes.find((dish) => String(dish.id || "").trim() === String(info.dishId))) ||
         dishes.find((dish) => String(dish.id || "").trim() === String(formulaId)) ||
         null;
       const price = parsePriceNumber(info?.price ?? (baseDish as any)?.price);
       const imageUrl = sanitizeMediaUrl(info?.imageUrl ?? (baseDish as any)?.image_url, "dishes-images-");
-      const name =
-        info?.name ||
-        (baseDish ? getDishName(baseDish, lang) : `Formule ${String(formulaId).slice(-4)}`);
+      const name = info?.name || (baseDish ? getDishName(baseDish, lang) : `Formule ${String(formulaId).slice(-4)}`);
       const display: Dish = {
         ...(baseDish || {
           id: formulaId,
@@ -3835,8 +3831,11 @@ export default function MenuDigital() {
           name_fr: name,
           price,
           category_id: FORMULAS_CATEGORY_ID,
-          category: "Formules",
         }),
+        name_fr: (baseDish as any)?.name_fr ?? name,
+        name: (baseDish as any)?.name ?? name,
+        price,
+        category_id: FORMULAS_CATEGORY_ID,
         image_url: imageUrl || (baseDish as any)?.image_url,
         is_formula: true,
         formula_id: formulaId,
@@ -3844,7 +3843,7 @@ export default function MenuDigital() {
       list.push(display);
     });
     return list;
-  }, [formulaLinksByFormulaId, formulaInfoById, dishes, lang]);
+  }, [formulaInfoById, dishes, lang]);
   const hasFormulaDishes = useMemo(
     () =>
       dishes.some((dish) => toBooleanFlag((dish as any).is_formula ?? dish.is_formula)) ||
