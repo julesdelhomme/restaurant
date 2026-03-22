@@ -5038,43 +5038,90 @@ export default function MenuDigital() {
   };
 
   async function handleSubmitOrder() {
-    console.log("Tentative de commande...", cart);
-    if (isInteractionDisabled) return;
-    if (!tableNumber) {
-      alert(tt("table_required"));
-      return;
-    }
-    if (!typedValidationCode) {
-      alert(tableValidationPromptMessage);
-      return;
-    }
-    if (!isValidationCodeValid) {
-      alert(tt("validation_code_invalid"));
-      return;
-    }
-    if (cart.length === 0) {
-      alert(tt("empty_cart_error"));
-      return;
-    }
-    const missingSide = cart.find(
-      (item) => item?.dish?.has_sides && (!item.selectedSides || item.selectedSides.length === 0)
-    );
-    if (missingSide) {
-      alert(tt("side_required_error"));
-      return;
-    }
-    const missingCooking = cart.find(
-      (item) => item?.dish?.ask_cooking && !(item.selectedCooking && item.selectedCooking.trim())
-    );
-    if (missingCooking) {
-      alert(tt("cooking_required_error"));
-      return;
-    }
-    const parsedTableNumber = Number(String(tableNumber || "").trim());
-    if (!Number.isFinite(parsedTableNumber) || parsedTableNumber <= 0) {
-      alert(tt("table_invalid"));
-      return;
-    }
+  console.log("Démarrage envoi groupé...", cart);
+
+  // 1. Déclarations de sécurité pour éviter les erreurs "Cannot find name"
+  const parsedTableNumber = Number(String(tableNumber || "").trim());
+  const currentRestoId = (restaurant as any)?.id || "58c20c3b-9cea-4c9a-9f89-9a0d4068890c";
+
+  if (!parsedTableNumber) return alert("Table invalide");
+  if (cart.length === 0) return alert("Panier vide");
+
+  try {
+    // TABLEAU UNIQUE : On va tout mettre dedans avant d'envoyer
+    const finalPayload: any[] = [];
+
+    cart.forEach((item: any) => {
+      const formulaGroupId = crypto.randomUUID();
+
+      if (item.is_formula) {
+        // A. On ajoute le PLAT PRINCIPAL (L'item parent)
+        finalPayload.push({
+          restaurant_id: currentRestoId,
+          table_number: parsedTableNumber,
+          dish_id: item.id,
+          name_fr: item.dish?.name_fr || item.name_fr, // On prend le nom du plat, pas "Formule"
+          quantity: item.quantity || 1,
+          price: item.formula_price || item.price,
+          status: 'preparing', // Le parent est tjs en préparation
+          sort_order: 0,
+          step_number: 0,
+          formula_group_id: formulaGroupId,
+          is_formula_parent: true,
+          notes: item.selected_cooking ? `Cuisson: ${item.selected_cooking}` : ""
+        });
+
+        // B. On ajoute les ACCOMPAGNEMENTS / DESSERTS (Les enfants)
+        if (item.selected_formula_items && Array.isArray(item.selected_formula_items)) {
+          item.selected_formula_items.forEach((child: any, idx: number) => {
+            finalPayload.push({
+              restaurant_id: currentRestoId,
+              table_number: parsedTableNumber,
+              dish_id: child.id,
+              name_fr: child.name_fr,
+              quantity: 1,
+              price: 0, // Gratuit car inclus dans la formule
+              status: 'waiting', // LES SUITES SONT EN ATTENTE
+              sort_order: idx + 1,
+              step_number: idx + 1,
+              formula_group_id: formulaGroupId,
+              is_formula_child: true
+            });
+          });
+        }
+      } else {
+        // C. CAS D'UN PLAT NORMAL (HORS FORMULE)
+        finalPayload.push({
+          restaurant_id: currentRestoId,
+          table_number: parsedTableNumber,
+          dish_id: item.id,
+          name_fr: item.name_fr,
+          quantity: item.quantity,
+          price: item.price,
+          status: 'preparing',
+          sort_order: 0,
+          step_number: 0
+        });
+      }
+    });
+
+    console.log("PAYLOAD FINAL :", finalPayload);
+
+    // UN SEUL INSERT : C'est ça qui garantit l'ordre
+    const { error } = await (supabase as any)
+      .from('orders')
+      .insert(finalPayload);
+
+    if (error) throw error;
+
+    alert("Commande réussie !");
+    setCart([]); // On vide le panier
+   if (typeof (setOrderValidationCodeInput as any) === 'function') setOrderValidationCodeInput("");
+
+  } catch (err: any) {
+    console.error("Erreur fatale envoi :", err);
+    alert("Erreur : " + err.message);
+  }
 
     const orderItems = cart.flatMap((item, cartIndex) => {
       const formulaDishId = String(item.formulaDishId || "").trim() || null;
