@@ -5283,9 +5283,8 @@ export default function MenuDigital() {
         hasDirectFormulaSelections && hasNonDirectFormulaSelections
           ? sortedFormulaSelections
               .filter((selection) => isDirectFormulaStep(selection.sequence))
-              .map((selection) => {
-                const idx = sortedFormulaSelections.indexOf(selection);
-                const selectionStep = idx + 1;
+              .map((selection, directIdx) => {
+                const selectionStep = directIdx + 1;
                 const selectionDishId = String(selection.dishId || "").trim();
                 const selectionDish = selectionDishId ? dishById.get(selectionDishId) : null;
                 const selectionCategoryId = selectionDish?.category_id ?? selection.categoryId ?? null;
@@ -5341,11 +5340,11 @@ export default function MenuDigital() {
                   formula_current_sequence: selectionStep,
                   sequence: selectionStep,
                   step: selectionStep,
-                  sort_order: selectionStep,
-                  step_number: selectionStep,
+                  sort_order: directIdx + 1,
+                  step_number: directIdx + 1,
                   special_request: String(item.specialRequest || "").trim(),
                   from_recommendation: !!item.fromRecommendation,
-                  status: "pending",
+                  status: "waiting",
                 };
               })
               .filter(Boolean)
