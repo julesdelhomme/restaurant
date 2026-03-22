@@ -5040,8 +5040,9 @@ export default function MenuDigital() {
     }
   };
 
-  async function handleSubmitOrder() {
-    console.log("Tentative de commande...", cart);
+async function handleSubmitOrder() {
+  const restaurantIdForPayload = String(scopedRestaurantId || '').trim() || null;
+  console.log("Tentative de commande...", cart);
     if (isInteractionDisabled) return;
     if (!tableNumber) {
       alert(tt("table_required"));
