@@ -1813,12 +1813,13 @@ export default function KitchenPage() {
         return item;
       });
       const nextStatus = deriveOrderStatusFromItems(nextItems);
-      const persistedServiceStep = resolveServiceStepFromCurrentStep(persistedCurrentStep);
+      const nextCurrentStep = persistedCurrentStep + 1;
+      const nextServiceStep = resolveServiceStepFromCurrentStep(nextCurrentStep);
       const orderUpdatePayload = {
         items: nextItems,
         status: nextStatus,
-        service_step: persistedServiceStep,
-        current_step: persistedCurrentStep,
+        service_step: nextServiceStep,
+        current_step: nextCurrentStep,
       };
 
       let updateResult = await supabase
@@ -1849,8 +1850,8 @@ export default function KitchenPage() {
             ...order,
             items: nextItems,
             status: nextStatus,
-            service_step: persistedServiceStep,
-            current_step: persistedCurrentStep,
+            service_step: nextServiceStep,
+            current_step: nextCurrentStep,
           };
         })
       );

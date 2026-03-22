@@ -3185,15 +3185,20 @@ export default function MenuDigital() {
       const dishId = String(row.dish_id || "").trim();
       if (!formulaDishId || !dishId || !formulaIdSet.has(formulaDishId)) return;
       const sequence = normalizeFormulaStepValue(row.step_number, true);
-      const formulaInfo = formulaInfoByIdLocal.get(formulaDishId);
       const linkedDish = sourceDishes.find((d) => String(d.id) === dishId);
       const categoryId = linkedDish ? String(linkedDish.category_id || "").trim() : null;
+      const formulaInfo = formulaInfoByIdLocal.get(formulaDishId);
+      const formulaDish = sourceDishes.find((d) => String(d.id) === formulaDishId);
+      const defaultOptions = formulaDish && (formulaDish as any).formula_default_option_ids
+        ? ((formulaDish as any).formula_default_option_ids as any)[dishId] || []
+        : [];
       const link: FormulaDishLink = {
         formulaDishId,
         dishId,
         categoryId,
         sequence,
         step: sequence,
+        defaultProductOptionIds: Array.isArray(defaultOptions) ? defaultOptions : [],
         formulaName: formulaInfo?.name,
         formulaImageUrl: formulaInfo?.imageUrl,
         formulaMainDishId: formulaInfo?.dishId || null,
@@ -3518,7 +3523,7 @@ export default function MenuDigital() {
       {
         label: "dishes-rich-select+active+category",
         selectClause:
-          "*, is_chef_suggestion, is_suggestion, is_daily_special, suggestion_message_fr, suggestion_message_en, suggestion_message_es, suggestion_message_de",
+          "*, is_chef_suggestion, is_suggestion, is_daily_special, suggestion_message_fr, suggestion_message_en, suggestion_message_es, suggestion_message_de, formula_default_option_ids",
         filterActive: true,
         orderByCategory: true,
         withScope: Boolean(scopedRestaurantId),
@@ -3527,7 +3532,7 @@ export default function MenuDigital() {
       {
         label: "dishes-rich-select+active+category(retry-2)",
         selectClause:
-          "*, is_chef_suggestion, is_suggestion, is_daily_special, suggestion_message_fr, suggestion_message_en, suggestion_message_es, suggestion_message_de",
+          "*, is_chef_suggestion, is_suggestion, is_daily_special, suggestion_message_fr, suggestion_message_en, suggestion_message_es, suggestion_message_de, formula_default_option_ids",
         filterActive: true,
         orderByCategory: true,
         withScope: Boolean(scopedRestaurantId),
@@ -4562,10 +4567,8 @@ export default function MenuDigital() {
     };
     const sorted = [...filteredVisible].sort(selectedCategoryId ? sortByName : sortByCategoryAndName);
     if (keepSuggestionsOnTop) {
-      const suggestionIds = new Set(
-        suggestionPinnedDishes.map((dish) => String(dish.id))
-      );
-      return sorted.filter((dish) => !suggestionIds.has(String(dish.id)));
+      // Les suggestions restent visibles dans leur catégorie
+      return sorted;
     }
     return sorted;
   }, [
@@ -5365,7 +5368,10 @@ export default function MenuDigital() {
             return { ...(entry as Record<string, unknown>), source: "formula", sequence: baseSequence };
           })
         : selectedOptionsPayload;
-      const baseStatus = formulaDishId ? "preparing" : "pending";
+      const parentSequence = formulaDishId && (item.dish as any).formula_sequence_by_dish
+        ? Number((item.dish as any).formula_sequence_by_dish[formulaDishId]) || 1
+        : 1;
+      const baseStatus = formulaDishId ? (parentSequence === 1 ? "preparing" : "waiting") : "pending";
       const baseOptionEntries = selectedOptionsPayloadWithSequence.filter((entry) => {
         if (String(entry.kind || "").trim() !== "option") return false;
         if (!formulaDishId) return true;
@@ -5411,8 +5417,8 @@ export default function MenuDigital() {
         is_formula_parent: Boolean(formulaDishId),
         is_formula_child: false,
         is_formula: Boolean(formulaDishId),
-        sort_order: formulaDishId ? 1 : null,
-        step_number: formulaDishId ? 1 : null,
+        sort_order: formulaDishId ? parentSequence : null,
+        step_number: formulaDishId ? parentSequence : null,
         formula_current_sequence: formulaCurrentSequence,
         sequence: formulaCurrentSequence,
         step: formulaCurrentSequence,
@@ -5503,6 +5509,7 @@ export default function MenuDigital() {
         name_fr: item.name_fr,
         sort_order: item.sort_order,
         step_number: item.step_number,
+        destination: item.destination,
         is_formula_parent: item.is_formula_parent,
         is_formula_child: item.is_formula_child
       })));
