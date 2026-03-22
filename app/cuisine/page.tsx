@@ -1588,7 +1588,8 @@ export default function KitchenPage() {
         .select("*")
         .eq("restaurant_id", restaurantId)
         .gt("created_at", sinceIso)
-        .order("created_at", { ascending: true });
+        .order("created_at", { ascending: true })
+        .order("id", { ascending: true });
       const { data: rawOrders, error } = ordersResult;
 
       if (error) {

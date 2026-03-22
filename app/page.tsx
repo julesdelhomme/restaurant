@@ -3927,7 +3927,9 @@ export default function MenuDigital() {
     const dishRecord = dish as unknown as any;
     const onlyInFormula = toBooleanFlag(dishRecord.only_in_formula ?? dish.only_in_formula);
     const isFormulaDish = toBooleanFlag(dishRecord.is_formula ?? dish.is_formula);
-    if (onlyInFormula && !isFormulaDish) return false;
+    // Les plats only_in_formula peuvent être affichés dans la carte normale
+    // seulement s'ils ne sont pas des plats de formule eux-mêmes
+    if (onlyInFormula && isFormulaDish) return false;
     return true;
   };
 
@@ -5384,7 +5386,13 @@ export default function MenuDigital() {
           destination: baseDestination,
           is_drink: baseDestination === "bar" ? true : drinkItem,
           name_fr: String(item.dish.name_fr || item.dish.name || item.dish.nom || "").trim() || "Plat",
-          description_fr: String(item.dish.description_fr || item.dish.description || "").trim() || null,
+          description_fr: formulaDishId && sortedFormulaSelections.length > 0
+            ? (() => {
+                const firstSelection = sortedFormulaSelections[0];
+                const dish = firstSelection?.dishId ? dishById.get(String(firstSelection.dishId)) : null;
+                return dish ? String(dish.description_fr || dish.description || "").trim() || null : null;
+              })()
+            : String(item.dish.description_fr || item.dish.description || "").trim() || null,
         quantity: item.quantity,
         price: unitPrice + extrasPrice,
         selected_option_id: selectedOptionIds.length > 0 ? selectedOptionIds.join(",") : null,
@@ -5453,16 +5461,34 @@ export default function MenuDigital() {
 
       const finalPayload = [...kitchenItems, ...barItems];
       const resolvedRestaurantId = restaurant?.id ?? SETTINGS_ROW_ID;
-      
+
       const finalCurrentStep = finalPayload.length > 0
         ? resolveInitialCurrentStepFromOrderItems(finalPayload as Array<Record<string, unknown>>)
         : 1;
-      
+
       const finalTotalPrice = finalPayload.reduce(
         (sum, item) => sum + Number(item.price || 0) * Number(item.quantity || 1),
         0
       );
-      
+
+      // DEBUG: Log détaillé des items avant envoi
+      console.log("DEBUG_ORDRE - Items cuisine:", kitchenItems.map(item => ({
+        name: item.name_fr,
+        sort_order: item.sort_order,
+        step_number: item.step_number,
+        status: item.status,
+        is_formula_parent: item.is_formula_parent,
+        is_formula_child: item.is_formula_child
+      })));
+      console.log("DEBUG_ORDRE - Items bar:", barItems.map(item => ({
+        name: item.name_fr,
+        sort_order: item.sort_order,
+        step_number: item.step_number,
+        status: item.status,
+        is_formula_parent: item.is_formula_parent,
+        is_formula_child: item.is_formula_child
+      })));
+
       const newOrder = {
         table_number: String(parsedTableNumber),
         items: finalPayload,
@@ -5472,7 +5498,7 @@ export default function MenuDigital() {
         service_step: resolveLegacyServiceStepFromCurrentStep(finalCurrentStep || 1),
         current_step: finalCurrentStep > 0 ? finalCurrentStep : 1,
       };
-      
+
       console.log("DonnÃ©es envoyÃ©es (groupÃ©es):", newOrder);
       const { error } = await supabase.from("orders").insert([newOrder as any]);
       if (error) {
@@ -7528,7 +7554,9 @@ const allergens = String((info as any)?.allergens || "").trim();
                     </button>
                   ) : null}
                   <div className="flex flex-col gap-2">
-                    {selectedDishLinkedFormulas.map((formula) => {
+                    {selectedDishLinkedFormulas
+                      .filter((formula) => formula.id !== selectedFormulaButtonDish?.id)
+                      .map((formula) => {
                       const formulaId = String(formula.id || "").trim();
                       if (!formulaId) return null;
                       return (
