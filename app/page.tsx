@@ -3926,10 +3926,8 @@ export default function MenuDigital() {
   const isDishVisibleInMenu = (dish: Dish) => {
     const dishRecord = dish as unknown as any;
     const onlyInFormula = toBooleanFlag(dishRecord.only_in_formula ?? dish.only_in_formula);
-    const isFormulaDish = toBooleanFlag(dishRecord.is_formula ?? dish.is_formula);
-    // Les plats only_in_formula peuvent être affichés dans la carte normale
-    // seulement s'ils ne sont pas des plats de formule eux-mêmes
-    if (onlyInFormula && isFormulaDish) return false;
+    // Les plats only_in_formula ne sont affichés que dans les formules
+    if (onlyInFormula) return false;
     return true;
   };
 
@@ -5316,7 +5314,7 @@ export default function MenuDigital() {
                   destination: "bar",
                   is_drink: true,
                   name_fr: selectionDishLabel,
-                  description_fr: null,
+                  description_fr: selectionDish ? String(selectionDish.description_fr || selectionDish.description || "").trim() || null : null,
                   quantity: item.quantity,
                   price: 0,
                   selected_option_id: selectionOptionIds.length > 0 ? selectionOptionIds.join(",") : null,
@@ -5386,13 +5384,7 @@ export default function MenuDigital() {
           destination: baseDestination,
           is_drink: baseDestination === "bar" ? true : drinkItem,
           name_fr: String(item.dish.name_fr || item.dish.name || item.dish.nom || "").trim() || "Plat",
-          description_fr: formulaDishId && sortedFormulaSelections.length > 0
-            ? (() => {
-                const firstSelection = sortedFormulaSelections[0];
-                const dish = firstSelection?.dishId ? dishById.get(String(firstSelection.dishId)) : null;
-                return dish ? String(dish.description_fr || dish.description || "").trim() || null : null;
-              })()
-            : String(item.dish.description_fr || item.dish.description || "").trim() || null,
+          description_fr: String(item.dish.description_fr || item.dish.description || "").trim() || null,
         quantity: item.quantity,
         price: unitPrice + extrasPrice,
         selected_option_id: selectedOptionIds.length > 0 ? selectedOptionIds.join(",") : null,
@@ -5471,6 +5463,13 @@ export default function MenuDigital() {
         0
       );
 
+      // Trier les items par sort_order croissant pour corriger l'ordre des étapes
+      finalPayload.sort((a, b) => {
+        const aOrder = Number(a.sort_order || a.step_number || 0);
+        const bOrder = Number(b.sort_order || b.step_number || 0);
+        return aOrder - bOrder;
+      });
+
       // DEBUG: Log détaillé des items avant envoi
       console.log("DEBUG_ORDRE - Items cuisine:", kitchenItems.map(item => ({
         name: item.name_fr,
@@ -5499,7 +5498,15 @@ export default function MenuDigital() {
         current_step: finalCurrentStep > 0 ? finalCurrentStep : 1,
       };
 
-      console.log("DonnÃ©es envoyÃ©es (groupÃ©es):", newOrder);
+      console.table(finalPayload.map(item => ({
+        id: item.id,
+        name_fr: item.name_fr,
+        sort_order: item.sort_order,
+        step_number: item.step_number,
+        is_formula_parent: item.is_formula_parent,
+        is_formula_child: item.is_formula_child
+      })));
+
       const { error } = await supabase.from("orders").insert([newOrder as any]);
       if (error) {
         console.log("DÃ©tails erreur commande:", JSON.stringify(error, null, 2));
@@ -7553,27 +7560,6 @@ const allergens = String((info as any)?.allergens || "").trim();
                       {viewFormulaLabel} ({getFormulaPackPrice(selectedFormulaButtonDish).toFixed(2)} &euro;)
                     </button>
                   ) : null}
-                  <div className="flex flex-col gap-2">
-                    {selectedDishLinkedFormulas
-                      .filter((formula) => formula.id !== selectedFormulaButtonDish?.id)
-                      .map((formula) => {
-                      const formulaId = String(formula.id || "").trim();
-                      if (!formulaId) return null;
-                      return (
-                        <button
-                          key={`dish-upsell-formula-${formulaId}`}
-                          type="button"
-                          onClick={() => openFormulaModal(formula, selectedDish)}
-                          className="w-full text-left px-3 py-3 rounded-lg border-2 border-black bg-white font-black text-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]"
-                        >
-                          <div className="text-[11px] uppercase tracking-wide text-black/70">{viewFormulaLabel}</div>
-                          <div className="text-base">
-                            {getFormulaDisplayName(formula)} - {getFormulaPackPrice(formula).toFixed(2)} &euro;
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
                 </div>
               ) : null}
               {(() => {
