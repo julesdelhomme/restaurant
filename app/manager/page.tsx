@@ -4869,6 +4869,8 @@ export default function MenuManager() {
       formula_category_ids: formData.is_formula ? normalizedFormulaCategoryIds : null,
       formula_price: formData.is_formula ? (parsedFormulaPrice == null ? null : Number(parsedFormulaPrice)) : null,
       only_in_formula: !!formData.only_in_formula,
+      formula_default_option_ids: formData.formula_default_option_ids || {},
+      formula_sequence_by_dish: formData.formula_sequence_by_dish || {},
       is_promo: !!formData.is_promo,
       promo_price: formData.is_promo ? (parsedPromoPrice == null ? null : Number(parsedPromoPrice)) : null,
       is_featured: unifiedSuggestionFlag,

@@ -3523,7 +3523,7 @@ export default function MenuDigital() {
       {
         label: "dishes-rich-select+active+category",
         selectClause:
-          "*, is_chef_suggestion, is_suggestion, is_daily_special, suggestion_message_fr, suggestion_message_en, suggestion_message_es, suggestion_message_de, formula_default_option_ids",
+          "*, is_chef_suggestion, is_suggestion, is_daily_special, suggestion_message_fr, suggestion_message_en, suggestion_message_es, suggestion_message_de, formula_default_option_ids, formula_sequence_by_dish",
         filterActive: true,
         orderByCategory: true,
         withScope: Boolean(scopedRestaurantId),
@@ -3532,7 +3532,7 @@ export default function MenuDigital() {
       {
         label: "dishes-rich-select+active+category(retry-2)",
         selectClause:
-          "*, is_chef_suggestion, is_suggestion, is_daily_special, suggestion_message_fr, suggestion_message_en, suggestion_message_es, suggestion_message_de, formula_default_option_ids",
+          "*, is_chef_suggestion, is_suggestion, is_daily_special, suggestion_message_fr, suggestion_message_en, suggestion_message_es, suggestion_message_de, formula_default_option_ids, formula_sequence_by_dish",
         filterActive: true,
         orderByCategory: true,
         withScope: Boolean(scopedRestaurantId),
@@ -4554,8 +4554,8 @@ export default function MenuDigital() {
     const isSuggestionDish = (dish: Dish) =>
       Boolean(dish.is_suggestion || dish.is_chef_suggestion || dish.is_featured);
     const filteredVisible =
-      selectedCategoryId && !keepSuggestionsOnTop && String(selectedCategoryId) !== FORMULAS_CATEGORY_ID
-        ? filteredBySub.filter((dish) => !isSuggestionDish(dish))
+      selectedCategoryId && String(selectedCategoryId) !== FORMULAS_CATEGORY_ID
+        ? filteredBySub.filter((dish) => !dish.only_in_formula)
         : filteredBySub;
     const sortByName = (a: Dish, b: Dish) =>
       String(a.name_fr || a.name || "").localeCompare(String(b.name_fr || b.name || ""));
@@ -5188,6 +5188,7 @@ export default function MenuDigital() {
         Number.isFinite(formulaUnitPriceRaw) && formulaUnitPriceRaw > 0 ? formulaUnitPriceRaw : null;
       const formulaSelections = Array.isArray(item.formulaSelections) ? item.formulaSelections : [];
       const sortedFormulaSelections = [...formulaSelections].sort((a, b) => (a.sequence || 0) - (b.sequence || 0));
+      console.log(`FORMULA SELECTIONS for ${formulaDishId}:`, sortedFormulaSelections.map(s => ({ id: s.dishId, name: s.dishName, seq: s.sequence })));
       if (sortedFormulaSelections.length > 0) {
         sortedFormulaSelections.forEach((selection, idx) => {
           if (!selection?.dishId) return;
@@ -5249,6 +5250,7 @@ export default function MenuDigital() {
           if (!selection?.dishId) return null;
           const sequence = idx + 2;
           const childDish = dishById.get(String(selection.dishId));
+          console.log(`FORMULA CHILD: ${selection.dishId} (${selection.dishName}) sequence ${sequence}`);
           return {
             formula_dish_id: formulaDishId,
             formula_dish_name: formulaDishName,
@@ -5275,6 +5277,7 @@ export default function MenuDigital() {
           };
         })
         .filter(Boolean);
+      console.log(`FORMULA ITEMS PAYLOAD for ${formulaDishId}:`, formulaItemsPayload.map(item => item!.dish_id));
       const formulaSequenceValues = sortedFormulaSelections
         .map((selection) => Number(selection.sequence))
         .filter((value) => Number.isFinite(value) && value > 0)
@@ -5373,7 +5376,10 @@ export default function MenuDigital() {
       const parentSequence = formulaDishId && (item.dish as any).formula_sequence_by_dish
         ? Number((item.dish as any).formula_sequence_by_dish[formulaDishId]) || 1
         : 1;
-      console.log(`DEBUG: Formula ${formulaDishId} parent sequence: ${parentSequence}`);
+      const dishSequenceData = formulaDishId && (item.dish as any).formula_sequence_by_dish
+        ? (item.dish as any).formula_sequence_by_dish[formulaDishId]
+        : undefined;
+      console.log(`DEBUG: Formula ${formulaDishId} parent sequence: ${parentSequence} (from dish data: ${dishSequenceData})`);
       const baseStatus = formulaDishId ? (parentSequence === 1 ? "preparing" : "waiting") : "pending";
       const baseOptionEntries = selectedOptionsPayloadWithSequence.filter((entry) => {
         if (String(entry.kind || "").trim() !== "option") return false;
