@@ -5248,6 +5248,7 @@ export default function MenuDigital() {
         .map((selection, idx) => {
           if (!selection?.dishId) return null;
           const sequence = idx + 2;
+          const childDish = dishById.get(String(selection.dishId));
           return {
             formula_dish_id: formulaDishId,
             formula_dish_name: formulaDishName,
@@ -5258,6 +5259,7 @@ export default function MenuDigital() {
             dish_id: selection.dishId || null,
             dish_name: selection.dishName || selection.dishNameFr || null,
             dish_name_fr: selection.dishNameFr || selection.dishName || null,
+            description_fr: childDish ? String(childDish.description_fr || childDish.description || "").trim() || null : null,
             selected_side_ids: Array.isArray(selection.selectedSideIds) ? selection.selectedSideIds : [],
             selected_sides: Array.isArray(selection.selectedSides) ? selection.selectedSides : [],
             selected_cooking: String(selection.selectedCooking || "").trim() || null,
@@ -5371,6 +5373,7 @@ export default function MenuDigital() {
       const parentSequence = formulaDishId && (item.dish as any).formula_sequence_by_dish
         ? Number((item.dish as any).formula_sequence_by_dish[formulaDishId]) || 1
         : 1;
+      console.log(`DEBUG: Formula ${formulaDishId} parent sequence: ${parentSequence}`);
       const baseStatus = formulaDishId ? (parentSequence === 1 ? "preparing" : "waiting") : "pending";
       const baseOptionEntries = selectedOptionsPayloadWithSequence.filter((entry) => {
         if (String(entry.kind || "").trim() !== "option") return false;
@@ -5510,6 +5513,7 @@ export default function MenuDigital() {
         sort_order: item.sort_order,
         step_number: item.step_number,
         destination: item.destination,
+        description_fr: item.description_fr,
         is_formula_parent: item.is_formula_parent,
         is_formula_child: item.is_formula_child
       })));

@@ -1805,6 +1805,7 @@ export default function KitchenPage() {
       const currentStep = resolveOrderCurrentStep(targetOrder, kitchenItems as Item[]);
       const persistedCurrentStep = Number.isFinite(currentStep) && Number(currentStep) > 0 ? Number(currentStep) : 1;
       const nextItems = currentItems.map((item) => {
+        console.log(`DEBUG Cuisine: Item ${item.name_fr}, destination: ${(item as any).destination}, step: ${resolveItemStepRank(item)}, currentStep: ${persistedCurrentStep}, isKitchen: ${isKitchenCourse(item)}`);
         if (!isKitchenCourse(item)) return item;
         const matchesCurrentStep = resolveItemStepRank(item) === persistedCurrentStep;
         if (matchesCurrentStep) {
