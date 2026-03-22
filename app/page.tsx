@@ -5038,90 +5038,43 @@ export default function MenuDigital() {
   };
 
   async function handleSubmitOrder() {
-  console.log("Démarrage envoi groupé...", cart);
-
-  // 1. Déclarations de sécurité pour éviter les erreurs "Cannot find name"
-  const parsedTableNumber = Number(String(tableNumber || "").trim());
-  const currentRestoId = (restaurant as any)?.id || "58c20c3b-9cea-4c9a-9f89-9a0d4068890c";
-
-  if (!parsedTableNumber) return alert("Table invalide");
-  if (cart.length === 0) return alert("Panier vide");
-
-  try {
-    // TABLEAU UNIQUE : On va tout mettre dedans avant d'envoyer
-    const finalPayload: any[] = [];
-
-    cart.forEach((item: any) => {
-      const formulaGroupId = crypto.randomUUID();
-
-      if (item.is_formula) {
-        // A. On ajoute le PLAT PRINCIPAL (L'item parent)
-        finalPayload.push({
-          restaurant_id: currentRestoId,
-          table_number: parsedTableNumber,
-          dish_id: item.id,
-          name_fr: item.dish?.name_fr || item.name_fr, // On prend le nom du plat, pas "Formule"
-          quantity: item.quantity || 1,
-          price: item.formula_price || item.price,
-          status: 'preparing', // Le parent est tjs en préparation
-          sort_order: 0,
-          step_number: 0,
-          formula_group_id: formulaGroupId,
-          is_formula_parent: true,
-          notes: item.selected_cooking ? `Cuisson: ${item.selected_cooking}` : ""
-        });
-
-        // B. On ajoute les ACCOMPAGNEMENTS / DESSERTS (Les enfants)
-        if (item.selected_formula_items && Array.isArray(item.selected_formula_items)) {
-          item.selected_formula_items.forEach((child: any, idx: number) => {
-            finalPayload.push({
-              restaurant_id: currentRestoId,
-              table_number: parsedTableNumber,
-              dish_id: child.id,
-              name_fr: child.name_fr,
-              quantity: 1,
-              price: 0, // Gratuit car inclus dans la formule
-              status: 'waiting', // LES SUITES SONT EN ATTENTE
-              sort_order: idx + 1,
-              step_number: idx + 1,
-              formula_group_id: formulaGroupId,
-              is_formula_child: true
-            });
-          });
-        }
-      } else {
-        // C. CAS D'UN PLAT NORMAL (HORS FORMULE)
-        finalPayload.push({
-          restaurant_id: currentRestoId,
-          table_number: parsedTableNumber,
-          dish_id: item.id,
-          name_fr: item.name_fr,
-          quantity: item.quantity,
-          price: item.price,
-          status: 'preparing',
-          sort_order: 0,
-          step_number: 0
-        });
-      }
-    });
-
-    console.log("PAYLOAD FINAL :", finalPayload);
-
-    // UN SEUL INSERT : C'est ça qui garantit l'ordre
-    const { error } = await (supabase as any)
-      .from('orders')
-      .insert(finalPayload);
-
-    if (error) throw error;
-
-    alert("Commande réussie !");
-    setCart([]); // On vide le panier
-   if (typeof (setOrderValidationCodeInput as any) === 'function') setOrderValidationCodeInput("");
-
-  } catch (err: any) {
-    console.error("Erreur fatale envoi :", err);
-    alert("Erreur : " + err.message);
-  }
+    console.log("Tentative de commande...", cart);
+    if (isInteractionDisabled) return;
+    if (!tableNumber) {
+      alert(tt("table_required"));
+      return;
+    }
+    if (!typedValidationCode) {
+      alert(tableValidationPromptMessage);
+      return;
+    }
+    if (!isValidationCodeValid) {
+      alert(tt("validation_code_invalid"));
+      return;
+    }
+    if (cart.length === 0) {
+      alert(tt("empty_cart_error"));
+      return;
+    }
+    const missingSide = cart.find(
+      (item) => item?.dish?.has_sides && (!item.selectedSides || item.selectedSides.length === 0)
+    );
+    if (missingSide) {
+      alert(tt("side_required_error"));
+      return;
+    }
+    const missingCooking = cart.find(
+      (item) => item?.dish?.ask_cooking && !(item.selectedCooking && item.selectedCooking.trim())
+    );
+    if (missingCooking) {
+      alert(tt("cooking_required_error"));
+      return;
+    }
+    const parsedTableNumber = Number(String(tableNumber || "").trim());
+    if (!Number.isFinite(parsedTableNumber) || parsedTableNumber <= 0) {
+      alert(tt("table_invalid"));
+      return;
+    }
 
     const orderItems = cart.flatMap((item, cartIndex) => {
       const formulaDishId = String(item.formulaDishId || "").trim() || null;
@@ -5235,7 +5188,7 @@ export default function MenuDigital() {
       if (sortedFormulaSelections.length > 0) {
         sortedFormulaSelections.forEach((selection, idx) => {
           if (!selection?.dishId) return;
-          const sequence = idx + 1;
+          const sequence = idx + 2;
           selectedOptionsPayload.push({
             kind: "formula",
             formula_dish_id: formulaDishId,
@@ -5291,7 +5244,7 @@ export default function MenuDigital() {
       const formulaItemsPayload = sortedFormulaSelections
         .map((selection, idx) => {
           if (!selection?.dishId) return null;
-          const sequence = idx + 1;
+          const sequence = idx + 2;
           return {
             formula_dish_id: formulaDishId,
             formula_dish_name: formulaDishName,
@@ -5331,7 +5284,7 @@ export default function MenuDigital() {
           ? sortedFormulaSelections
               .filter((selection) => isDirectFormulaStep(selection.sequence))
               .map((selection, directIdx) => {
-                const selectionStep = directIdx + 1;
+                const selectionStep = directIdx + 2;
                 const selectionDishId = String(selection.dishId || "").trim();
                 const selectionDish = selectionDishId ? dishById.get(selectionDishId) : null;
                 const selectionCategoryId = selectionDish?.category_id ?? selection.categoryId ?? null;
@@ -5387,8 +5340,8 @@ export default function MenuDigital() {
                   formula_current_sequence: selectionStep,
                   sequence: selectionStep,
                   step: selectionStep,
-                  sort_order: directIdx + 1,
-                  step_number: directIdx + 1,
+                  sort_order: selectionStep,
+                  step_number: selectionStep,
                   special_request: String(item.specialRequest || "").trim(),
                   from_recommendation: !!item.fromRecommendation,
                   status: "waiting",
@@ -5412,9 +5365,7 @@ export default function MenuDigital() {
             return { ...(entry as Record<string, unknown>), source: "formula", sequence: baseSequence };
           })
         : selectedOptionsPayload;
-      const baseStatus = formulaDishId
-        ? resolveInitialFormulaItemStatus(baseSequence, formulaDishId ? 0 : null)
-        : "pending";
+      const baseStatus = formulaDishId ? "preparing" : "pending";
       const baseOptionEntries = selectedOptionsPayloadWithSequence.filter((entry) => {
         if (String(entry.kind || "").trim() !== "option") return false;
         if (!formulaDishId) return true;
@@ -5460,8 +5411,8 @@ export default function MenuDigital() {
         is_formula_parent: Boolean(formulaDishId),
         is_formula_child: false,
         is_formula: Boolean(formulaDishId),
-        sort_order: formulaDishId ? 0 : null,
-        step_number: formulaDishId ? 0 : null,
+        sort_order: formulaDishId ? 1 : null,
+        step_number: formulaDishId ? 1 : null,
         formula_current_sequence: formulaCurrentSequence,
         sequence: formulaCurrentSequence,
         step: formulaCurrentSequence,
@@ -5500,78 +5451,34 @@ export default function MenuDigital() {
         (item) => String(item.destination || "cuisine").trim().toLowerCase() === "cuisine"
       );
 
-      if (kitchenItems.length > 0) {
-        const resolvedRestaurantId = restaurant?.id ?? SETTINGS_ROW_ID;
-        const kitchenCurrentStep = resolveInitialCurrentStepFromOrderItems(
-          kitchenItems as Array<Record<string, unknown>>
-        );
-        const newOrder: {
-          id?: string;
-          table_number: string;
-          items: unknown[];
-          total_price: number;
-          status: string;
-          restaurant_id: string | number;
-          service_step?: string;
-          current_step?: number;
-        } = {
-          table_number: String(parsedTableNumber),
-          items: kitchenItems,
-          total_price: kitchenItems.reduce(
-            (sum, item) => sum + Number(item.price || 0) * Number(item.quantity || 1),
-            0
-          ),
-          status: "pending",
-          restaurant_id: resolvedRestaurantId,
-          service_step: resolveLegacyServiceStepFromCurrentStep(kitchenCurrentStep || 1),
-          current_step: kitchenCurrentStep > 0 ? kitchenCurrentStep : 1,
-        };
-        const { id: removedId, ...orderData } = newOrder;
-        void removedId;
-        console.log("DonnÃ©es envoyÃ©es", orderData);
-        const { error } = await supabase.from("orders").insert([orderData]);
-        if (error) {
-          console.log("DÃ©tails erreur commande cuisine:", JSON.stringify(error, null, 2));
-          alert(`${tt("supabase_error_prefix")} ${error.message}`);
-          return;
-        }
-      }
-
-      if (barItems.length > 0) {
-        const resolvedRestaurantId = restaurant?.id ?? SETTINGS_ROW_ID;
-        const barCurrentStep = resolveInitialCurrentStepFromOrderItems(
-          barItems as Array<Record<string, unknown>>
-        );
-        const newOrder: {
-          id?: string;
-          table_number: string;
-          items: unknown[];
-          total_price: number;
-          status: string;
-          restaurant_id: string | number;
-          service_step?: string;
-          current_step?: number;
-        } = {
-          table_number: String(parsedTableNumber),
-          items: barItems,
-          total_price: barItems.reduce(
-            (sum, item) => sum + Number(item.price || 0) * Number(item.quantity || 1),
-            0
-          ),
-          status: "pending",
-          restaurant_id: resolvedRestaurantId,
-          service_step: resolveLegacyServiceStepFromCurrentStep(barCurrentStep),
-          current_step: barCurrentStep,
-        };
-        const { id: removedId, ...orderData } = newOrder;
-        void removedId;
-        console.log("DonnÃ©es envoyÃ©es", orderData);
-        const { error } = await supabase.from("orders").insert([orderData]);
-        if (error) {
-          console.log("DÃ©tails erreur commande bar:", JSON.stringify(error, null, 2));
-          alert(`${tt("supabase_error_prefix")} ${error.message}`);
-          return;
-        }
+      const finalPayload = [...kitchenItems, ...barItems];
+      const resolvedRestaurantId = restaurant?.id ?? SETTINGS_ROW_ID;
+      
+      const finalCurrentStep = finalPayload.length > 0
+        ? resolveInitialCurrentStepFromOrderItems(finalPayload as Array<Record<string, unknown>>)
+        : 1;
+      
+      const finalTotalPrice = finalPayload.reduce(
+        (sum, item) => sum + Number(item.price || 0) * Number(item.quantity || 1),
+        0
+      );
+      
+      const newOrder = {
+        table_number: String(parsedTableNumber),
+        items: finalPayload,
+        total_price: finalTotalPrice,
+        status: "pending",
+        restaurant_id: resolvedRestaurantId,
+        service_step: resolveLegacyServiceStepFromCurrentStep(finalCurrentStep || 1),
+        current_step: finalCurrentStep > 0 ? finalCurrentStep : 1,
+      };
+      
+      console.log("DonnÃ©es envoyÃ©es (groupÃ©es):", newOrder);
+      const { error } = await supabase.from("orders").insert([newOrder as any]);
+      if (error) {
+        console.log("DÃ©tails erreur commande:", JSON.stringify(error, null, 2));
+        alert(`${tt("supabase_error_prefix")} ${error.message}`);
+        return;
       }
 
       triggerHaptic([15, 40, 15, 40, 25]);
