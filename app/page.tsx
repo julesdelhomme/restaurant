@@ -5448,59 +5448,60 @@ export default function MenuDigital() {
       // Push each formula selection as a separate child item
       sortedFormulaSelections.forEach((selection, idx) => {
         if (!selection?.dishId) return;
-        const sequence = idx + 2;
+        const childSequence = idx + 2;
         const childDish = dishById.get(String(selection.dishId));
-        const childOrderItem = {
-          dish_id: String(selection.dishId || "").trim(),
-          id: String(selection.dishId || "").trim(),
-          formula_group_id: formulaGroupId,
-          formula_id: formulaDishId,
-          category_id: selection.categoryId || null,
-          destination: getCategoryDestination(selection.categoryId) || "cuisine",
-          is_drink: false,
-          name_fr: String(selection.dishNameFr || selection.dishName || "").trim() || "Plat formule",
-          description_fr: childDish ? String(childDish.description_fr || childDish.description || "").trim() || null : null,
-          quantity: item.quantity,
-          price: 0,
-          selected_option_id: Array.isArray(selection.selectedOptionIds) && selection.selectedOptionIds.length > 0
-            ? selection.selectedOptionIds.map(id => String(id || "").trim()).filter(Boolean).join(",")
-            : null,
-          selected_option_name: Array.isArray(selection.selectedOptionNames) && selection.selectedOptionNames.length > 0
-            ? selection.selectedOptionNames.map(name => String(name || "").trim()).filter(Boolean).join(", ")
-            : null,
-          selected_option_price: Number(selection.selectedOptionPrice || 0) || 0,
-          selected_option: null,
-          selected_options: [],
-          selectedOptions: [],
-          selected_side_ids: Array.isArray(selection.selectedSideIds) ? selection.selectedSideIds : [],
-          selected_side_label_fr: Array.isArray(selection.selectedSides) && selection.selectedSides.length > 0
-            ? selection.selectedSides.map(side => String(side || "").trim()).filter(Boolean).join(", ")
-            : null,
-          accompagnement_fr: Array.isArray(selection.selectedSides) && selection.selectedSides.length > 0
-            ? selection.selectedSides.map(side => String(side || "").trim()).filter(Boolean).join(", ")
-            : null,
-          selected_extra_ids: [],
-          selected_extras: [],
-          selected_cooking: String(selection.selectedCooking || "").trim() || null,
-          selected_cooking_key: normalizeCookingKey(String(selection.selectedCooking || "").trim()) || null,
-          selected_cooking_label_fr: String(selection.selectedCooking || "").trim() || null,
-          formula_dish_id: formulaDishId,
-          formula_dish_name: formulaDishName,
-          formula_unit_price: 0,
-          formula_instance_id: formulaInstanceId,
-          is_formula_parent: false,
-          is_formula_child: true,
-          is_formula: true,
-          sort_order: sequence,
-          step_number: sequence,
-          formula_current_sequence: sequence,
-          sequence: sequence,
-          step: sequence,
-          formula_items: null,
-          special_request: String(item.specialRequest || "").trim(),
-          from_recommendation: !!item.fromRecommendation,
-          status: sequence === 2 ? "preparing" : "waiting",
-        };
+        
+        // Build childOrderItem step by step to avoid potential initialization issues
+        const childOrderItem: any = {};
+        childOrderItem.dish_id = String(selection.dishId || "").trim();
+        childOrderItem.id = String(selection.dishId || "").trim();
+        childOrderItem.formula_group_id = formulaGroupId;
+        childOrderItem.formula_id = formulaDishId;
+        childOrderItem.category_id = selection.categoryId || null;
+        childOrderItem.destination = getCategoryDestination(selection.categoryId) || "cuisine";
+        childOrderItem.is_drink = false;
+        childOrderItem.name_fr = String(selection.dishNameFr || selection.dishName || "").trim() || "Plat formule";
+        childOrderItem.description_fr = childDish ? String(childDish.description_fr || childDish.description || "").trim() || null : null;
+        childOrderItem.quantity = item.quantity;
+        childOrderItem.price = 0;
+        childOrderItem.selected_option_id = Array.isArray(selection.selectedOptionIds) && selection.selectedOptionIds.length > 0
+          ? selection.selectedOptionIds.map(id => String(id || "").trim()).filter(Boolean).join(",")
+          : null;
+        childOrderItem.selected_option_name = Array.isArray(selection.selectedOptionNames) && selection.selectedOptionNames.length > 0
+          ? selection.selectedOptionNames.map(name => String(name || "").trim()).filter(Boolean).join(", ")
+          : null;
+        childOrderItem.selected_option_price = Number(selection.selectedOptionPrice || 0) || 0;
+        childOrderItem.selected_option = null;
+        childOrderItem.selected_options = [];
+        childOrderItem.selectedOptions = [];
+        childOrderItem.selected_side_ids = Array.isArray(selection.selectedSideIds) ? selection.selectedSideIds : [];
+        childOrderItem.selected_side_label_fr = Array.isArray(selection.selectedSides) && selection.selectedSides.length > 0
+          ? selection.selectedSides.map(side => String(side || "").trim()).filter(Boolean).join(", ")
+          : null;
+        childOrderItem.accompagnement_fr = Array.isArray(selection.selectedSides) && selection.selectedSides.length > 0
+          ? selection.selectedSides.map(side => String(side || "").trim()).filter(Boolean).join(", ")
+          : null;
+        childOrderItem.selected_extra_ids = [];
+        childOrderItem.selected_extras = [];
+        childOrderItem.selected_cooking = String(selection.selectedCooking || "").trim() || null;
+        childOrderItem.selected_cooking_key = normalizeCookingKey(String(selection.selectedCooking || "").trim()) || null;
+        childOrderItem.selected_cooking_label_fr = String(selection.selectedCooking || "").trim() || null;
+        childOrderItem.formula_dish_id = formulaDishId;
+        childOrderItem.formula_dish_name = formulaDishName;
+        childOrderItem.formula_unit_price = 0;
+        childOrderItem.formula_instance_id = formulaInstanceId;
+        childOrderItem.is_formula_parent = false;
+        childOrderItem.is_formula_child = true;
+        childOrderItem.is_formula = true;
+        childOrderItem.sort_order = childSequence;
+        childOrderItem.step_number = childSequence;
+        childOrderItem.formula_current_sequence = childSequence;
+        childOrderItem.sequence = childSequence;
+        childOrderItem.step = childSequence;
+        childOrderItem.formula_items = null;
+        childOrderItem.special_request = String(item.specialRequest || "").trim();
+        childOrderItem.from_recommendation = !!item.fromRecommendation;
+        childOrderItem.status = childSequence === 2 ? "preparing" : "waiting";
         orderItems.push(childOrderItem);
       });
 
