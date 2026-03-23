@@ -5288,7 +5288,7 @@ async function handleSubmitOrder() {
         step_number: parentStep,
         special_request: String(item.specialRequest || "").trim(),
         from_recommendation: !!item.fromRecommendation,
-        status: parentStep === 1 ? "preparing" : "pending",
+        status: Number(parentStep) === 1 ? "preparing" : "pending",
       };
       orderItems.push(parentOrderItem);
 
