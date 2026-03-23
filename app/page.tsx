@@ -6923,7 +6923,7 @@ const allergens = String((info as any)?.allergens || "").trim();
                   <div className="mb-4 space-y-2 text-sm">
                     {desc && <p className="whitespace-pre-line">{desc}</p>}
                     {calories != null && <p className="font-bold">Calories : {calories} kcal</p>}
-                    {allergens && <p className="text-black"><span className="font-bold">Allerg�nes :</span> {allergens}</p>}
+                    {allergens && <p className="text-black"><span className="font-bold">Allergènes :</span> {allergens}</p>}
                   </div>
                 );
               })()}
