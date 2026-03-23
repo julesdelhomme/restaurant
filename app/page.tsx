@@ -5074,11 +5074,12 @@ async function handleSubmitOrder() {
       alert(tt("cooking_required_error"));
       return;
     }
+
+    // Déclarations initiales
+    const currentRestoId = restaurant?.id || '...';
     const parsedTableNumber = Number(String(tableNumber || "").trim());
-    if (!Number.isFinite(parsedTableNumber) || parsedTableNumber <= 0) {
-      alert(tt("table_invalid"));
-      return;
-    }
+    let gId = null;
+    let finalPayload: any[] = [];
 
     const orderItems: any[] = [];
 
@@ -5194,229 +5195,24 @@ async function handleSubmitOrder() {
       const sortedFormulaSelections = [...formulaSelections].sort((a, b) => (a.sequence || 0) - (b.sequence || 0));
       console.log(`FORMULA SELECTIONS for ${formulaDishId}:`, sortedFormulaSelections.map(s => ({ id: s.dishId, name: s.dishName, seq: s.sequence })));
 
-      console.log("NB ITEMS FINAUX:", finalPayload.length);
-      if (sortedFormulaSelections.length > 0) {
-        sortedFormulaSelections.forEach((selection, idx) => {
-          if (!selection?.dishId) return;
-          const sequence = idx + 2;
-          selectedOptionsPayload.push({
-            kind: "formula",
-            formula_dish_id: formulaDishId,
-            formula_dish_name: formulaDishName,
-            category_id: selection.categoryId || null,
-            category_label: selection.categoryLabel || null,
-            dish_id: selection.dishId || null,
-            value: selection.dishName || selection.dishNameFr || null,
-            label_fr: selection.dishNameFr || selection.dishName || null,
-            name_fr: selection.dishNameFr || selection.dishName || null,
-            selected_side_ids: Array.isArray(selection.selectedSideIds) ? selection.selectedSideIds : [],
-            selected_sides: Array.isArray(selection.selectedSides) ? selection.selectedSides : [],
-            selected_cooking: String(selection.selectedCooking || "").trim() || null,
-            selected_option_ids: Array.isArray(selection.selectedOptionIds) ? selection.selectedOptionIds : [],
-            selected_option_names: Array.isArray(selection.selectedOptionNames) ? selection.selectedOptionNames : [],
-            selected_option_price: Number(selection.selectedOptionPrice || 0) || 0,
-            sequence,
-          });
-          const selectionSideValues = Array.isArray(selection.selectedSides) ? selection.selectedSides.filter(Boolean) : [];
-          if (selectionSideValues.length > 0) {
-            selectedOptionsPayload.push({
-              kind: "side",
-              source: "formula",
-              sequence,
-              values: selectionSideValues,
-              label_fr: selectionSideValues.join(", "),
-            });
-          }
-          const selectionOptionValues = Array.isArray(selection.selectedOptionNames)
-            ? selection.selectedOptionNames.filter(Boolean)
-            : [];
-          if (selectionOptionValues.length > 0) {
-            selectedOptionsPayload.push({
-              kind: "option",
-              source: "formula",
-              sequence,
-              values: selectionOptionValues,
-              label_fr: selectionOptionValues.join(", "),
-            });
-          }
-          const selectionCooking = String(selection.selectedCooking || "").trim();
-          if (selectionCooking) {
-            selectedOptionsPayload.push({
-              kind: "cooking",
-              source: "formula",
-              sequence,
-              value: selectionCooking,
-              label_fr: selectionCooking,
-            });
-          }
-        });
-      }
-      const formulaItemsPayload = sortedFormulaSelections
-        .map((selection, idx) => {
-          if (!selection?.dishId) return null;
-          const sequence = idx + 2;
-          const childDish = dishById.get(String(selection.dishId));
-          console.log(`FORMULA CHILD: ${selection.dishId} (${selection.dishName}) sequence ${sequence}`);
-          return {
-            formula_dish_id: formulaDishId,
-            formula_dish_name: formulaDishName,
-            formula_group_id: formulaGroupId,
-            formula_id: formulaDishId,
-            category_id: selection.categoryId || null,
-            category_label: selection.categoryLabel || null,
-            dish_id: selection.dishId || null,
-            dish_name: selection.dishName || selection.dishNameFr || null,
-            dish_name_fr: selection.dishNameFr || selection.dishName || null,
-            description_fr: childDish ? String(childDish.description_fr || childDish.description || "").trim() || null : null,
-            selected_side_ids: Array.isArray(selection.selectedSideIds) ? selection.selectedSideIds : [],
-            selected_sides: Array.isArray(selection.selectedSides) ? selection.selectedSides : [],
-            selected_cooking: String(selection.selectedCooking || "").trim() || null,
-            selected_option_ids: Array.isArray(selection.selectedOptionIds) ? selection.selectedOptionIds : [],
-            selected_option_names: Array.isArray(selection.selectedOptionNames) ? selection.selectedOptionNames : [],
-            selected_option_price: Number(selection.selectedOptionPrice || 0) || 0,
-            sequence,
-            sort_order: sequence,
-            step_number: sequence,
-            is_formula: true,
-            is_formula_child: true,
-            is_formula_parent: false,
-          };
-        })
-        .filter(Boolean);
-      console.log(`FORMULA ITEMS PAYLOAD for ${formulaDishId}:`, formulaItemsPayload.map(item => item!.dish_id));
-      const formulaSequenceValues = sortedFormulaSelections
-        .map((selection) => Number(selection.sequence))
-        .filter((value) => Number.isFinite(value) && value > 0)
-        .map((value) => Math.max(1, Math.trunc(value)));
-      const formulaCurrentSequence =
-        formulaSequenceValues.length > 0 ? Math.min(...formulaSequenceValues) : null;
-      const hasDirectFormulaSelections = sortedFormulaSelections.some((selection) => isDirectFormulaStep(selection.sequence));
-      const hasNonDirectFormulaSelections =
-        sortedFormulaSelections.length > 0 && sortedFormulaSelections.some((selection) => !isDirectFormulaStep(selection.sequence));
-      const directFormulaSelectionItems =
-        hasDirectFormulaSelections && hasNonDirectFormulaSelections
-          ? sortedFormulaSelections
-              .filter((selection) => isDirectFormulaStep(selection.sequence))
-              .map((selection, directIdx) => {
-                const selectionStep = directIdx + 2;
-                const selectionDishId = String(selection.dishId || "").trim();
-                const selectionDish = selectionDishId ? dishById.get(selectionDishId) : null;
-                const selectionCategoryId = selectionDish?.category_id ?? selection.categoryId ?? null;
-                const selectionDishLabel =
-                  String(selection.dishNameFr || selection.dishName || selectionDish?.name_fr || selectionDish?.name || "").trim() ||
-                  "Boisson formule";
-                const selectionOptionIds = Array.isArray(selection.selectedOptionIds)
-                  ? selection.selectedOptionIds.map((value) => String(value || "").trim()).filter(Boolean)
-                  : [];
-                const selectionOptionNames = Array.isArray(selection.selectedOptionNames)
-                  ? selection.selectedOptionNames.map((value) => String(value || "").trim()).filter(Boolean)
-                  : [];
-                const selectionSideIds = Array.isArray(selection.selectedSideIds)
-                  ? selection.selectedSideIds.map((value) => String(value || "").trim()).filter(Boolean)
-                  : [];
-                const selectionSides = Array.isArray(selection.selectedSides)
-                  ? selection.selectedSides.map((value) => String(value || "").trim()).filter(Boolean)
-                  : [];
-                const selectionCooking = String(selection.selectedCooking || "").trim();
-                const selectionCookingKey = normalizeCookingKey(selectionCooking || "");
-                return {
-                  dish_id: selectionDishId || String(item.dish.id || "").trim(),
-                  id: selectionDishId || String(item.dish.id || "").trim(),
-                  formula_group_id: formulaGroupId,
-                  formula_id: formulaDishId,
-                  category_id: selectionCategoryId,
-                  destination: "bar",
-                  is_drink: true,
-                  name_fr: selectionDishLabel,
-                  description_fr: selectionDish ? String(selectionDish.description_fr || selectionDish.description || "").trim() || null : null,
-                  quantity: item.quantity,
-                  price: 0,
-                  selected_option_id: selectionOptionIds.length > 0 ? selectionOptionIds.join(",") : null,
-                  selected_option_name: selectionOptionNames.length > 0 ? selectionOptionNames.join(", ") : null,
-                  selected_option_price: Number(selection.selectedOptionPrice || 0) || 0,
-                  selected_options: [],
-                  selectedOptions: [],
-                  selected_side_ids: selectionSideIds,
-                  selected_side_label_fr: selectionSides.join(", ") || null,
-                  accompagnement_fr: selectionSides.join(", ") || null,
-                  selected_extra_ids: [],
-                  selected_extras: [],
-                  selected_cooking: selectionCooking || null,
-                  selected_cooking_key: selectionCookingKey || null,
-                  selected_cooking_label_fr: selectionCooking || null,
-                  formula_dish_id: formulaDishId,
-                  formula_dish_name: formulaDishName,
-                  formula_unit_price: 0,
-                  formula_instance_id: formulaInstanceId,
-                  is_formula_parent: false,
-                  is_formula_child: true,
-                  is_formula: true,
-                  formula_current_sequence: selectionStep,
-                  sequence: selectionStep,
-                  step: selectionStep,
-                  sort_order: selectionStep,
-                  step_number: selectionStep,
-                  special_request: String(item.specialRequest || "").trim(),
-                  from_recommendation: !!item.fromRecommendation,
-                  status: "waiting",
-                };
-              })
-              .filter(Boolean)
-          : [];
-      const baseDestination =
-        hasDirectFormulaSelections && !hasNonDirectFormulaSelections
-          ? "bar"
-          : getCategoryDestination(item.dish.category_id);
-      const baseSequence = normalizeFormulaStepValue(formulaCurrentSequence, true) ?? 1;
-      const selectedOptionsPayloadWithSequence = formulaDishId
-        ? selectedOptionsPayload.map((entry) => {
-            if (!entry || typeof entry !== "object") return entry;
-            const record = entry as Record<string, unknown>;
-            const kind = String(record.kind || "").trim().toLowerCase();
-            if (!kind || kind === "formula") return entry;
-            if (String(record.source || "").trim().toLowerCase() === "formula") return entry;
-            if (Number.isFinite(Number(record.sequence))) return entry;
-            return { ...(entry as Record<string, unknown>), source: "formula", sequence: baseSequence };
-          })
-        : selectedOptionsPayload;
-      const parentSequence = formulaDishId && (item.dish as any).formula_sequence_by_dish
-        ? Number((item.dish as any).formula_sequence_by_dish[formulaDishId]) || 1
-        : 1;
-      const dishSequenceData = formulaDishId && (item.dish as any).formula_sequence_by_dish
-        ? (item.dish as any).formula_sequence_by_dish[formulaDishId]
-        : undefined;
-      console.log(`DEBUG: Formula ${formulaDishId} parent sequence: ${parentSequence} (from dish data: ${dishSequenceData})`);
-      const baseStatus = formulaDishId ? (parentSequence === 1 ? "preparing" : "waiting") : "pending";
-      const baseOptionEntries = selectedOptionsPayloadWithSequence.filter((entry) => {
-        if (String(entry.kind || "").trim() !== "option") return false;
-        if (!formulaDishId) return true;
-        const source = String((entry as Record<string, unknown>).source || "").trim().toLowerCase();
-        if (source !== "formula") return true;
-        const entrySequence = Number((entry as Record<string, unknown>).sequence);
-        if (!Number.isFinite(entrySequence)) return false;
-        return Math.trunc(entrySequence) === Math.trunc(baseSequence);
-      });
-      const baseOrderItem = {
-          dish_id: String(item.dish.id || "").trim(),
-          id: String(item.dish.id || "").trim(),
-          formula_group_id: formulaGroupId,
-          formula_id: formulaDishId,
-          category_id: item.dish.category_id ?? null,
-          destination: baseDestination,
-          is_drink: baseDestination === "bar" ? true : drinkItem,
-          name_fr: String(item.dish.name_fr || item.dish.name || item.dish.nom || "").trim() || "Plat",
-          description_fr: String(item.dish.description_fr || item.dish.description || "").trim() || null,
+      // Pousser le Plat Parent (Step 2)
+      const parentOrderItem = {
+        dish_id: String(item.dish.id || "").trim(),
+        id: String(item.dish.id || "").trim(),
+        formula_group_id: formulaGroupId,
+        formula_id: formulaDishId,
+        category_id: item.dish.category_id ?? null,
+        destination: getCategoryDestination(item.dish.category_id),
+        is_drink: drinkItem,
+        name_fr: String(item.dish.name_fr || item.dish.name || item.dish.nom || "").trim() || "Plat",
+        description_fr: String(item.dish.description_fr || item.dish.description || "").trim() || null,
         quantity: item.quantity,
         price: unitPrice + extrasPrice,
         selected_option_id: selectedOptionIds.length > 0 ? selectedOptionIds.join(",") : null,
         selected_option_name: selectedOptionNamesFr.length > 0 ? selectedOptionNamesFr.join(", ") : selectedOptionNames.length > 0 ? selectedOptionNames.join(", ") : null,
         selected_option_price: selectedOptionPrice,
-        selected_option:
-          baseOptionEntries.length > 1
-            ? baseOptionEntries
-            : baseOptionEntries[0] || null,
-        selected_options: selectedOptionsPayloadWithSequence,
-        selectedOptions: selectedOptionsPayloadWithSequence,
+        selected_options: selectedOptionsPayload,
+        selectedOptions: selectedOptionsPayload,
         selected_side_ids: fallbackSideIds,
         selected_side_label_fr: selectedSideLabelsFr.join(", ") || null,
         accompagnement_fr: selectedSideLabelsFr.join(", ") || null,
@@ -5432,84 +5228,109 @@ async function handleSubmitOrder() {
         is_formula_parent: Boolean(formulaDishId),
         is_formula_child: false,
         is_formula: Boolean(formulaDishId),
-        sort_order: formulaDishId ? parentSequence : null,
-        step_number: formulaDishId ? parentSequence : null,
-        formula_current_sequence: formulaCurrentSequence,
-        sequence: formulaCurrentSequence,
-        step: formulaCurrentSequence,
-        formula_items: formulaItemsPayload.length > 0 ? formulaItemsPayload : null,
+        sort_order: 2,
+        step_number: 2,
         special_request: String(item.specialRequest || "").trim(),
         from_recommendation: !!item.fromRecommendation,
-        status: baseStatus,
+        status: "preparing",
       };
+      orderItems.push(parentOrderItem);
 
-      // Push the parent item
-      orderItems.push(baseOrderItem);
-
-      // Push each formula selection as a separate child item
-      sortedFormulaSelections.forEach((selection, idx) => {
-        if (!selection?.dishId) return;
-        const childSequence = idx + 2;
-        const childDish = dishById.get(String(selection.dishId));
-        
-        // Build childOrderItem step by step to avoid potential initialization issues
-        const childOrderItem: any = {};
-        childOrderItem.dish_id = String(selection.dishId || "").trim();
-        childOrderItem.id = String(selection.dishId || "").trim();
-        childOrderItem.formula_group_id = formulaGroupId;
-        childOrderItem.formula_id = formulaDishId;
-        childOrderItem.category_id = selection.categoryId || null;
-        childOrderItem.destination = getCategoryDestination(selection.categoryId) || "cuisine";
-        childOrderItem.is_drink = false;
-        childOrderItem.name_fr = String(selection.dishNameFr || selection.dishName || "").trim() || "Plat formule";
-        childOrderItem.description_fr = childDish ? String(childDish.description_fr || childDish.description || "").trim() || null : null;
-        childOrderItem.quantity = item.quantity;
-        childOrderItem.price = 0;
-        childOrderItem.selected_option_id = Array.isArray(selection.selectedOptionIds) && selection.selectedOptionIds.length > 0
-          ? selection.selectedOptionIds.map(id => String(id || "").trim()).filter(Boolean).join(",")
-          : null;
-        childOrderItem.selected_option_name = Array.isArray(selection.selectedOptionNames) && selection.selectedOptionNames.length > 0
-          ? selection.selectedOptionNames.map(name => String(name || "").trim()).filter(Boolean).join(", ")
-          : null;
-        childOrderItem.selected_option_price = Number(selection.selectedOptionPrice || 0) || 0;
-        childOrderItem.selected_option = null;
-        childOrderItem.selected_options = [];
-        childOrderItem.selectedOptions = [];
-        childOrderItem.selected_side_ids = Array.isArray(selection.selectedSideIds) ? selection.selectedSideIds : [];
-        childOrderItem.selected_side_label_fr = Array.isArray(selection.selectedSides) && selection.selectedSides.length > 0
-          ? selection.selectedSides.map(side => String(side || "").trim()).filter(Boolean).join(", ")
-          : null;
-        childOrderItem.accompagnement_fr = Array.isArray(selection.selectedSides) && selection.selectedSides.length > 0
-          ? selection.selectedSides.map(side => String(side || "").trim()).filter(Boolean).join(", ")
-          : null;
-        childOrderItem.selected_extra_ids = [];
-        childOrderItem.selected_extras = [];
-        childOrderItem.selected_cooking = String(selection.selectedCooking || "").trim() || null;
-        childOrderItem.selected_cooking_key = normalizeCookingKey(String(selection.selectedCooking || "").trim()) || null;
-        childOrderItem.selected_cooking_label_fr = String(selection.selectedCooking || "").trim() || null;
-        childOrderItem.formula_dish_id = formulaDishId;
-        childOrderItem.formula_dish_name = formulaDishName;
-        childOrderItem.formula_unit_price = 0;
-        childOrderItem.formula_instance_id = formulaInstanceId;
-        childOrderItem.is_formula_parent = false;
-        childOrderItem.is_formula_child = true;
-        childOrderItem.is_formula = true;
-        childOrderItem.sort_order = childSequence;
-        childOrderItem.step_number = childSequence;
-        childOrderItem.formula_current_sequence = childSequence;
-        childOrderItem.sequence = childSequence;
-        childOrderItem.step = childSequence;
-        childOrderItem.formula_items = null;
-        childOrderItem.special_request = String(item.specialRequest || "").trim();
-        childOrderItem.from_recommendation = !!item.fromRecommendation;
-        childOrderItem.status = childSequence === 2 ? "preparing" : "waiting";
+      // Pousser chaque élément de item.formulaSelections
+      sortedFormulaSelections.forEach((sel) => {
+        if (!sel?.dishId) return;
+        const childDish = dishById.get(String(sel.dishId));
+        const childOrderItem = {
+          dish_id: String(sel.dishId || "").trim(),
+          id: String(sel.dishId || "").trim(),
+          formula_group_id: formulaGroupId,
+          formula_id: formulaDishId,
+          category_id: sel.categoryId || null,
+          destination: getCategoryDestination(sel.categoryId) || "cuisine",
+          is_drink: false,
+          name_fr: String(sel.dishNameFr || sel.dishName || "").trim() || "Plat formule",
+          description_fr: childDish ? String(childDish.description_fr || childDish.description || "").trim() || null : null,
+          quantity: item.quantity,
+          price: 0,
+          selected_option_id: Array.isArray(sel.selectedOptionIds) && sel.selectedOptionIds.length > 0
+            ? sel.selectedOptionIds.map(id => String(id || "").trim()).filter(Boolean).join(",")
+            : null,
+          selected_option_name: Array.isArray(sel.selectedOptionNames) && sel.selectedOptionNames.length > 0
+            ? sel.selectedOptionNames.map(name => String(name || "").trim()).filter(Boolean).join(", ")
+            : null,
+          selected_option_price: Number(sel.selectedOptionPrice || 0) || 0,
+          selected_options: [],
+          selectedOptions: [],
+          selected_side_ids: Array.isArray(sel.selectedSideIds) ? sel.selectedSideIds : [],
+          selected_side_label_fr: Array.isArray(sel.selectedSides) && sel.selectedSides.length > 0
+            ? sel.selectedSides.map(side => String(side || "").trim()).filter(Boolean).join(", ")
+            : null,
+          accompagnement_fr: Array.isArray(sel.selectedSides) && sel.selectedSides.length > 0
+            ? sel.selectedSides.map(side => String(side || "").trim()).filter(Boolean).join(", ")
+            : null,
+          selected_extra_ids: [],
+          selected_extras: [],
+          selected_cooking: String(sel.selectedCooking || "").trim() || null,
+          selected_cooking_key: normalizeCookingKey(String(sel.selectedCooking || "").trim()) || null,
+          selected_cooking_label_fr: String(sel.selectedCooking || "").trim() || null,
+          formula_dish_id: formulaDishId,
+          formula_dish_name: formulaDishName,
+          formula_unit_price: 0,
+          formula_instance_id: formulaInstanceId,
+          is_formula_parent: false,
+          is_formula_child: true,
+          is_formula: true,
+          sort_order: sel.sequence,
+          step_number: sel.sequence,
+          special_request: String(item.specialRequest || "").trim(),
+          from_recommendation: !!item.fromRecommendation,
+          status: sel.sequence === 1 ? "waiting" : sel.sequence === 3 ? "waiting" : sel.sequence === 4 ? "waiting" : "waiting",
+        };
         orderItems.push(childOrderItem);
       });
 
-      // Push direct formula selection items (drinks)
-      directFormulaSelectionItems.forEach((directItem) => {
-        orderItems.push(directItem);
-      });
+      // Pour les items non-formule, pousser normalement
+      if (!formulaDishId) {
+        const nonFormulaItem = {
+          dish_id: String(item.dish.id || "").trim(),
+          id: String(item.dish.id || "").trim(),
+          formula_group_id: null,
+          formula_id: null,
+          category_id: item.dish.category_id ?? null,
+          destination: getCategoryDestination(item.dish.category_id),
+          is_drink: drinkItem,
+          name_fr: String(item.dish.name_fr || item.dish.name || item.dish.nom || "").trim() || "Plat",
+          description_fr: String(item.dish.description_fr || item.dish.description || "").trim() || null,
+          quantity: item.quantity,
+          price: unitPrice + extrasPrice,
+          selected_option_id: selectedOptionIds.length > 0 ? selectedOptionIds.join(",") : null,
+          selected_option_name: selectedOptionNamesFr.length > 0 ? selectedOptionNamesFr.join(", ") : selectedOptionNames.length > 0 ? selectedOptionNames.join(", ") : null,
+          selected_option_price: selectedOptionPrice,
+          selected_options: selectedOptionsPayload,
+          selectedOptions: selectedOptionsPayload,
+          selected_side_ids: fallbackSideIds,
+          selected_side_label_fr: selectedSideLabelsFr.join(", ") || null,
+          accompagnement_fr: selectedSideLabelsFr.join(", ") || null,
+          selected_extra_ids: selectedExtraIds,
+          selected_extras: selectedExtras,
+          selected_cooking: stableCookingValue || null,
+          selected_cooking_key: cookingKey || null,
+          selected_cooking_label_fr: cookingLabelFr,
+          formula_dish_id: null,
+          formula_dish_name: null,
+          formula_unit_price: null,
+          formula_instance_id: null,
+          is_formula_parent: false,
+          is_formula_child: false,
+          is_formula: false,
+          sort_order: null,
+          step_number: null,
+          special_request: String(item.specialRequest || "").trim(),
+          from_recommendation: !!item.fromRecommendation,
+          status: "pending",
+        };
+        orderItems.push(nonFormulaItem);
+      }
     });
 
     const totalPrice = cart.reduce((sum, item) => {
@@ -5539,7 +5360,7 @@ async function handleSubmitOrder() {
         (item) => String(item.destination || "cuisine").trim().toLowerCase() === "cuisine"
       );
 
-      const finalPayload = [...kitchenItems, ...barItems];
+      finalPayload = [...kitchenItems, ...barItems];
       const resolvedRestaurantId = restaurant?.id ?? SETTINGS_ROW_ID;
 
       const finalCurrentStep = finalPayload.length > 0
@@ -5591,7 +5412,7 @@ async function handleSubmitOrder() {
         is_formula_child: item.is_formula_child
       })));
 
-      console.log("NB ITEMS FINAUX:", finalPayload.length);
+      console.log("CRITICAL: Sending payload length:", finalPayload.length);
 
       const { error } = await supabase.from("orders").insert([newOrder as any]);
       if (error) {
