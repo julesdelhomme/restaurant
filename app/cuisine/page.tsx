@@ -384,9 +384,11 @@ export default function KitchenPage() {
     });
     const sortedItems = sortKitchenItemsByStep(items);
     if (sortedItems.length === 0) return [];
+    const currentStep = resolveOrderCurrentStep(order, sortedItems);
+    if (!Number.isFinite(currentStep) || Number(currentStep) <= 0) return [];
     return sortedItems.filter((item) => {
-      const status = getItemStatus(item as Item);
-      return status === "preparing" || status === "ready";
+      if (resolveItemStepRank(item) !== Number(currentStep)) return false;
+      return getItemStatus(item as Item) === "preparing";
     });
   };
   const hasPendingKitchenItems = (order: Order) => getKitchenItems(order).some((item) => !isItemReady(item));
@@ -1740,7 +1742,13 @@ export default function KitchenPage() {
   const handleAutoPrint = () => {
     // On laisse 1 seconde pour que le ticket soit généré dans le DOM
     setTimeout(() => {
-      window.print();
+      try {
+        if (typeof window !== "undefined" && typeof window.print === "function") {
+          window.print();
+        }
+      } catch (error) {
+        console.warn("Auto-print failed:", error);
+      }
     }, 1000);
   };
 

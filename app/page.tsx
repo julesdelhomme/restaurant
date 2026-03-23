@@ -6931,7 +6931,9 @@ async function handleSubmitOrder() {
               </div>
             </div>
             <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-28 pt-4 sm:pb-6">
-              <h2 className="text-2xl font-black text-black mb-1">{getFormulaDisplayName(formulaDish)}</h2>
+              <h2 className="text-2xl font-black text-black mb-1">
+                {String(formulaSourceDish?.name_fr || formulaSourceDish?.name || "").trim() || getFormulaDisplayName(formulaDish)}
+              </h2>
               <div className="text-base font-black inline-flex items-center gap-1 mb-4">
                 {Number(getFormulaPackPrice(formulaDish) || 0).toFixed(2)}
                 <Euro size={16} />

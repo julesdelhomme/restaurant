@@ -4616,10 +4616,6 @@ const formulaParentDishIds = useMemo(() => {
     const activeEntries = parseItems(order.items)
       .map((item, index) => ({ item, index }))
       .filter((entry) => !isItemServed(entry.item));
-    const hasAnyItemStatus = activeEntries.some((entry) => hasExplicitItemStatus(entry.item));
-    if (!hasAnyItemStatus && isReadyLikeOrderStatus(order.status)) {
-      return activeEntries;
-    }
     return activeEntries.filter((entry) => isItemReady(entry.item));
   };
 
