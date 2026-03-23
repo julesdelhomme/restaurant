@@ -1261,7 +1261,7 @@ const getFormulaDisplayName = (dish: DishItem) => {
     const normalizedSort = Number(sortOrder);
     if (Number.isFinite(normalizedSort) && Math.trunc(normalizedSort) === 0) return "preparing";
     if (sequence != null && sequence <= 1) return "preparing";
-    if (sequence != null && sequence > 1) return "waiting";
+    if (sequence != null && sequence > 1) return "pending";
     return "pending";
   };
   const mapSequenceToOrderStep = (value: unknown) => {

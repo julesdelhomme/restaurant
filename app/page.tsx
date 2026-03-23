@@ -4241,6 +4241,25 @@ export default function MenuDigital() {
     });
     return map;
   }, [formulaDish, formulaLinksByFormulaId]);
+  const formulaStepTitle = useMemo(() => {
+    const fromSource = String(formulaSourceDish?.name_fr || formulaSourceDish?.name || "").trim();
+    if (fromSource) return fromSource;
+    const formulaDishId = String(formulaDish?.id || "").trim();
+    if (!formulaDishId) return "";
+    const links = formulaLinksByFormulaId.get(formulaDishId) || [];
+    const firstStepLink = [...links]
+      .map((link) => ({
+        link,
+        step: normalizeFormulaStepValue(link.step ?? link.sequence, true),
+      }))
+      .filter((entry) => entry.step != null && entry.step > 0)
+      .sort((a, b) => Number(a.step) - Number(b.step))[0];
+    if (!firstStepLink) return "";
+    const stepDishId = String(firstStepLink.link.dishId || "").trim();
+    if (!stepDishId) return "";
+    const stepDish = dishById.get(stepDishId);
+    return stepDish ? getDishName(stepDish, lang) : "";
+  }, [formulaSourceDish, formulaDish, formulaLinksByFormulaId, dishById, lang]);
 
   const selectedDishLinkedFormulas = useMemo(() => {
     if (!selectedDish) return [] as Dish[];
@@ -4345,7 +4364,9 @@ export default function MenuDigital() {
   function resolveInitialFormulaItemStatus(sequence: number | null, sortOrder?: unknown) {
     const normalizedSort = Number(sortOrder);
     if (Number.isFinite(normalizedSort) && Math.trunc(normalizedSort) === 0) return "preparing";
-    return "waiting";
+    if (sequence != null && sequence <= 1) return "preparing";
+    if (sequence != null && sequence > 1) return "pending";
+    return "pending";
   }
 
   function mapSequenceToOrderStep(value: unknown) {
@@ -5230,6 +5251,7 @@ async function handleSubmitOrder() {
       console.log(`FORMULA SELECTIONS for ${formulaDishId}:`, sortedFormulaSelections.map(s => ({ id: s.dishId, name: s.dishName, seq: s.sequence })));
 
       // Pousser le Plat Parent (Step 2)
+      const parentStep = 2;
       const parentOrderItem = {
         dish_id: String(item.dish.id || "").trim(),
         id: String(item.dish.id || "").trim(),
@@ -5262,11 +5284,11 @@ async function handleSubmitOrder() {
         is_formula_parent: Boolean(formulaDishId),
         is_formula_child: false,
         is_formula: Boolean(formulaDishId),
-        sort_order: 2,
-        step_number: 2,
+        sort_order: parentStep,
+        step_number: parentStep,
         special_request: String(item.specialRequest || "").trim(),
         from_recommendation: !!item.fromRecommendation,
-        status: "preparing",
+        status: parentStep === 1 ? "preparing" : "pending",
       };
       orderItems.push(parentOrderItem);
 
@@ -5318,7 +5340,7 @@ async function handleSubmitOrder() {
           step_number: sel.sequence,
           special_request: String(item.specialRequest || "").trim(),
           from_recommendation: !!item.fromRecommendation,
-          status: sel.sequence === 1 ? "waiting" : sel.sequence === 3 ? "waiting" : sel.sequence === 4 ? "waiting" : "waiting",
+          status: Number(sel.sequence) === 1 ? "preparing" : "pending",
         };
         orderItems.push(childOrderItem);
       });
@@ -6931,9 +6953,7 @@ async function handleSubmitOrder() {
               </div>
             </div>
             <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-28 pt-4 sm:pb-6">
-              <h2 className="text-2xl font-black text-black mb-1">
-                {String(formulaSourceDish?.name_fr || formulaSourceDish?.name || "").trim() || getFormulaDisplayName(formulaDish)}
-              </h2>
+              <h2 className="text-2xl font-black text-black mb-1">{formulaStepTitle || getFormulaDisplayName(formulaDish)}</h2>
               <div className="text-base font-black inline-flex items-center gap-1 mb-4">
                 {Number(getFormulaPackPrice(formulaDish) || 0).toFixed(2)}
                 <Euro size={16} />
@@ -6967,7 +6987,7 @@ const allergens = String((info as any)?.allergens || "").trim();
                 const parentDish = parentDishId ? dishById.get(String(parentDishId)) : null;
                 const parentDishNameFromFormula = String(info?.parent_dish_name || "").trim();
                 const stepDishName =
-                  (formulaSourceDish ? getDishName(formulaSourceDish, lang) : "") ||
+                  formulaStepTitle ||
                   (parentDish ? getDishName(parentDish, lang) : "") ||
                   parentDishNameFromFormula;
                 const parentDishName = stepDishName || getFormulaDisplayName(formulaDish);

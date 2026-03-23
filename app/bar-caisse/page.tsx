@@ -417,26 +417,6 @@ function deriveOrderStatusFromItems(items: OrderItem[]): string {
   return "pending";
 }
 
-function resolveOrderCurrentStep(order: Order): number {
-  const direct = Number((order as any).current_step ?? (order as any).currentStep);
-  if (Number.isFinite(direct)) return Math.max(1, Math.trunc(direct));
-  const items = parseItems(order.items);
-  const stepCandidates = items
-    .map((item: any) => Number(item.step ?? item.sequence ?? item.formula_current_sequence))
-    .filter((value: number) => Number.isFinite(value) && value > 0);
-  return stepCandidates.length > 0 ? Math.min(...stepCandidates) : 1;
-}
-
-function checkStepFinished(order: Order): boolean {
-  const currentStep = resolveOrderCurrentStep(order);
-  if (currentStep !== 1) return false;
-  const items = parseItems(order.items);
-  const step1Items = items.filter((item: any) => Number(item.step ?? item.sequence ?? 0) === 1);
-  const step2Items = items.filter((item: any) => Number(item.step ?? item.sequence ?? 0) === 2);
-  if (step1Items.length === 0 || step2Items.length === 0) return false;
-  return step1Items.every((item: any) => getItemPrepStatus(item) === "ready");
-}
-
 function orderHasPendingDrinkItems(
   order: Order,
   categoryDestinationById: Record<string, "cuisine" | "bar">,
@@ -1675,69 +1655,6 @@ export default function BarCaissePage() {
     }
   };
 
-  const isKitchenCourse = (item: any) => !isDrink(item);
-
-  const resolveItemStepRank = (item: any) => Number(item.step ?? item.sequence ?? item.formula_current_sequence ?? 1);
-
-  const resolveServiceStepFromCurrentStep = (currentStep: number) => {
-    if (currentStep >= 3) return "dessert";
-    if (currentStep <= 1) return "entree";
-    return "plat";
-  };
-
-  const handleSendNextStep = async (orderId: string | number) => {
-    const targetOrder = orders.find((order) => String(order.id) === String(orderId));
-    if (!targetOrder) {
-      await fetchOrders();
-      return;
-    }
-    const currentItems = parseItems(targetOrder.items);
-    if (currentItems.length === 0) return;
-    const kitchenItems = currentItems.filter((item) => isKitchenCourse(item));
-    const currentStep = resolveOrderCurrentStep(targetOrder);
-    const persistedCurrentStep = Number.isFinite(currentStep) && Number(currentStep) > 0 ? Number(currentStep) : 1;
-    const nextItems = currentItems.map((item) => {
-      if (!isKitchenCourse(item)) return item;
-      const itemStep = resolveItemStepRank(item);
-      if (itemStep === persistedCurrentStep + 1) {
-        return setItemPrepStatus(item, "pending");
-      }
-      return item;
-    });
-    const nextStatus = deriveOrderStatusFromItems(nextItems);
-    const nextCurrentStep = persistedCurrentStep + 1;
-    const nextServiceStep = resolveServiceStepFromCurrentStep(nextCurrentStep);
-
-    setOrders((prev) =>
-      prev.map((order) =>
-        String(order.id) === String(orderId)
-          ? { ...order, items: nextItems, status: nextStatus, service_step: nextServiceStep, current_step: nextCurrentStep }
-          : order
-      )
-    );
-
-    const { error } = await supabase
-      .from("orders")
-      .update({ items: nextItems, status: nextStatus, service_step: nextServiceStep, current_step: nextCurrentStep })
-      .eq("id", orderId);
-    if (error) {
-      console.error("Erreur Send Next Step:", error);
-      await fetchOrders();
-    }
-  };
-
-  const canSendNext = (order: Order) => {
-    const items = parseItems(order.items);
-    const hasFormula = items.some(item => (item as any).is_formula);
-    if (!hasFormula) return false;
-    const kitchenItems = items.filter(item => isKitchenCourse(item));
-    const currentStep = resolveOrderCurrentStep(order);
-    const currentStepItems = kitchenItems.filter(item => resolveItemStepRank(item) === currentStep);
-    const currentStepReady = currentStepItems.every(item => isItemReady(item));
-    const hasNextStep = kitchenItems.some(item => resolveItemStepRank(item) > currentStep);
-    return currentStepReady && hasNextStep;
-  };
-
   const markNotificationHandled = async (notificationId: string | number) => {
     const { error } = await supabase
       .from("notifications")
@@ -2389,17 +2306,6 @@ export default function BarCaissePage() {
                         </div>
                         <div className="flex items-center gap-2">
                           <button type="button" onClick={() => setExpandedTables((prev) => ({ ...prev, [table.tableNumber]: !prev[table.tableNumber] }))} className="px-3 py-2 border-2 border-black bg-white font-black">{expanded ? "Masquer" : "Détails"}</button>
-                          {(() => {
-
-                            const sendableOrder = table.orders.find(order => canSendNext(order));
-
-                            return sendableOrder ? (
-
-                              <button type="button" onClick={() => void handleSendNextStep(sendableOrder.id)} className="px-4 py-3 border-2 border-black bg-blue-600 text-white font-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-x-[2px] active:translate-y-[2px]">ENVOYER LA SUITE</button>
-
-                            ) : null;
-
-                          })()}
                         </div>
                       </div>
                       {expanded ? (
