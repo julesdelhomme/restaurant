@@ -6935,8 +6935,8 @@ const allergens = String((info as any)?.allergens || "").trim();
                     const parentDish = parentDishId ? dishById.get(String(parentDishId)) : null;
                     const parentDishNameFromFormula = String(info?.parent_dish_name || "").trim();
                     const parentDishName =
-                      parentDishNameFromFormula ||
-                      (parentDish ? getDishName(parentDish, lang) : getFormulaDisplayName(formulaDish));
+                      (parentDish ? getDishName(parentDish, lang) : getFormulaDisplayName(formulaDish)) ||
+                      parentDishNameFromFormula;
                     return <div className="font-black text-base mb-2">{parentDishName}</div>;
                   })()}
                   <div className="space-y-3">

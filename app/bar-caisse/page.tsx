@@ -2389,9 +2389,17 @@ export default function BarCaissePage() {
                         </div>
                         <div className="flex items-center gap-2">
                           <button type="button" onClick={() => setExpandedTables((prev) => ({ ...prev, [table.tableNumber]: !prev[table.tableNumber] }))} className="px-3 py-2 border-2 border-black bg-white font-black">{expanded ? "Masquer" : "Détails"}</button>
-                          {table.orders.some(order => canSendNext(order)) && (
-                            <button type="button" onClick={() => void handleSendNextStep(table.orders[0].id)} className="px-4 py-3 border-2 border-black bg-blue-600 text-white font-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-x-[2px] active:translate-y-[2px]">ENVOYER LA SUITE</button>
-                          )}
+                          {(() => {
+
+                            const sendableOrder = table.orders.find(order => canSendNext(order));
+
+                            return sendableOrder ? (
+
+                              <button type="button" onClick={() => void handleSendNextStep(sendableOrder.id)} className="px-4 py-3 border-2 border-black bg-blue-600 text-white font-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-x-[2px] active:translate-y-[2px]">ENVOYER LA SUITE</button>
+
+                            ) : null;
+
+                          })()}
                         </div>
                       </div>
                       {expanded ? (

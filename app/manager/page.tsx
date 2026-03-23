@@ -7967,7 +7967,7 @@ export default function MenuManager() {
                 : "";
             const allergensHtml =
               printableMeta.allergenLabels.length > 0
-                ? `<div class="dish-allergens">Allergènes : ${escapeHtml(printableMeta.allergenLabels.join(", "))}</div>`
+                ? `<div class="dish-allergens">Allerg&egrave;nes : ${escapeHtml(printableMeta.allergenLabels.join(", "))}</div>`
                 : "";
             const optionsHtml =
               printableMeta.optionLabels.length > 0 || printableMeta.hasCookingChoice
