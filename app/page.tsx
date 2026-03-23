@@ -1801,6 +1801,16 @@ function getDishName(dish: Dish, lang: string) {
   const uiLang = toUiLang(lang);
   const dishRecord = dish as unknown as any;
   const normalizedLang = normalizeLanguageKey(lang);
+  // Prioritize JSONB translations
+  const fromTranslations = getNameTranslation(
+    {
+      ...dishRecord,
+      name_fr: String(dish.name_fr || dish.name || dish.nom || "").trim(),
+    },
+    lang
+  );
+  if (fromTranslations) return fromTranslations;
+  // Fallback to individual columns
   const langColumnCandidates = [
     `name_${normalizedLang}`,
     `name_${uiLang}`,
@@ -1823,14 +1833,6 @@ function getDishName(dish: Dish, lang: string) {
     const directColumnValue = String(dishRecord[key] || "").trim();
     if (directColumnValue) return directColumnValue;
   }
-  const fromTranslations = getNameTranslation(
-    {
-      ...dishRecord,
-      name_fr: String(dish.name_fr || dish.name || dish.nom || "").trim(),
-    },
-    lang
-  );
-  if (fromTranslations) return fromTranslations;
 
   const meta = (dish as unknown as any).dietary_tag;
   const parsedMeta =
@@ -1876,6 +1878,17 @@ function getDescription(dish: Dish, lang: string) {
   const langCode = normalizeLanguageKey(lang);
   const uiLang = toUiLang(lang);
   const dishRecord = dish as unknown as any;
+  // Prioritize JSONB translations
+  const translations = parseJsonObject((dish as unknown as any).translations);
+  const descriptionNode =
+    translations.description && typeof translations.description === "object"
+      ? (translations.description as unknown as any)
+      : {};
+  const translatedDescription = String(descriptionNode[langCode] || "").trim();
+  if (translatedDescription) {
+    return parseOptionsFromDescription(translatedDescription).baseDescription;
+  }
+  // Fallback to individual columns
   const directDescriptionColumnCandidates = [
     `description_${langCode}`,
     `description_${uiLang}`,
@@ -1891,15 +1904,6 @@ function getDescription(dish: Dish, lang: string) {
   for (const key of directDescriptionColumnCandidates) {
     const directValue = String(dishRecord[key] || "").trim();
     if (directValue) return parseOptionsFromDescription(directValue).baseDescription;
-  }
-  const translations = parseJsonObject((dish as unknown as any).translations);
-  const descriptionNode =
-    translations.description && typeof translations.description === "object"
-      ? (translations.description as unknown as any)
-      : {};
-  const translatedDescription = String(descriptionNode[langCode] || "").trim();
-  if (translatedDescription) {
-    return parseOptionsFromDescription(translatedDescription).baseDescription;
   }
 
   const meta = (dish as unknown as any).dietary_tag;

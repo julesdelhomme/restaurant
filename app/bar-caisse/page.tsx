@@ -1675,6 +1675,69 @@ export default function BarCaissePage() {
     }
   };
 
+  const isKitchenCourse = (item: any) => !isDrink(item);
+
+  const resolveItemStepRank = (item: any) => Number(item.step ?? item.sequence ?? item.formula_current_sequence ?? 1);
+
+  const resolveServiceStepFromCurrentStep = (currentStep: number) => {
+    if (currentStep >= 3) return "dessert";
+    if (currentStep <= 1) return "entree";
+    return "plat";
+  };
+
+  const handleSendNextStep = async (orderId: string | number) => {
+    const targetOrder = orders.find((order) => String(order.id) === String(orderId));
+    if (!targetOrder) {
+      await fetchOrders();
+      return;
+    }
+    const currentItems = parseItems(targetOrder.items);
+    if (currentItems.length === 0) return;
+    const kitchenItems = currentItems.filter((item) => isKitchenCourse(item));
+    const currentStep = resolveOrderCurrentStep(targetOrder);
+    const persistedCurrentStep = Number.isFinite(currentStep) && Number(currentStep) > 0 ? Number(currentStep) : 1;
+    const nextItems = currentItems.map((item) => {
+      if (!isKitchenCourse(item)) return item;
+      const itemStep = resolveItemStepRank(item);
+      if (itemStep === persistedCurrentStep + 1) {
+        return setItemPrepStatus(item, "preparing");
+      }
+      return item;
+    });
+    const nextStatus = deriveOrderStatusFromItems(nextItems);
+    const nextCurrentStep = persistedCurrentStep + 1;
+    const nextServiceStep = resolveServiceStepFromCurrentStep(nextCurrentStep);
+
+    setOrders((prev) =>
+      prev.map((order) =>
+        String(order.id) === String(orderId)
+          ? { ...order, items: nextItems, status: nextStatus, service_step: nextServiceStep, current_step: nextCurrentStep }
+          : order
+      )
+    );
+
+    const { error } = await supabase
+      .from("orders")
+      .update({ items: nextItems, status: nextStatus, service_step: nextServiceStep, current_step: nextCurrentStep })
+      .eq("id", orderId);
+    if (error) {
+      console.error("Erreur Send Next Step:", error);
+      await fetchOrders();
+    }
+  };
+
+  const canSendNext = (order: Order) => {
+    const items = parseItems(order.items);
+    const hasFormula = items.some(item => (item as any).is_formula);
+    if (!hasFormula) return false;
+    const kitchenItems = items.filter(item => isKitchenCourse(item));
+    const currentStep = resolveOrderCurrentStep(order);
+    const currentStepItems = kitchenItems.filter(item => resolveItemStepRank(item) === currentStep);
+    const currentStepReady = currentStepItems.every(item => isItemReady(item));
+    const hasNextStep = kitchenItems.some(item => resolveItemStepRank(item) > currentStep);
+    return currentStepReady && hasNextStep;
+  };
+
   const markNotificationHandled = async (notificationId: string | number) => {
     const { error } = await supabase
       .from("notifications")
@@ -2307,6 +2370,53 @@ export default function BarCaissePage() {
               );
             })}
           </div>
+
+          {pendingCashTables.length > 0 ? (
+            <div className="mt-6 bg-orange-50 border-2 border-orange-300 p-4">
+              <h3 className="text-lg font-black mb-2 uppercase">Commandes en cours</h3>
+              <div className="space-y-4">
+                {pendingCashTables.map((table) => {
+                  const expanded = !!expandedTables[table.tableNumber];
+                  return (
+                    <div key={table.tableNumber} className="bg-white border-2 border-black p-4 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
+                      <div className="flex flex-wrap items-center justify-between gap-3 border-b-2 border-black pb-2">
+                        <div>
+                          <div className="text-3xl font-black uppercase">
+                            T-{table.tableNumber}
+                            {Number(table.covers || 0) > 0 ? ` | 👥 ${Number(table.covers || 0)}` : ""}
+                          </div>
+                          <div className="text-sm font-bold">Total : {euro.format(table.total)}</div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button type="button" onClick={() => setExpandedTables((prev) => ({ ...prev, [table.tableNumber]: !prev[table.tableNumber] }))} className="px-3 py-2 border-2 border-black bg-white font-black">{expanded ? "Masquer" : "Détails"}</button>
+                          {table.orders.some(order => canSendNext(order)) && (
+                            <button type="button" onClick={() => void handleSendNextStep(table.orders[0].id)} className="px-4 py-3 border-2 border-black bg-blue-600 text-white font-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-x-[2px] active:translate-y-[2px]">ENVOYER LA SUITE</button>
+                          )}
+                        </div>
+                      </div>
+                      {expanded ? (
+                        <div className="mt-3 space-y-2" translate="no">
+                          {table.items.map((item, idx) => (
+                            <div key={`${table.tableNumber}-${idx}`} className="flex items-start justify-between gap-2 bg-gray-100 p-2">
+                              <div>
+                                <div className="font-bold notranslate" translate="no">
+                                  {Number(item.quantity) || 1}x {getItemName(item)}
+                                  {formatItemInlineDetails(item) ? ` ${formatItemInlineDetails(item)}` : ""}
+                                </div>
+                                {getItemExtras(item).length > 0 ? <div className="text-xs text-gray-700">Suppléments : {getItemExtras(item).join(", ")}</div> : null}
+                                {getItemNotes(item).length > 0 ? <div className="text-xs text-gray-700">Notes : {getItemNotes(item).join(" | ")}</div> : null}
+                              </div>
+                              <div className="font-black">{euro.format(calcLineTotal(item))}</div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
 
           {pendingCashTables.length > 0 ? (
             <div className="mt-6 bg-yellow-50 border-2 border-yellow-300 p-4">

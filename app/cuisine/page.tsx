@@ -1804,17 +1804,21 @@ export default function KitchenPage() {
       const kitchenItems = currentItems.filter((item) => isKitchenCourse(item));
       const currentStep = resolveOrderCurrentStep(targetOrder, kitchenItems as Item[]);
       const persistedCurrentStep = Number.isFinite(currentStep) && Number(currentStep) > 0 ? Number(currentStep) : 1;
+      const hasFormulaItems = currentItems.some(item => (item as any).is_formula);
       const nextItems = currentItems.map((item) => {
         console.log(`DEBUG Cuisine: Item ${item.name_fr}, destination: ${(item as any).destination}, step: ${resolveItemStepRank(item)}, currentStep: ${persistedCurrentStep}, isKitchen: ${isKitchenCourse(item)}`);
         if (!isKitchenCourse(item)) return item;
-        const matchesCurrentStep = resolveItemStepRank(item) === persistedCurrentStep;
-        if (matchesCurrentStep) {
+        const itemStep = resolveItemStepRank(item);
+        if (itemStep === persistedCurrentStep) {
           return setItemStatus(item, "ready");
+        }
+        if (!hasFormulaItems && itemStep === persistedCurrentStep + 1) {
+          return setItemStatus(item, "preparing");
         }
         return item;
       });
       const nextStatus = deriveOrderStatusFromItems(nextItems);
-      const nextCurrentStep = persistedCurrentStep + 1;
+      const nextCurrentStep = hasFormulaItems ? persistedCurrentStep : persistedCurrentStep + 1;
       const nextServiceStep = resolveServiceStepFromCurrentStep(nextCurrentStep);
       const orderUpdatePayload = {
         items: nextItems,
@@ -1858,6 +1862,76 @@ export default function KitchenPage() {
       );
     } catch (error) {
       console.error("update_order_item_status unexpected error:", error);
+      needsOrderRefreshRef.current = true;
+    }
+  };
+
+  const handleSendNextStep = async (orderId: string | number) => {
+    try {
+      const targetOrder = orders.find((order) => String(order.id) === String(orderId));
+      if (!targetOrder) {
+        needsOrderRefreshRef.current = true;
+        return;
+      }
+
+      const currentItems = getOrderItems(targetOrder as Order);
+      if (currentItems.length === 0) return;
+      const kitchenItems = currentItems.filter((item) => isKitchenCourse(item));
+      const currentStep = resolveOrderCurrentStep(targetOrder, kitchenItems as Item[]);
+      const persistedCurrentStep = Number.isFinite(currentStep) && Number(currentStep) > 0 ? Number(currentStep) : 1;
+      const nextItems = currentItems.map((item) => {
+        if (!isKitchenCourse(item)) return item;
+        const itemStep = resolveItemStepRank(item);
+        if (itemStep === persistedCurrentStep + 1) {
+          return setItemStatus(item, "preparing");
+        }
+        return item;
+      });
+      const nextStatus = deriveOrderStatusFromItems(nextItems);
+      const nextCurrentStep = persistedCurrentStep + 1;
+      const nextServiceStep = resolveServiceStepFromCurrentStep(nextCurrentStep);
+      const orderUpdatePayload = {
+        items: nextItems,
+        status: nextStatus,
+        service_step: nextServiceStep,
+        current_step: nextCurrentStep,
+      };
+
+      let updateResult = await supabase
+        .from("orders")
+        .update(orderUpdatePayload)
+        .eq("id", orderId)
+        .select("id,status,service_step,current_step,items");
+      if (updateResult.error && nextStatus === "ready") {
+        const fallback = await supabase
+          .from("orders")
+          .update({ ...orderUpdatePayload, status: "pret" })
+          .eq("id", orderId)
+          .select("id,status,service_step,current_step,items");
+        updateResult = fallback;
+      }
+
+      if (updateResult.error) {
+        console.log("handleSendNextStep failed:", updateResult.error);
+        console.error("Erreur handleSendNextStep:", updateResult.error?.message || updateResult.error);
+        needsOrderRefreshRef.current = true;
+        return;
+      }
+
+      setOrders((prev) =>
+        prev.map((order) => {
+          if (String(order.id) !== String(orderId)) return order;
+          return {
+            ...order,
+            items: nextItems,
+            status: nextStatus,
+            service_step: nextServiceStep,
+            current_step: nextCurrentStep,
+          };
+        })
+      );
+    } catch (error) {
+      console.error("handleSendNextStep unexpected error:", error);
       needsOrderRefreshRef.current = true;
     }
   };

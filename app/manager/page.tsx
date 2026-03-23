@@ -11,6 +11,7 @@ import { DEFAULT_ALLERGEN_TRANSLATIONS_EXTENDED, PREDEFINED_LANGUAGE_OPTIONS_EXT
 import RestaurantQrCard from "../components/RestaurantQrCard";
 import DashboardOtpGate from "../components/DashboardOtpGate";
 import { buildRestaurantPublicUrl, buildRestaurantVitrineUrl } from "../../lib/restaurant-url";
+import { migrateTranslationsToJsonb } from "../lib/migrate-translations";
 import {
   Bar,
   BarChart,
@@ -1511,6 +1512,7 @@ export default function MenuManager() {
   const hasAllergenLibraryTableRef = useRef(true);
   const hasRestaurantLanguagesTableRef = useRef(true);
   const [dishes, setDishes] = useState<Dish[]>([]);
+  const [migrating, setMigrating] = useState(false);
   const [formulaLinksByFormulaId, setFormulaLinksByFormulaId] = useState<Map<string, string[]>>(new Map());
   const [formulaLinksByDishId, setFormulaLinksByDishId] = useState<Map<string, string[]>>(new Map());
   const [formulaLinkDefaultOptionsByFormulaId, setFormulaLinkDefaultOptionsByFormulaId] = useState<
@@ -5999,6 +6001,18 @@ export default function MenuManager() {
     router.replace("/login");
   };
 
+  const handleMigrate = async () => {
+    setMigrating(true);
+    try {
+      await migrateTranslationsToJsonb();
+      alert("Migration des traductions terminée !");
+    } catch (e) {
+      console.error(e);
+      alert("Erreur lors de la migration: " + String(e));
+    }
+    setMigrating(false);
+  };
+
   const handleCreateSubCategory = async () => {
     if (!scopedRestaurantId) {
       alert("Restaurant non défini dans l'URL.");
@@ -8602,6 +8616,14 @@ export default function MenuManager() {
           <div className="flex items-center justify-between">
             <h1 className="text-3xl font-black">Dashboard Manager</h1>
             <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleMigrate}
+                disabled={migrating}
+                className="px-4 py-2 border-2 border-black font-black rounded-xl bg-yellow-400 disabled:opacity-50"
+              >
+                {migrating ? "Migration..." : "Migrer Traductions"}
+              </button>
               <button
                 type="button"
                 onClick={() => router.push(`/${scopedRestaurantId}/manager/archives`)}
