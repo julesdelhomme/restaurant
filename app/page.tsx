@@ -2399,6 +2399,7 @@ export default function MenuDigital() {
   });
   const [formulaSelectionError, setFormulaSelectionError] = useState("");
   const [formulaItemDetailsOpen, setFormulaItemDetailsOpen] = useState<Record<string, boolean>>({});
+  const [formulaActiveCategoryId, setFormulaActiveCategoryId] = useState("");
   const [dishModalQuantity, setDishModalQuantity] = useState(1);
   const [serverCallMsg, setServerCallMsg] = useState("");
   const [showCallModal, setShowCallModal] = useState(false);
@@ -4260,6 +4261,50 @@ export default function MenuDigital() {
     const stepDish = dishById.get(stepDishId);
     return stepDish ? getDishName(stepDish, lang) : "";
   }, [formulaSourceDish, formulaDish, formulaLinksByFormulaId, dishById, lang]);
+  const formulaCurrentCategoryId = useMemo(() => {
+    const activeId = String(formulaActiveCategoryId || "").trim();
+    if (activeId && normalizedFormulaCategoryIds.includes(activeId)) return activeId;
+    const firstMissing = normalizedFormulaCategoryIds.find(
+      (categoryId) => !String(formulaSelections[categoryId] || "").trim()
+    );
+    if (firstMissing) return firstMissing;
+    return normalizedFormulaCategoryIds[0] || "";
+  }, [formulaActiveCategoryId, normalizedFormulaCategoryIds, formulaSelections]);
+  const formulaCurrentStepTitle = useMemo(() => {
+    const categoryId = String(formulaCurrentCategoryId || "").trim();
+    if (!categoryId) return formulaStepTitle;
+    const selectedDishId = String(formulaSelections[categoryId] || "").trim();
+    if (selectedDishId) {
+      const selectedDish = dishById.get(selectedDishId);
+      if (selectedDish) {
+        const nameFr = String(selectedDish.name_fr || selectedDish.name || "").trim();
+        return nameFr || getDishName(selectedDish, lang);
+      }
+    }
+    const categoryOptions = formulaOptionsByCategory.get(categoryId) || [];
+    const firstOption = categoryOptions[0];
+    if (firstOption) {
+      const optionNameFr = String(firstOption.name_fr || firstOption.name || "").trim();
+      return optionNameFr || getDishName(firstOption, lang);
+    }
+    return formulaStepTitle;
+  }, [formulaCurrentCategoryId, formulaSelections, dishById, formulaOptionsByCategory, formulaStepTitle, lang]);
+
+  useEffect(() => {
+    if (!formulaDish) {
+      setFormulaActiveCategoryId("");
+      return;
+    }
+    if (normalizedFormulaCategoryIds.length === 0) return;
+    setFormulaActiveCategoryId((current) => {
+      const normalizedCurrent = String(current || "").trim();
+      if (normalizedCurrent && normalizedFormulaCategoryIds.includes(normalizedCurrent)) return normalizedCurrent;
+      const firstMissing = normalizedFormulaCategoryIds.find(
+        (categoryId) => !String(formulaSelections[categoryId] || "").trim()
+      );
+      return firstMissing || normalizedFormulaCategoryIds[0] || "";
+    });
+  }, [formulaDish, normalizedFormulaCategoryIds, formulaSelections]);
 
   const selectedDishLinkedFormulas = useMemo(() => {
     if (!selectedDish) return [] as Dish[];
@@ -5495,6 +5540,7 @@ async function handleSubmitOrder() {
     setFormulaMainDetails(emptyFormulaSelectionDetails);
     setFormulaSelectionError("");
     setFormulaItemDetailsOpen({});
+    setFormulaActiveCategoryId("");
     setSelectedDish(null);
     setModalProductOptions([]);
     setSelectedProductOptionIds([]);
@@ -6953,7 +6999,7 @@ async function handleSubmitOrder() {
               </div>
             </div>
             <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-28 pt-4 sm:pb-6">
-              <h2 className="text-2xl font-black text-black mb-1">{formulaStepTitle || getFormulaDisplayName(formulaDish)}</h2>
+              <h2 className="text-2xl font-black text-black mb-1">{formulaCurrentStepTitle || getFormulaDisplayName(formulaDish)}</h2>
               <div className="text-base font-black inline-flex items-center gap-1 mb-4">
                 {Number(getFormulaPackPrice(formulaDish) || 0).toFixed(2)}
                 <Euro size={16} />
@@ -6987,7 +7033,7 @@ const allergens = String((info as any)?.allergens || "").trim();
                 const parentDish = parentDishId ? dishById.get(String(parentDishId)) : null;
                 const parentDishNameFromFormula = String(info?.parent_dish_name || "").trim();
                 const stepDishName =
-                  formulaStepTitle ||
+                  formulaCurrentStepTitle ||
                   (parentDish ? getDishName(parentDish, lang) : "") ||
                   parentDishNameFromFormula;
                 const parentDishName = stepDishName || getFormulaDisplayName(formulaDish);
@@ -7128,6 +7174,7 @@ const allergens = String((info as any)?.allergens || "").trim();
                                     <button
                                       type="button"
                                       onClick={() => {
+                                        setFormulaActiveCategoryId(categoryId);
                                         setFormulaSelectionError("");
                                         setFormulaSelections((prev) => ({ ...prev, [categoryId]: optionId }));
                                         setFormulaSelectionDetails((prev) => ({

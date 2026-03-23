@@ -1773,6 +1773,19 @@ export default function KitchenPage() {
           await fetchOrders(payload?.eventType === "INSERT" || payload?.eventType === "UPDATE");
         }
       )
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "notifications" },
+        async (payload) => {
+          const row = (payload?.new || {}) as Record<string, unknown>;
+          const type = String(row.type || "").trim().toUpperCase();
+          if (type !== "CUISINE_PRINT" && type !== "KITCHEN_PRINT") return;
+          const rowRestaurantId = String(row.restaurant_id || "").trim();
+          const currentRestaurantId = String(resolvedRestaurantId || "").trim();
+          if (rowRestaurantId && currentRestaurantId && rowRestaurantId !== currentRestaurantId) return;
+          await fetchOrders(true);
+        }
+      )
       .on("postgres_changes", { event: "*", schema: "public", table: "restaurants" }, () => void fetchKitchenSettings())
       .on("postgres_changes", { event: "*", schema: "public", table: "dishes" }, () => void fetchCatalogNames())
       .on("postgres_changes", { event: "*", schema: "public", table: "sides_library" }, () => void fetchCatalogNames())

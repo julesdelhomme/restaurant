@@ -4429,8 +4429,7 @@ const formulaParentDishIds = useMemo(() => {
   };
 
   const isItemStepDone = (item: Item) => {
-    const prep = getItemPrepStatus(item);
-    return prep === "ready" || isItemServed(item);
+    return isItemServed(item);
   };
 
   const isItemWaitingOrPending = (item: Item) => {
@@ -4619,6 +4618,32 @@ const formulaParentDishIds = useMemo(() => {
     return activeEntries.filter((entry) => isItemReady(entry.item));
   };
 
+  const triggerKitchenPrint = async (order: Order, step: number) => {
+    const orderRecord = order as unknown as Record<string, unknown>;
+    const orderRestaurantId = String(orderRecord.restaurant_id ?? "").trim();
+    const targetRestaurantId = String(
+      orderRestaurantId || restaurantId || scopedRestaurantId || ""
+    ).trim();
+    if (!targetRestaurantId) return;
+    const payload = {
+      type: "CUISINE_PRINT",
+      status: "completed",
+      message: `Impression automatique étape ${step}`,
+      table_number: String(order.table_number || "").trim() || null,
+      restaurant_id: targetRestaurantId,
+      payload: {
+        source: "admin_send_next_step",
+        order_id: String(order.id || "").trim(),
+        step,
+      },
+      created_at: new Date().toISOString(),
+    };
+    const insertResult = await supabase.from("notifications").insert([payload as never]);
+    if (insertResult.error) {
+      console.warn("triggerKitchenPrint failed:", insertResult.error);
+    }
+  };
+
   const handleSendNextServiceStep = async (order: Order, nextStep: number) => {
     const normalizedNextStep = normalizeFormulaStepValue(nextStep, true);
     if (normalizedNextStep == null || normalizedNextStep <= 0) return;
@@ -4647,6 +4672,7 @@ const formulaParentDishIds = useMemo(() => {
             return item;
           })
         : parsedItems;
+      const nextStatus = deriveOrderStatusFromItems(nextItems as Item[]);
       const nextServiceStep = resolveLegacyServiceStepFromCurrentStep(normalizedNextStep);
       setOrders((prev) =>
         prev.map((row) =>
@@ -4655,6 +4681,7 @@ const formulaParentDishIds = useMemo(() => {
                 ...row,
                 current_step: normalizedNextStep,
                 service_step: nextServiceStep,
+                status: nextStatus,
                 items: nextItems.length > 0 ? nextItems : row.items,
               }
             : row
@@ -4665,12 +4692,15 @@ const formulaParentDishIds = useMemo(() => {
         .update({
           current_step: normalizedNextStep,
           service_step: nextServiceStep,
+          status: nextStatus,
           ...(nextItems.length > 0 && { items: nextItems }),
         })
         .eq("id", orderId);
       if (error) {
         console.error("Erreur update current_step:", error);
         await fetchOrders();
+      } else {
+        await triggerKitchenPrint(order, normalizedNextStep);
       }
     } finally {
       setSendingNextStepOrderIds((prev) => {
