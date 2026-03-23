@@ -4486,7 +4486,7 @@ const formulaParentDishIds = useMemo(() => {
 
     const higherSteps = formulaItems
       .map((item) => resolveWorkflowStepForItem(item))
-      .filter((value): value is number => Number.isFinite(value) && value > currentStep);
+      .filter((value): value is number => value !== null && Number.isFinite(value) && value > currentStep);
     if (higherSteps.length === 0) return null;
     const nextStep = Math.min(...higherSteps);
     if (!Number.isFinite(nextStep)) return null;
