@@ -384,12 +384,16 @@ export default function KitchenPage() {
     });
     const sortedItems = sortKitchenItemsByStep(items);
     if (sortedItems.length === 0) return [];
-    const currentStep = resolveOrderCurrentStep(order, sortedItems);
-    if (!Number.isFinite(currentStep) || Number(currentStep) <= 0) return sortedItems;
-    // Strict filter: exact step match
-    return sortedItems.filter((item) => resolveItemStepRank(item) === Number(currentStep));
+    return sortedItems.filter((item) => {
+      const status = getItemStatus(item as Item);
+      return status === "preparing" || status === "ready";
+    });
   };
   const hasPendingKitchenItems = (order: Order) => getKitchenItems(order).some((item) => !isItemReady(item));
+  const hasPreparingOrReadyKitchenItems = (order: Order) => getKitchenItems(order).some((item) => {
+    const status = getItemStatus(item as Item);
+    return status === "preparing" || status === "ready";
+  });
   const getServedOrReadyKitchenItems = (order: Order) =>
     sortKitchenItemsByStep(
       getOrderItems(order)
@@ -399,7 +403,9 @@ export default function KitchenPage() {
 
   const normalizeEntityId = (value: unknown) => String(value ?? "").trim();
   const repairUtf8Text = (value: unknown) => {
-    const raw = String(value ?? "").trim();
+    if (value == null) return "";
+    if (typeof value !== "string" && typeof value !== "number" && typeof value !== "boolean") return "";
+    const raw = String(value).trim();
     if (!raw) return "";
 
     let repaired = raw;
@@ -1671,7 +1677,7 @@ export default function KitchenPage() {
 
       await hydrateDishNamesFromOrders(kitchenOrdersWithCovers);
 
-      const pendingRows = kitchenOrdersWithCovers.filter((o: any) => hasPendingKitchenItems(o as Order));
+      const pendingRows = kitchenOrdersWithCovers.filter((o: any) => hasPreparingOrReadyKitchenItems(o as Order));
       const pendingMap: Record<string, boolean> = {};
       pendingRows.forEach((o: any) => {
         pendingMap[String(o.id)] = true;
@@ -1804,21 +1810,28 @@ export default function KitchenPage() {
       const kitchenItems = currentItems.filter((item) => isKitchenCourse(item));
       const currentStep = resolveOrderCurrentStep(targetOrder, kitchenItems as Item[]);
       const persistedCurrentStep = Number.isFinite(currentStep) && Number(currentStep) > 0 ? Number(currentStep) : 1;
-      const hasFormulaItems = currentItems.some(item => (item as any).is_formula);
+      const hasFormulaItems = currentItems.some((item) => {
+        const record = item as Record<string, unknown>;
+        return Boolean(
+          record.is_formula ??
+            record.formula_dish_id ??
+            record.formulaDishId ??
+            record.formula_id ??
+            record.formulaId
+        );
+      });
+      const hasNextKitchenStep = kitchenItems.some((item) => resolveItemStepRank(item) > persistedCurrentStep);
       const nextItems = currentItems.map((item) => {
-        console.log(`DEBUG Cuisine: Item ${item.name_fr}, destination: ${(item as any).destination}, step: ${resolveItemStepRank(item)}, currentStep: ${persistedCurrentStep}, isKitchen: ${isKitchenCourse(item)}`);
+        console.log(`DEBUG Cuisine: Item ${(item as any).name_fr}, destination: ${(item as any).destination}, step: ${resolveItemStepRank(item)}, currentStep: ${persistedCurrentStep}, isKitchen: ${isKitchenCourse(item)}`);
         if (!isKitchenCourse(item)) return item;
         const itemStep = resolveItemStepRank(item);
         if (itemStep === persistedCurrentStep) {
           return setItemStatus(item, "ready");
         }
-        if (itemStep === persistedCurrentStep + 1) {
-          return setItemStatus(item, "pending");
-        }
         return item;
       });
       const nextStatus = deriveOrderStatusFromItems(nextItems);
-      const nextCurrentStep = hasFormulaItems ? persistedCurrentStep : persistedCurrentStep + 1;
+      const nextCurrentStep = hasFormulaItems && hasNextKitchenStep ? persistedCurrentStep : persistedCurrentStep + 1;
       const nextServiceStep = resolveServiceStepFromCurrentStep(nextCurrentStep);
       const orderUpdatePayload = {
         items: nextItems,
@@ -1986,7 +1999,7 @@ export default function KitchenPage() {
     return date.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
   };
 
-  const priorityOrders = orders.filter((order) => hasPendingKitchenItems(order as Order));
+  const priorityOrders = orders.filter((order) => hasPreparingOrReadyKitchenItems(order as Order));
   const readyHistoryOrders = orders.filter((order) => getServedOrReadyKitchenItems(order as Order).length > 0);
   const groupedPriorityOrders = (() => {
     const getHourKey = (createdAt: string) => {

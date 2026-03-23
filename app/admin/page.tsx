@@ -4428,6 +4428,18 @@ const formulaParentDishIds = useMemo(() => {
       .toLowerCase();
   };
 
+  const isItemStepDone = (item: Item) => {
+    const prep = getItemPrepStatus(item);
+    return prep === "ready" || isItemServed(item);
+  };
+
+  const isItemWaitingOrPending = (item: Item) => {
+    const normalized = normalizeWorkflowItemStatus(item);
+    if (!normalized) return true;
+    if (["waiting", "en_attente", "attente", "queued", "queue", "pending"].includes(normalized)) return true;
+    return getItemPrepStatus(item) === "pending";
+  };
+
   const isItemWaitingForNextStep = (item: Item) => {
     const normalized = normalizeWorkflowItemStatus(item);
     return ["waiting", "en_attente", "attente", "queued", "queue"].includes(normalized);
@@ -4463,16 +4475,25 @@ const formulaParentDishIds = useMemo(() => {
     return 0;
   };
 
-  const checkStepFinished = (order: Order) => {
-    if (resolveOrderCurrentStep(order) !== 1) return false;
+  const resolveNextFormulaStep = (order: Order) => {
     const formulaItems = parseItems(order.items).filter((item) => isFormulaOrderItem(item));
-    if (formulaItems.length === 0) return false;
-    const stepOneItems = formulaItems.filter((item) => resolveWorkflowStepForItem(item) === 1);
-    const stepTwoWaitingItems = formulaItems.filter(
-      (item) => resolveWorkflowStepForItem(item) === 2 && isItemWaitingForNextStep(item)
-    );
-    if (stepOneItems.length === 0 || stepTwoWaitingItems.length === 0) return false;
-    return stepOneItems.every((item) => isItemServed(item));
+    if (formulaItems.length === 0) return null;
+    const currentStep = resolveOrderCurrentStep(order);
+    if (!Number.isFinite(currentStep) || currentStep <= 0) return null;
+    const currentStepItems = formulaItems.filter((item) => resolveWorkflowStepForItem(item) === currentStep);
+    if (currentStepItems.length === 0) return null;
+    if (!currentStepItems.every((item) => isItemStepDone(item))) return null;
+
+    const higherSteps = formulaItems
+      .map((item) => resolveWorkflowStepForItem(item))
+      .filter((value): value is number => Number.isFinite(value) && value > currentStep);
+    if (higherSteps.length === 0) return null;
+    const nextStep = Math.min(...higherSteps);
+    if (!Number.isFinite(nextStep)) return null;
+    const nextStepItems = formulaItems.filter((item) => resolveWorkflowStepForItem(item) === nextStep);
+    if (nextStepItems.length === 0) return null;
+    if (!nextStepItems.every((item) => isItemWaitingOrPending(item))) return null;
+    return nextStep;
   };
 
   const tableStatusRows = useMemo(() => {
@@ -4533,16 +4554,21 @@ const formulaParentDishIds = useMemo(() => {
             }
         }
 
-        const formulaActionOrder = tableOrders.find((order) => checkStepFinished(order)) || null;
-        const canLaunchStep2 = Boolean(formulaActionOrder);
+        const formulaActionEntry =
+          tableOrders
+            .map((order) => {
+              const nextStep = resolveNextFormulaStep(order);
+              return nextStep ? { order, nextStep } : null;
+            })
+            .find(Boolean) || null;
 
         return {
           tableNumber,
           allServed,
           waitingMinutes,
           count: tableOrders.length,
-          formulaActionOrder,
-          canLaunchStep2,
+          formulaActionOrder: formulaActionEntry?.order ?? null,
+          nextFormulaStep: formulaActionEntry?.nextStep ?? null,
         };
       })
       .sort((a, b) => a.tableNumber - b.tableNumber);
@@ -5393,14 +5419,14 @@ className={`mt-4 w-full border-2 border-black py-3 text-base font-black shadow-[
                     {!row.allServed && row.waitingMinutes != null ? (
                       <div className="mt-1 text-sm font-black text-orange-700">Attente : {row.waitingMinutes} min</div>
                     ) : null}
-                    {row.formulaActionOrder && row.canLaunchStep2 ? (
+                    {row.formulaActionOrder && row.nextFormulaStep ? (
                       <button
                         type="button"
                         disabled={Boolean(sendingNextStepOrderIds[String((row.formulaActionOrder as Order).id || "")])}
-                        onClick={() => void handleSendNextServiceStep(row.formulaActionOrder as Order, 2)}
+                        onClick={() => void handleSendNextServiceStep(row.formulaActionOrder as Order, row.nextFormulaStep as number)}
                         className="mt-2 w-full border-2 border-black bg-orange-500 px-3 py-3 text-sm font-black uppercase text-white shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none disabled:opacity-50 disabled:cursor-not-allowed"
                       >
-                        ENVOYER ÉTAPE 2
+                        ENVOYER LA SUITE
                       </button>
                     ) : null}
                   </div>

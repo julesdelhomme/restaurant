@@ -1137,29 +1137,35 @@ function parseJsonObject(raw: unknown): Record<string, unknown> {
   return raw && typeof raw === "object" ? (raw as unknown as any) : {};
 }
 
+const toSafeString = (value: unknown) => (typeof value === "string" ? value.trim() : "");
+
 function getNameTranslation(source: Record<string, unknown>, langCode: string) {
   const lang = normalizeLanguageKey(langCode);
-  if (!lang || lang === "fr") return String(source.name_fr || "").trim();
-  const encodedToken = String(source.name_en || "").trim();
+  const nameFr = toSafeString(source.name_fr);
+  if (!lang || lang === "fr") {
+    if (nameFr) return nameFr;
+  }
+  const encodedToken = toSafeString(source.name_en);
   if (encodedToken.startsWith("__I18N__:")) {
     try {
       const parsed = JSON.parse(decodeURIComponent(encodedToken.replace("__I18N__:", ""))) as unknown as any;
-      const dynamic = String(parsed[lang] || "").trim();
+      const dynamic = toSafeString(parsed[lang]);
       if (dynamic) return dynamic;
-      const dynamicFr = String(parsed.fr || "").trim();
+      const dynamicFr = toSafeString(parsed.fr);
       if (dynamicFr) return dynamicFr;
     } catch {
       // ignore malformed token
     }
   }
-  const directColumn = String(source[`name_${lang}`] || "").trim();
+  const directColumnValue = source[`name_${lang}`];
+  const directColumn = toSafeString(directColumnValue);
   if (directColumn) {
     if (directColumn.startsWith("__I18N__:")) {
       try {
         const parsed = JSON.parse(decodeURIComponent(directColumn.replace("__I18N__:", ""))) as unknown as any;
-        const dynamic = String(parsed[lang] || "").trim();
+        const dynamic = toSafeString(parsed[lang]);
         if (dynamic) return dynamic;
-        const fallback = String(parsed.fr || "").trim();
+        const fallback = toSafeString(parsed.fr);
         if (fallback) return fallback;
       } catch {
         // ignore malformed token
@@ -1174,17 +1180,21 @@ function getNameTranslation(source: Record<string, unknown>, langCode: string) {
       ? (translations.name as unknown as any)
       : null;
   if (nameNode) {
-    const nested = String(nameNode[lang] || "").trim();
+    const nestedValue = nameNode[lang];
+    const nested = toSafeString(nestedValue);
     if (nested) return nested;
   }
-  const prefixed = String(translations[`name_${lang}`] || "").trim();
+  const prefixedValue = translations[`name_${lang}`];
+  const prefixed = toSafeString(prefixedValue);
   if (prefixed) return prefixed;
   const langNode = parseJsonObject(translations[lang]);
-  const nodeName = String(langNode.name || langNode.name_fr || "").trim();
+  const nameValue = langNode.name || langNode.name_fr;
+  const nodeName = toSafeString(nameValue);
   if (nodeName) return nodeName;
-  const flat = String(translations[lang] || "").trim();
-  if (flat && flat !== "[object Object]") return flat;
-  return String(source.name_fr || "").trim();
+  const flatValue = translations[lang];
+  const flat = toSafeString(flatValue);
+  if (flat) return flat;
+  return nameFr;
 }
 
 function normalizePinValue(raw: unknown) {
@@ -1801,11 +1811,15 @@ function getDishName(dish: Dish, lang: string) {
   const uiLang = toUiLang(lang);
   const dishRecord = dish as unknown as any;
   const normalizedLang = normalizeLanguageKey(lang);
+  const fallbackNameFr =
+    toSafeString(dish.name_fr) ||
+    toSafeString(dish.name) ||
+    toSafeString(dish.nom);
   // Prioritize JSONB translations
   const fromTranslations = getNameTranslation(
     {
       ...dishRecord,
-      name_fr: String(dish.name_fr || dish.name || dish.nom || "").trim(),
+      name_fr: fallbackNameFr,
     },
     lang
   );
@@ -1830,7 +1844,7 @@ function getDishName(dish: Dish, lang: string) {
     normalizedLang === "ru" ? "name_ru" : "",
   ].filter(Boolean);
   for (const key of langColumnCandidates) {
-    const directColumnValue = String(dishRecord[key] || "").trim();
+    const directColumnValue = toSafeString(dishRecord[key]);
     if (directColumnValue) return directColumnValue;
   }
 
@@ -1857,10 +1871,13 @@ function getDishName(dish: Dish, lang: string) {
     const rawDynamicValue = i18nName[lang as keyof typeof i18nName];
     if (typeof rawDynamicValue === "string" && rawDynamicValue.trim()) return rawDynamicValue.trim();
   }
-  if (lang === "en" && dish.name_en) return dish.name_en;
-  if (lang === "es" && dish.name_es) return dish.name_es;
-  if (lang === "de" && dish.name_de) return dish.name_de;
-  const fallbackName = String(dish.name_fr || dish.name || dish.nom || "Plat").trim();
+  const nameEn = toSafeString(dish.name_en);
+  if (lang === "en" && nameEn) return nameEn;
+  const nameEs = toSafeString(dish.name_es);
+  if (lang === "es" && nameEs) return nameEs;
+  const nameDe = toSafeString(dish.name_de);
+  if (lang === "de" && nameDe) return nameDe;
+  const fallbackName = fallbackNameFr || "Plat";
   const normalizedFallbackName = normalizeLookupText(fallbackName);
   if (normalizedFallbackName === "plat du jour" || normalizedFallbackName === "platdujour") {
     return String(
@@ -1880,11 +1897,22 @@ function getDescription(dish: Dish, lang: string) {
   const dishRecord = dish as unknown as any;
   // Prioritize JSONB translations
   const translations = parseJsonObject((dish as unknown as any).translations);
+  const directTranslation = translations[langCode] ?? translations[lang] ?? translations[uiLang];
+  if (typeof directTranslation === "string" && directTranslation.trim()) {
+    return parseOptionsFromDescription(directTranslation.trim()).baseDescription;
+  }
+  if (directTranslation && typeof directTranslation === "object") {
+    const directDesc = (directTranslation as Record<string, unknown>).description;
+    if (typeof directDesc === "string" && directDesc.trim()) {
+      return parseOptionsFromDescription(directDesc.trim()).baseDescription;
+    }
+  }
   const descriptionNode =
     translations.description && typeof translations.description === "object"
       ? (translations.description as unknown as any)
       : {};
-  const translatedDescription = String(descriptionNode[langCode] || "").trim();
+  const descValue = descriptionNode[langCode];
+  const translatedDescription = typeof descValue === 'string' ? descValue.trim() : "";
   if (translatedDescription) {
     return parseOptionsFromDescription(translatedDescription).baseDescription;
   }
@@ -1902,8 +1930,9 @@ function getDescription(dish: Dish, lang: string) {
     langCode === "el" ? "description_gr" : "",
   ].filter(Boolean);
   for (const key of directDescriptionColumnCandidates) {
-    const directValue = String(dishRecord[key] || "").trim();
-    if (directValue) return parseOptionsFromDescription(directValue).baseDescription;
+    const directValue = dishRecord[key];
+    const direct = typeof directValue === 'string' ? directValue.trim() : "";
+    if (direct) return parseOptionsFromDescription(direct).baseDescription;
   }
 
   const meta = (dish as unknown as any).dietary_tag;
@@ -1930,7 +1959,8 @@ function getDescription(dish: Dish, lang: string) {
     if (typeof rawDynamicValue === "string" && rawDynamicValue.trim()) return rawDynamicValue.trim();
   }
   const key = `description_${toUiLang(lang)}` as const;
-  const raw = (dish as Record<string, any>)[key] || dish.description_fr || dish.description || "";
+  const rawValue = (dish as Record<string, any>)[key] || dish.description_fr || dish.description || "";
+  const raw = typeof rawValue === 'string' ? rawValue : "";
   return parseOptionsFromDescription(raw).baseDescription;
 }
 
@@ -6930,15 +6960,17 @@ const allergens = String((info as any)?.allergens || "").trim();
               {formulaMainConfig && (formulaMainConfig.hasRequiredSides || formulaMainConfig.askCooking) ? (
                 <div className="mb-4 border-2 border-black rounded-xl p-3">
                   {(() => {
-                    const info = formulaInfoById.get(String(formulaDish?.id || ""));
-                    const parentDishId = info?.dishId;
-                    const parentDish = parentDishId ? dishById.get(String(parentDishId)) : null;
-                    const parentDishNameFromFormula = String(info?.parent_dish_name || "").trim();
-                    const parentDishName =
-                      (parentDish ? getDishName(parentDish, lang) : getFormulaDisplayName(formulaDish)) ||
-                      parentDishNameFromFormula;
-                    return <div className="font-black text-base mb-2">{parentDishName}</div>;
-                  })()}
+                const info = formulaInfoById.get(String(formulaDish?.id || ""));
+                const parentDishId = info?.dishId;
+                const parentDish = parentDishId ? dishById.get(String(parentDishId)) : null;
+                const parentDishNameFromFormula = String(info?.parent_dish_name || "").trim();
+                const stepDishName =
+                  (formulaSourceDish ? getDishName(formulaSourceDish, lang) : "") ||
+                  (parentDish ? getDishName(parentDish, lang) : "") ||
+                  parentDishNameFromFormula;
+                const parentDishName = stepDishName || getFormulaDisplayName(formulaDish);
+                return <div className="font-black text-base mb-2">{parentDishName}</div>;
+              })()}
                   <div className="space-y-3">
                     {formulaMainConfig.hasRequiredSides ? (
                       <div>
