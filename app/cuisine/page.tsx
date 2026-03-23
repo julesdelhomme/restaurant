@@ -1813,7 +1813,7 @@ export default function KitchenPage() {
           return setItemStatus(item, "ready");
         }
         if (!hasFormulaItems && itemStep === persistedCurrentStep + 1) {
-          return setItemStatus(item, "preparing");
+          return setItemStatus(item, "pending");
         }
         return item;
       });

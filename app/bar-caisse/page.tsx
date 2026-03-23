@@ -921,7 +921,7 @@ export default function BarCaissePage() {
   const inventoryByCategory = useMemo(() => {
     const groups: Record<string, InventoryDish[]> = {};
     inventory.forEach((item) => {
-      const label = String(item.category || item.categorie || "Sans catégorie").trim() || "Sans catégorie";
+      const label = String((item as any).categories?.name_fr || item.category || item.categorie || "Sans catégorie").trim() || "Sans catégorie";
       if (!groups[label]) groups[label] = [];
       groups[label].push(item);
     });
@@ -1293,11 +1293,11 @@ export default function BarCaissePage() {
 
   const fetchInventory = async () => {
     const currentRestaurantId = String(restaurantId ?? scopedRestaurantId ?? "").trim();
-    let query = supabase.from("dishes").select("*").order("id", { ascending: true });
+    let query = supabase.from("dishes").select("*, categories(name_fr)").order("id", { ascending: true });
     if (currentRestaurantId) query = query.eq("restaurant_id", currentRestaurantId);
     let { data, error } = await query;
     if (error && String((error as { code?: string }).code || "") === "42703" && currentRestaurantId) {
-      const fallback = await supabase.from("dishes").select("*").order("id", { ascending: true });
+      const fallback = await supabase.from("dishes").select("*, categories(name_fr)").order("id", { ascending: true });
       data = fallback.data;
       error = fallback.error;
     }
@@ -1700,7 +1700,7 @@ export default function BarCaissePage() {
       if (!isKitchenCourse(item)) return item;
       const itemStep = resolveItemStepRank(item);
       if (itemStep === persistedCurrentStep + 1) {
-        return setItemPrepStatus(item, "preparing");
+        return setItemPrepStatus(item, "pending");
       }
       return item;
     });

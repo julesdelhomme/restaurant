@@ -226,7 +226,7 @@ const UI_TEXT = {
     specialRequestLabel: "Demande spéciale",
     specialRequestPlaceholder: "Ex : sans oignons, sauce à part...",
     sidesLabel: "Accompagnements",
-    allergensLabel: "Allergènes",
+    allergensLabel: "Allerg&egrave;nes",
     extraLabel: "Supplément",
     extrasLabel: "Suppléments",
     table: "Table",
@@ -7124,6 +7124,7 @@ const allergens = String((info as any)?.allergens || "").trim();
                         )}
                         {selectedDishForCategory && formulaDishConfig ? (
                           <div className="mt-3 space-y-3 border-t border-black/20 pt-3">
+                            <h3 className="font-black text-base mb-2">{getDishName(selectedDishForCategory, lang)}</h3>
                             {formulaDishConfig.productOptions.length > 0 ? (
                               <div>
                                 <div className="text-xs font-black uppercase tracking-wide mb-2">{optionVariantsLabel}</div>
