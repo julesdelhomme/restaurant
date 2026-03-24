@@ -4283,6 +4283,38 @@ export default function MenuDigital() {
       .filter(Boolean) as FormulaStepEntry[];
   }, [formulaDish, formulaLinksByFormulaId, dishById]);
 
+  const resolvePrimaryStepEntry = (entries: FormulaStepEntry[]) => {
+    if (!entries || entries.length === 0) return null;
+    return [...entries].sort((a, b) => {
+      if (a.isRequired !== b.isRequired) return a.isRequired ? -1 : 1;
+      const aSort = a.sortOrder ?? 9999;
+      const bSort = b.sortOrder ?? 9999;
+      if (aSort !== bSort) return aSort - bSort;
+      return a.step - b.step;
+    })[0] || null;
+  };
+
+  const formulaStepGroups = useMemo(() => {
+    const map = new Map<number, FormulaStepEntry[]>();
+    formulaStepEntries.forEach((entry) => {
+      const current = map.get(entry.step) || [];
+      current.push(entry);
+      map.set(entry.step, current);
+    });
+    return map;
+  }, [formulaStepEntries]);
+
+  const formulaStepByCategoryId = useMemo(() => {
+    const map = new Map<string, number>();
+    formulaStepEntries.forEach((entry) => {
+      const categoryId = String(entry.categoryId || "").trim();
+      if (!categoryId) return;
+      const current = map.get(categoryId);
+      if (current == null || entry.step < current) map.set(categoryId, entry.step);
+    });
+    return map;
+  }, [formulaStepEntries]);
+
   const formulaStepTitle = useMemo(() => {
     const fromSource = String(formulaSourceDish?.name_fr || formulaSourceDish?.name || "").trim();
     if (fromSource) return fromSource;
@@ -4314,18 +4346,14 @@ export default function MenuDigital() {
   const currentStep = useMemo(() => {
     if (formulaStepEntries.length === 0) return null;
     const categoryId = String(formulaCurrentCategoryId || "").trim();
-    const pickList = categoryId
-      ? formulaStepEntries.filter((entry) => entry.categoryId === categoryId)
-      : [];
-    const candidates = pickList.length > 0 ? pickList : formulaStepEntries;
-    return [...candidates].sort((a, b) => {
-      if (a.isRequired !== b.isRequired) return a.isRequired ? -1 : 1;
-      const aSort = a.sortOrder ?? 9999;
-      const bSort = b.sortOrder ?? 9999;
-      if (aSort !== bSort) return aSort - bSort;
-      return a.step - b.step;
-    })[0] || null;
-  }, [formulaStepEntries, formulaCurrentCategoryId]);
+    const stepForCategory = categoryId ? formulaStepByCategoryId.get(categoryId) ?? null : null;
+    const stepNumbers = formulaStepEntries.map((entry) => entry.step).filter((step) => Number.isFinite(step));
+    const fallbackStep = stepNumbers.length > 0 ? Math.min(...stepNumbers) : null;
+    const targetStep = stepForCategory ?? fallbackStep;
+    if (targetStep == null) return null;
+    const entries = formulaStepGroups.get(targetStep) || [];
+    return resolvePrimaryStepEntry(entries);
+  }, [formulaStepEntries, formulaCurrentCategoryId, formulaStepByCategoryId, formulaStepGroups]);
   const currentStepLabel = currentStep?.dish?.name_fr || currentStep?.name_fr || formulaStepTitle;
 
   useEffect(() => {
