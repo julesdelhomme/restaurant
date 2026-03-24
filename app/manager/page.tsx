@@ -5316,7 +5316,7 @@ export default function MenuManager() {
             const insertLinksResult = await updateFormulaSteps({
               formulaDishId: String(savedDishIdRaw || "").trim(),
               componentDishIds: normalizedFormulaDishIds,
-              sequenceByDishId: persistedFormulaSequenceByDish,
+              sequenceByDishId: persistedFormulaSequenceByDish as Record<string, number>,
             });
             if (insertLinksResult.error) {
               console.warn("Erreur insertion formula_steps (formule):", insertLinksResult.error.message);
