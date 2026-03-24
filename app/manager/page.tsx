@@ -491,7 +491,6 @@ interface Dish {
   image_url?: string | null;
   allergens?: string | null;
   calories_min?: number | null;
-  calories_max?: number | null;
   suggestion_message?: string | null;
   is_available?: boolean;
   active?: boolean;
@@ -952,7 +951,6 @@ interface DishForm {
   image_url: string;
   allergens: string;
   calories_min: string;
-  calories_max: string;
   has_sides: boolean;
   has_extras: boolean;
   allow_multi_select: boolean;
@@ -1729,7 +1727,6 @@ export default function MenuManager() {
     image_url: "",
     allergens: "",
     calories_min: "",
-    calories_max: "",
   has_sides: false,
   has_extras: false,
   allow_multi_select: false,
@@ -3863,7 +3860,6 @@ export default function MenuManager() {
       image_url: "",
       allergens: "",
       calories_min: "",
-      calories_max: "",
       has_sides: false,
       has_extras: false,
       allow_multi_select: false,
@@ -4184,7 +4180,6 @@ export default function MenuManager() {
       image_url: dish.image_url || "",
       allergens: initialAllergenList.join(", "),
       calories_min: dish.calories_min?.toString() || "",
-      calories_max: dish.calories_max?.toString() || "",
       has_sides: !!dish.has_sides,
       has_extras: initialExtras.length > 0 ? true : !!dish.has_extras,
       allow_multi_select: !!(dish as unknown as any).allow_multi_select,
@@ -4884,7 +4879,6 @@ export default function MenuManager() {
       hunger_level: formData.hunger_level || null,
       image_url: formData.image_url || null,
       calories_min: formData.calories_min ? parseInt(formData.calories_min) : null,
-      calories_max: formData.calories_max ? parseInt(formData.calories_max) : null,
       suggestion_message: resolvedSalesTipFr || null,
       has_sides: !!formData.has_sides,
       has_extras: extrasToPersist.length > 0,
@@ -11866,15 +11860,6 @@ export default function MenuManager() {
                   className="w-full px-3 py-2 bg-white text-black border border-gray-300"
                 />
               </div>
-              <div>
-                <label className="block mb-1 font-bold">Calories max</label>
-                <input
-                  type="number"
-                  value={formData.calories_max}
-                  onChange={(e) => setFormData({ ...formData, calories_max: e.target.value })}
-                  className="w-full px-3 py-2 bg-white text-black border border-gray-300"
-                />
-              </div>
               <div className="md:col-span-2">
                 <label className="block mb-1 font-bold">Allergènes</label>
                 <div className="flex flex-wrap gap-3">
@@ -12114,7 +12099,6 @@ export default function MenuManager() {
                       const parentDishOptions = Array.isArray(formData.product_options)
                         ? (formData.product_options as ProductOptionItem[])
                         : [];
-                      const parentDishAllowMulti = Boolean(formData.allow_multi_select);
                       const selectedParentOptionIds = formData.formula_default_option_ids[formulaParentKey] || [];
                       if (parentDishOptions.length === 0) {
                         return <div className="text-xs text-gray-500">Aucune option configurée sur le plat maître.</div>;
@@ -12135,19 +12119,13 @@ export default function MenuManager() {
                                   className="flex items-center gap-2 text-xs font-bold text-gray-700"
                                 >
                                   <input
-                                    type={parentDishAllowMulti ? "checkbox" : "radio"}
-                                    name={parentDishAllowMulti ? undefined : "formula-parent-default-option"}
+                                    type="checkbox"
                                     checked={checked}
                                     onChange={(event) => {
                                       const current = formData.formula_default_option_ids[formulaParentKey] || [];
-                                      let nextIds = current;
-                                      if (parentDishAllowMulti) {
-                                        nextIds = event.target.checked
-                                          ? [...current, optionId]
-                                          : current.filter((id) => id !== optionId);
-                                      } else {
-                                        nextIds = event.target.checked ? [optionId] : [];
-                                      }
+                                      const nextIds = event.target.checked
+                                        ? [...current, optionId]
+                                        : current.filter((id) => id !== optionId);
                                       setFormData({
                                         ...formData,
                                         formula_default_option_ids: {
