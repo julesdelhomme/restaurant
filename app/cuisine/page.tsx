@@ -375,7 +375,10 @@ export default function KitchenPage() {
         parseNullableNumber(row.customer_count) ??
         parseNullableNumber(existingOrder?.customer_count) ??
         null,
-      restaurant_id: row.restaurant_id ?? existingOrder?.restaurant_id ?? null,
+      restaurant_id:
+        (row.restaurant_id as string) ??
+        (existingOrder?.restaurant_id as string) ??
+        null,
     };
   };
 
