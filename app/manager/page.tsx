@@ -4715,10 +4715,48 @@ export default function MenuManager() {
     const normalizedLinkedFormulaIds = Array.from(
       new Set((formData.linked_formula_ids || []).map((value) => String(value || "").trim()).filter(Boolean))
     ).filter((formulaId) => formulaId);
-    const normalizedFormulaSequenceByDish = Object.fromEntries(
+    const remapFormulaParentKey = <T,>(source: Record<string, T>, parentDishId: string | null) => {
+      const next: Record<string, T> = {};
+      Object.entries(source || {}).forEach(([rawKey, value]) => {
+        const normalizedKey = String(rawKey || "").trim();
+        if (!normalizedKey) return;
+        const resolvedKey =
+          normalizedKey === FORMULA_PARENT_STEP_KEY && String(parentDishId || "").trim()
+            ? String(parentDishId || "").trim()
+            : normalizedKey;
+        next[resolvedKey] = value;
+      });
+      return next;
+    };
+    const normalizedFormulaSequenceByDishDraft = Object.fromEntries(
       Object.entries(formData.formula_sequence_by_dish || {})
         .map(([dishId, seq]) => [String(dishId).trim(), Math.max(1, Math.trunc(Number(seq) || 1))])
         .filter(([dishId]) => Boolean(String(dishId || "").trim()))
+    );
+    const formulaParentDishId = String(editingDish?.id || "").trim() || null;
+    const normalizedFormulaSequenceByDish = remapFormulaParentKey(
+      normalizedFormulaSequenceByDishDraft,
+      formulaParentDishId
+    );
+    const normalizedFormulaDefaultOptionIdsDraft = Object.fromEntries(
+      Object.entries(formData.formula_default_option_ids || {})
+        .map(([dishId, optionIds]) => {
+          const normalizedDishId = String(dishId || "").trim();
+          if (!normalizedDishId) return [normalizedDishId, [] as string[]];
+          const normalizedOptionIds = Array.from(
+            new Set(
+              (Array.isArray(optionIds) ? optionIds : [])
+                .map((optionId) => String(optionId || "").trim())
+                .filter(Boolean)
+            )
+          );
+          return [normalizedDishId, normalizedOptionIds];
+        })
+        .filter(([dishId]) => Boolean(String(dishId || "").trim()))
+    ) as Record<string, string[]>;
+    const normalizedFormulaDefaultOptionIds = remapFormulaParentKey(
+      normalizedFormulaDefaultOptionIdsDraft,
+      formulaParentDishId
     );
     const parseFormulaCategoryIds = (value: unknown): string[] => {
       if (Array.isArray(value)) {
@@ -4871,8 +4909,8 @@ export default function MenuManager() {
       formula_category_ids: formData.is_formula ? normalizedFormulaCategoryIds : null,
       formula_price: formData.is_formula ? (parsedFormulaPrice == null ? null : Number(parsedFormulaPrice)) : null,
       only_in_formula: !!formData.only_in_formula,
-      formula_default_option_ids: formData.formula_default_option_ids || {},
-      formula_sequence_by_dish: formData.formula_sequence_by_dish || {},
+      formula_default_option_ids: normalizedFormulaDefaultOptionIds,
+      formula_sequence_by_dish: normalizedFormulaSequenceByDish,
       is_promo: !!formData.is_promo,
       promo_price: formData.is_promo ? (parsedPromoPrice == null ? null : Number(parsedPromoPrice)) : null,
       is_featured: unifiedSuggestionFlag,
@@ -5072,6 +5110,14 @@ export default function MenuManager() {
 
       const savedDishId = String(savedDishIdRaw || "").trim();
       if (savedDishId) {
+        const persistedFormulaSequenceByDish = remapFormulaParentKey(
+          normalizedFormulaSequenceByDish,
+          savedDishId
+        );
+        const persistedFormulaDefaultOptionIds = remapFormulaParentKey(
+          normalizedFormulaDefaultOptionIds,
+          savedDishId
+        );
         console.log("Tentative d'insertion dans dish_options pour le plat:", savedDishId);
         const deleteOptionsResult = await supabase.from("dish_options").delete().eq("dish_id", savedDishIdRaw as never);
         if (deleteOptionsResult.error) {
@@ -5184,6 +5230,16 @@ export default function MenuManager() {
         const formulaStepsMigrationHint = " Vérifiez la table formula_steps.";
         const formulaTableMigrationHint = " Vérifiez la table restaurant_formulas.";
         if (formData.is_formula) {
+          const syncFormulaMapResult = await supabase
+            .from("dishes")
+            .update({
+              formula_sequence_by_dish: persistedFormulaSequenceByDish,
+              formula_default_option_ids: persistedFormulaDefaultOptionIds,
+            } as never)
+            .eq("id", savedDishIdRaw as never);
+          if (syncFormulaMapResult.error) {
+            console.warn("Erreur synchronisation options/étapes du plat maître:", syncFormulaMapResult.error.message);
+          }
           const formulaNameToPersist = String(formData.formula_name || formData.name_fr || "").trim();
           const formulaImageUrlToPersist = String(formData.formula_image_url || "").trim();
           const autoAllergensFromComponents = (() => {
@@ -5260,7 +5316,7 @@ export default function MenuManager() {
             const insertLinksResult = await updateFormulaSteps({
               formulaDishId: String(savedDishIdRaw || "").trim(),
               componentDishIds: normalizedFormulaDishIds,
-              sequenceByDishId: normalizedFormulaSequenceByDish,
+              sequenceByDishId: persistedFormulaSequenceByDish,
             });
             if (insertLinksResult.error) {
               console.warn("Erreur insertion formula_steps (formule):", insertLinksResult.error.message);
@@ -12047,6 +12103,68 @@ export default function MenuManager() {
                         <option value={FORMULA_DIRECT_SEND_SEQUENCE}>ENVOI DIRECT (BAR/CAISSE)</option>
                       </select>
                     </div>
+                  </div>
+                  <div className="mt-4 border-t border-gray-200 pt-3">
+                    <label className="block mb-2 font-bold">Étape 0 - Options du plat maître</label>
+                    <p className="text-xs text-gray-600 mb-2">
+                      Configurez ici les options visibles pour le plat principal de la formule.
+                    </p>
+                    {(() => {
+                      const formulaParentKey = String(editingDish?.id || "").trim() || FORMULA_PARENT_STEP_KEY;
+                      const parentDishOptions = Array.isArray(formData.product_options)
+                        ? (formData.product_options as ProductOptionItem[])
+                        : [];
+                      const parentDishAllowMulti = Boolean(formData.allow_multi_select);
+                      const selectedParentOptionIds = formData.formula_default_option_ids[formulaParentKey] || [];
+                      if (parentDishOptions.length === 0) {
+                        return <div className="text-xs text-gray-500">Aucune option configurée sur le plat maître.</div>;
+                      }
+                      return (
+                        <div className="border border-gray-200 rounded p-2 bg-gray-50">
+                          <div className="text-xs font-bold text-gray-700 mb-2">
+                            {String(formData.name_fr || "Plat principal").trim() || "Plat principal"}
+                          </div>
+                          <div className="flex flex-col gap-2">
+                            {parentDishOptions.map((option, optionIndex) => {
+                              const optionId = String(option.id || `option-${optionIndex}`);
+                              const optionLabel = String(option.name_fr || option.name || "").trim();
+                              const checked = selectedParentOptionIds.includes(optionId);
+                              return (
+                                <label
+                                  key={`formula-parent-option-${optionId}`}
+                                  className="flex items-center gap-2 text-xs font-bold text-gray-700"
+                                >
+                                  <input
+                                    type={parentDishAllowMulti ? "checkbox" : "radio"}
+                                    name={parentDishAllowMulti ? undefined : "formula-parent-default-option"}
+                                    checked={checked}
+                                    onChange={(event) => {
+                                      const current = formData.formula_default_option_ids[formulaParentKey] || [];
+                                      let nextIds = current;
+                                      if (parentDishAllowMulti) {
+                                        nextIds = event.target.checked
+                                          ? [...current, optionId]
+                                          : current.filter((id) => id !== optionId);
+                                      } else {
+                                        nextIds = event.target.checked ? [optionId] : [];
+                                      }
+                                      setFormData({
+                                        ...formData,
+                                        formula_default_option_ids: {
+                                          ...formData.formula_default_option_ids,
+                                          [formulaParentKey]: Array.from(new Set(nextIds)),
+                                        },
+                                      });
+                                    }}
+                                  />
+                                  <span>{optionLabel || `Option #${optionId}`}</span>
+                                </label>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
                   <div className="mt-4 border-t border-gray-200 pt-3">
                     <label className="block mb-2 font-bold">Plats autorisés par catégorie</label>

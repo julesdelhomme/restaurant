@@ -4315,25 +4315,6 @@ export default function MenuDigital() {
     return map;
   }, [formulaStepEntries]);
 
-  const formulaStepTitle = useMemo(() => {
-    const fromSource = String(formulaSourceDish?.name_fr || formulaSourceDish?.name || "").trim();
-    if (fromSource) return fromSource;
-    const formulaDishId = String(formulaDish?.id || "").trim();
-    if (!formulaDishId) return "";
-    const links = formulaLinksByFormulaId.get(formulaDishId) || [];
-    const firstStepLink = [...links]
-      .map((link) => ({
-        link,
-        step: normalizeFormulaStepValue(link.step ?? link.sequence, true),
-      }))
-      .filter((entry) => entry.step != null && entry.step > 0)
-      .sort((a, b) => Number(a.step) - Number(b.step))[0];
-    if (!firstStepLink) return "";
-    const stepDishId = String(firstStepLink.link.dishId || "").trim();
-    if (!stepDishId) return "";
-    const stepDish = dishById.get(stepDishId);
-    return stepDish ? getDishName(stepDish, lang) : "";
-  }, [formulaSourceDish, formulaDish, formulaLinksByFormulaId, dishById, lang]);
   const formulaCurrentCategoryId = useMemo(() => {
     const activeId = String(formulaActiveCategoryId || "").trim();
     if (activeId && normalizedFormulaCategoryIds.includes(activeId)) return activeId;
@@ -4354,7 +4335,7 @@ export default function MenuDigital() {
     const entries = formulaStepGroups.get(targetStep) || [];
     return resolvePrimaryStepEntry(entries);
   }, [formulaStepEntries, formulaCurrentCategoryId, formulaStepByCategoryId, formulaStepGroups]);
-  const currentStepLabel = currentStep?.dish?.name_fr || currentStep?.name_fr || formulaStepTitle;
+  const currentStepLabel = currentStep?.dish?.name_fr || currentStep?.name_fr || "Nom du plat";
 
   useEffect(() => {
     if (!formulaDish) {
@@ -7195,6 +7176,10 @@ const allergens = String((info as any)?.allergens || "").trim();
                 <div className="flex flex-col gap-4">
                   {formulaCategories.map((category) => {
                     const categoryId = String(category.id || "").trim();
+                    const stepNumber = formulaStepByCategoryId.get(categoryId) ?? null;
+                    const stepEntriesForCategory = stepNumber != null ? formulaStepGroups.get(stepNumber) || [] : [];
+                    const step = resolvePrimaryStepEntry(stepEntriesForCategory);
+                    const stepTitle = step?.dish?.name_fr || step?.name_fr || "Nom du plat";
                     const options = formulaOptionsByCategory.get(categoryId) || [];
                     const selectedId = formulaSelections[categoryId] || "";
                     const selectedDishForCategory = selectedId ? dishById.get(String(selectedId || "").trim()) || null : null;
@@ -7213,7 +7198,8 @@ const allergens = String((info as any)?.allergens || "").trim();
                     );
                     return (
                       <div key={`formula-category-${categoryId}`} className="border-2 border-black rounded-xl p-3">
-                        <div className="font-black text-base mb-2">{getCategoryLabel(category)}</div>
+                        <div className="font-black text-base mb-1">{getCategoryLabel(category)}</div>
+                        <div className="text-xs font-bold text-black/60 mb-2">{stepTitle}</div>
                         {options.length === 0 ? (
                           <div className="text-sm text-black/60">{uiText.noDishes}</div>
                         ) : (

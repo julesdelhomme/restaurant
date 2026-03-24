@@ -135,6 +135,7 @@ export default function KitchenPage() {
   const knownPendingIdsRef = useRef<Record<string, boolean>>({});
   const hasInitializedPendingSnapshotRef = useRef(false);
   const lastPrintedStepByOrderIdRef = useRef<Record<string, number>>({});
+  const printedRealtimeTransitionsRef = useRef<Record<string, boolean>>({});
   const isOrderStatusUpdatingRef = useRef(false);
   const needsOrderRefreshRef = useRef(false);
 
@@ -312,6 +313,89 @@ export default function KitchenPage() {
     const relationalItems = parseOrderItemsRelation(order);
     if (relationalItems.length > 0) return relationalItems;
     return [];
+  };
+
+  const getRealtimeTransitionItemKey = (item: Item, index: number) => {
+    const record = item as unknown as Record<string, unknown>;
+    const orderItemId = String(record.order_item_id ?? record.orderItemId ?? "").trim();
+    if (orderItemId) return `order_item:${orderItemId}`;
+    const dishId = String(record.dish_id ?? record.id ?? "").trim();
+    const sequence = normalizeStepValue(record.step ?? record.sequence ?? record.formula_current_sequence ?? record.formulaCurrentSequence, true) ?? 0;
+    const quantity = Number(record.quantity || 1);
+    return `dish:${dishId || "unknown"}:step:${sequence}:qty:${quantity}:idx:${index}`;
+  };
+
+  const hasKitchenPreparingTransition = (oldItems: Item[], newItems: Item[]) => {
+    const oldStatusByKey = new Map<string, "pending" | "preparing" | "ready">();
+    oldItems.forEach((item, index) => {
+      if (!isKitchenCourse(item)) return;
+      oldStatusByKey.set(getRealtimeTransitionItemKey(item, index), getItemStatus(item));
+    });
+    for (let index = 0; index < newItems.length; index += 1) {
+      const item = newItems[index];
+      if (!isKitchenCourse(item)) continue;
+      const nextStatus = getItemStatus(item);
+      if (nextStatus !== "preparing") continue;
+      const key = getRealtimeTransitionItemKey(item, index);
+      const oldStatus = oldStatusByKey.get(key) || "pending";
+      if (oldStatus !== "preparing") return true;
+    }
+    return false;
+  };
+
+  const buildOrderFromRealtimeRow = (row: Record<string, unknown>): Order | null => {
+    const rowId = String(row.id || "").trim();
+    if (!rowId) return null;
+    const existingOrder = orders.find((order) => String(order.id || "").trim() === rowId) || null;
+    const parseNullableNumber = (value: unknown) => {
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : null;
+    };
+    return {
+      id: rowId,
+      table_number: String(row.table_number ?? existingOrder?.table_number ?? "").trim(),
+      items: row.items ?? existingOrder?.items ?? [],
+      order_items: Array.isArray(row.order_items) ? (row.order_items as any[]) : existingOrder?.order_items ?? null,
+      status: String(row.status ?? existingOrder?.status ?? "pending").trim() || "pending",
+      created_at: String(row.created_at ?? existingOrder?.created_at ?? new Date().toISOString()),
+      service_step: String(row.service_step ?? existingOrder?.service_step ?? "").trim() || null,
+      current_step:
+        parseNullableNumber(row.current_step) ??
+        parseNullableNumber(existingOrder?.current_step) ??
+        null,
+      covers:
+        parseNullableNumber(row.covers) ??
+        parseNullableNumber(existingOrder?.covers) ??
+        null,
+      guest_count:
+        parseNullableNumber(row.guest_count) ??
+        parseNullableNumber(existingOrder?.guest_count) ??
+        null,
+      customer_count:
+        parseNullableNumber(row.customer_count) ??
+        parseNullableNumber(existingOrder?.customer_count) ??
+        null,
+      restaurant_id: row.restaurant_id ?? existingOrder?.restaurant_id ?? null,
+    };
+  };
+
+  const triggerRealtimePreparingPrint = (order: Order) => {
+    const orderId = String(order.id || "").trim();
+    if (!orderId) return;
+    const kitchenItems = getKitchenItems(order);
+    const currentStep = resolveOrderCurrentStep(order, kitchenItems as Item[]);
+    const normalizedStep = Number.isFinite(currentStep) && Number(currentStep) > 0 ? Number(currentStep) : 1;
+    const itemKey = kitchenItems
+      .map((item, index) => getRealtimeTransitionItemKey(item as Item, index))
+      .sort()
+      .join("|");
+    const transitionKey = `${orderId}:${normalizedStep}:${itemKey}`;
+    if (printedRealtimeTransitionsRef.current[transitionKey]) return;
+    printedRealtimeTransitionsRef.current[transitionKey] = true;
+    lastPrintedStepByOrderIdRef.current[orderId] = normalizedStep;
+    setPrintOrder(order);
+    setLastPrintedId(orderId);
+    handleAutoPrint();
   };
 
   const normalizeStepValue = (value: unknown, allowZero = false) => {
@@ -1770,7 +1854,29 @@ export default function KitchenPage() {
         "postgres_changes",
         { event: "*", schema: "public", table: "orders" },
         async (payload) => {
-          await fetchOrders(payload?.eventType === "INSERT" || payload?.eventType === "UPDATE");
+          const eventType = String(payload?.eventType || "").toUpperCase();
+          if (eventType === "UPDATE") {
+            const oldRow = (payload?.old || {}) as Record<string, unknown>;
+            const newRow = (payload?.new || {}) as Record<string, unknown>;
+            const oldOrderStatus = normalizeStatusValue(oldRow.status);
+            const newOrderStatus = normalizeStatusValue(newRow.status);
+            const oldItems = parseItems(oldRow.items);
+            const newItems = parseItems(newRow.items);
+            const preparingTransitionByStatus =
+              oldOrderStatus !== "preparing" && newOrderStatus === "preparing";
+            const preparingTransitionByItems =
+              newItems.length > 0 && hasKitchenPreparingTransition(oldItems, newItems);
+            const hasPreparingTransition = preparingTransitionByStatus || preparingTransitionByItems;
+            if (autoPrintEnabled && hasPreparingTransition) {
+              const printOrderFromRealtime = buildOrderFromRealtimeRow(newRow);
+              if (printOrderFromRealtime) {
+                triggerRealtimePreparingPrint(printOrderFromRealtime);
+                await fetchOrders(false);
+                return;
+              }
+            }
+          }
+          await fetchOrders(eventType === "INSERT" || eventType === "UPDATE");
         }
       )
       .on(
