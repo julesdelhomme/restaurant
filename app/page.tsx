@@ -1548,6 +1548,8 @@ interface FormulaDishLink {
   sequence: number | null;
   step?: number | null;
   defaultProductOptionIds?: string[];
+  isRequired?: boolean;
+  sortOrder?: number | null;
   formulaName?: string;
   formulaImageUrl?: string;
   formulaMainDishId?: string | null;
@@ -3227,6 +3229,8 @@ export default function MenuDigital() {
       const defaultOptions = formulaDish && (formulaDish as any).formula_default_option_ids
         ? ((formulaDish as any).formula_default_option_ids as any)[dishId] || []
         : [];
+      const sortOrderRaw = Number(row.sort_order);
+      const sortOrder = Number.isFinite(sortOrderRaw) ? sortOrderRaw : null;
       const link: FormulaDishLink = {
         formulaDishId,
         dishId,
@@ -3234,6 +3238,8 @@ export default function MenuDigital() {
         sequence,
         step: sequence,
         defaultProductOptionIds: Array.isArray(defaultOptions) ? defaultOptions : [],
+        isRequired: toBooleanFlag(row.is_required),
+        sortOrder,
         formulaName: formulaInfo?.name,
         formulaImageUrl: formulaInfo?.imageUrl,
         formulaMainDishId: formulaInfo?.dishId || null,
@@ -4242,6 +4248,41 @@ export default function MenuDigital() {
     });
     return map;
   }, [formulaDish, formulaLinksByFormulaId]);
+
+  type FormulaStepEntry = {
+    step: number;
+    dish: Dish | null;
+    name_fr: string;
+    categoryId: string;
+    sortOrder: number | null;
+    isRequired: boolean;
+  };
+
+  const formulaStepEntries = useMemo(() => {
+    const formulaDishId = String(formulaDish?.id || "").trim();
+    if (!formulaDishId) return [] as FormulaStepEntry[];
+    const links = formulaLinksByFormulaId.get(formulaDishId) || [];
+    return links
+      .map((link) => {
+        const step = normalizeFormulaStepValue(link.step ?? link.sequence, true);
+        if (step == null || step <= 0) return null;
+        const dishId = String(link.dishId || "").trim();
+        const dish = dishById.get(dishId) || null;
+        const categoryId = String(link.categoryId || dish?.category_id || "").trim();
+        const nameFr = String(dish?.name_fr || dish?.name || "").trim();
+        const sortOrder = Number.isFinite(Number(link.sortOrder)) ? Number(link.sortOrder) : null;
+        return {
+          step,
+          dish,
+          name_fr: nameFr,
+          categoryId,
+          sortOrder,
+          isRequired: Boolean(link.isRequired),
+        } as FormulaStepEntry;
+      })
+      .filter(Boolean) as FormulaStepEntry[];
+  }, [formulaDish, formulaLinksByFormulaId, dishById]);
+
   const formulaStepTitle = useMemo(() => {
     const fromSource = String(formulaSourceDish?.name_fr || formulaSourceDish?.name || "").trim();
     if (fromSource) return fromSource;
@@ -4270,25 +4311,22 @@ export default function MenuDigital() {
     if (firstMissing) return firstMissing;
     return normalizedFormulaCategoryIds[0] || "";
   }, [formulaActiveCategoryId, normalizedFormulaCategoryIds, formulaSelections]);
-  const formulaCurrentStepTitle = useMemo(() => {
+  const currentStep = useMemo(() => {
+    if (formulaStepEntries.length === 0) return null;
     const categoryId = String(formulaCurrentCategoryId || "").trim();
-    if (!categoryId) return formulaStepTitle;
-    const selectedDishId = String(formulaSelections[categoryId] || "").trim();
-    if (selectedDishId) {
-      const selectedDish = dishById.get(selectedDishId);
-      if (selectedDish) {
-        const nameFr = String(selectedDish.name_fr || selectedDish.name || "").trim();
-        return nameFr || getDishName(selectedDish, lang);
-      }
-    }
-    const categoryOptions = formulaOptionsByCategory.get(categoryId) || [];
-    const firstOption = categoryOptions[0];
-    if (firstOption) {
-      const optionNameFr = String(firstOption.name_fr || firstOption.name || "").trim();
-      return optionNameFr || getDishName(firstOption, lang);
-    }
-    return formulaStepTitle;
-  }, [formulaCurrentCategoryId, formulaSelections, dishById, formulaOptionsByCategory, formulaStepTitle, lang]);
+    const pickList = categoryId
+      ? formulaStepEntries.filter((entry) => entry.categoryId === categoryId)
+      : [];
+    const candidates = pickList.length > 0 ? pickList : formulaStepEntries;
+    return [...candidates].sort((a, b) => {
+      if (a.isRequired !== b.isRequired) return a.isRequired ? -1 : 1;
+      const aSort = a.sortOrder ?? 9999;
+      const bSort = b.sortOrder ?? 9999;
+      if (aSort !== bSort) return aSort - bSort;
+      return a.step - b.step;
+    })[0] || null;
+  }, [formulaStepEntries, formulaCurrentCategoryId]);
+  const currentStepLabel = currentStep?.dish?.name_fr || currentStep?.name_fr || formulaStepTitle;
 
   useEffect(() => {
     if (!formulaDish) {
@@ -6999,7 +7037,7 @@ async function handleSubmitOrder() {
               </div>
             </div>
             <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-28 pt-4 sm:pb-6">
-              <h2 className="text-2xl font-black text-black mb-1">{formulaCurrentStepTitle || getFormulaDisplayName(formulaDish)}</h2>
+              <h2 className="text-2xl font-black text-black mb-1">{currentStepLabel || getFormulaDisplayName(formulaDish)}</h2>
               <div className="text-base font-black inline-flex items-center gap-1 mb-4">
                 {Number(getFormulaPackPrice(formulaDish) || 0).toFixed(2)}
                 <Euro size={16} />
@@ -7033,7 +7071,7 @@ const allergens = String((info as any)?.allergens || "").trim();
                 const parentDish = parentDishId ? dishById.get(String(parentDishId)) : null;
                 const parentDishNameFromFormula = String(info?.parent_dish_name || "").trim();
                 const stepDishName =
-                  formulaCurrentStepTitle ||
+                  currentStepLabel ||
                   (parentDish ? getDishName(parentDish, lang) : "") ||
                   parentDishNameFromFormula;
                 const parentDishName = stepDishName || getFormulaDisplayName(formulaDish);

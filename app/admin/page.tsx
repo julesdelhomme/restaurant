@@ -5,6 +5,7 @@ import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import { supabase } from "../lib/supabase";
 import { getCookingLabelFr, normalizeCookingKey } from "../lib/ui-translations";
+import PrintTicket from "../components/PrintTicket";
 import { Check, Euro, X } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -700,6 +701,8 @@ const [formulaLinksByFormulaId, setFormulaLinksByFormulaId] = useState<Map<strin
   const [readyAlertOrderIds, setReadyAlertOrderIds] = useState<Record<string, boolean>>({});
   const [hasReadyTabAlert, setHasReadyTabAlert] = useState(false);
   const [sendingNextStepOrderIds, setSendingNextStepOrderIds] = useState<Record<string, boolean>>({});
+  const [printTicketOrder, setPrintTicketOrder] = useState<Order | null>(null);
+  const [printTicketVisible, setPrintTicketVisible] = useState(false);
   const [waitClockMs, setWaitClockMs] = useState(() => Date.now());
   const fastEntryInitializedRef = useRef(false);
   const selectedCategoryInitializedRef = useRef(false);
@@ -4644,6 +4647,18 @@ const formulaParentDishIds = useMemo(() => {
     }
   };
 
+  const queueKitchenPrint = (order: Order, items: Item[]) => {
+    if (!items || items.length === 0) return;
+    const payload: Order = {
+      ...order,
+      items,
+      status: order.status || "pending",
+      created_at: order.created_at || new Date().toISOString(),
+    };
+    setPrintTicketOrder(payload);
+    setPrintTicketVisible(true);
+  };
+
   const handleSendNextServiceStep = async (order: Order, nextStep: number) => {
     const normalizedNextStep = normalizeFormulaStepValue(nextStep, true);
     if (normalizedNextStep == null || normalizedNextStep <= 0) return;
@@ -4655,13 +4670,17 @@ const formulaParentDishIds = useMemo(() => {
 
     try {
       const parsedItems = parseItems(order.items);
+      const itemsToPrint: Item[] = [];
       const nextItems = parsedItems.length > 0
         ? parsedItems.map((item) => {
             const step = resolveWorkflowStepForItem(item as Item);
             if (step == null) return item;
             if (step === normalizedNextStep) {
               if (isItemServed(item as Item) || getItemPrepStatus(item as Item) === "ready") return item;
-              return { ...(item as Item), status: "preparing" };
+              if (getItemPrepStatus(item as Item) === "preparing") return item;
+              const updated = { ...(item as Item), status: "preparing" };
+              itemsToPrint.push(updated);
+              return updated;
             }
             if (step > normalizedNextStep) {
               const existingStatus = normalizeWorkflowItemStatus(item as Item);
@@ -4701,6 +4720,10 @@ const formulaParentDishIds = useMemo(() => {
         await fetchOrders();
       } else {
         await triggerKitchenPrint(order, normalizedNextStep);
+        const kitchenItemsToPrint = itemsToPrint.filter((item) => !isDrink(item));
+        if (kitchenItemsToPrint.length > 0) {
+          queueKitchenPrint(order, kitchenItemsToPrint);
+        }
       }
     } finally {
       setSendingNextStepOrderIds((prev) => {
@@ -4995,6 +5018,7 @@ className={`mt-4 w-full border-2 border-black py-3 text-base font-black shadow-[
 
   return (
     <div className="min-h-screen bg-gray-100 p-4 font-sans text-black notranslate" translate="no" data-disable-client-ordering={disableClientOrderingEnabled ? "1" : "0"}>
+      <PrintTicket order={printTicketOrder} isVisible={printTicketVisible} />
       <h1 className="text-2xl font-bold mb-6 uppercase">Serveur</h1>
       {restaurantSettingsError ? (
         <div className="mb-4 rounded border-2 border-red-700 bg-red-50 px-3 py-2 text-sm font-semibold text-red-800">
