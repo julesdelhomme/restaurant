@@ -535,7 +535,7 @@ const UI_TEXT = {
     specialRequestLabel: "Besonderer Wunsch",
     specialRequestPlaceholder: "Z.B. ohne Zwiebeln, Sauce extra...",
     sidesLabel: "Beilagen",
-    allergensLabel: "Allergene",
+    allergensLabel: "Allergènes",
     extraLabel: "Extra",
     extrasLabel: "Extras",
     table: "Tisch",
@@ -4319,6 +4319,7 @@ export default function MenuDigital() {
     return resolvePrimaryStepEntry(formulaStepGroups.get(sortedSteps[0]) || []);
   }, [formulaStepEntries, formulaStepGroups, categoryById]);
   const mainFormulaStepLabel = mainFormulaStep?.dish?.name_fr || mainFormulaStep?.name_fr || "Nom du plat";
+  const formulaDisplayName = formulaDish ? getFormulaDisplayName(formulaDish) : "";
 
   useEffect(() => {
     if (!formulaDish) {
@@ -7027,7 +7028,7 @@ async function handleSubmitOrder() {
               </div>
             </div>
             <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-28 pt-4 sm:pb-6">
-              <h2 className="text-2xl font-black text-black mb-1">{mainFormulaStepLabel}</h2>
+              <h2 className="text-2xl font-black text-black mb-1">{formulaDisplayName || mainFormulaStepLabel}</h2>
               <div className="text-base font-black inline-flex items-center gap-1 mb-4">
                 {Number(getFormulaPackPrice(formulaDish) || 0).toFixed(2)}
                 <Euro size={16} />
@@ -7035,10 +7036,18 @@ async function handleSubmitOrder() {
               {(() => {
                 const info = formulaInfoById.get(String(formulaDish.id || ""));
                 const linkedDish = info?.dishId ? dishById.get(String(info.dishId)) : null;
-                const mainStepImageUrl = sanitizeMediaUrl((mainFormulaStep?.dish as any)?.image_url, "dishes-images-");
-                const imageUrl = mainStepImageUrl || sanitizeMediaUrl(info?.imageUrl || (linkedDish as any)?.image_url, "dishes-images-");
+                const imageUrl = sanitizeMediaUrl(
+                  info?.imageUrl || (formulaDish as any)?.image_url || (linkedDish as any)?.image_url,
+                  "dishes-images-"
+                );
                 if (!imageUrl) return null;
-                return <img src={imageUrl} alt={mainFormulaStepLabel} className="w-full h-48 object-cover rounded-lg border-2 border-black mb-4" />;
+                return (
+                  <img
+                    src={imageUrl}
+                    alt={formulaDisplayName || mainFormulaStepLabel}
+                    className="w-full h-48 object-cover rounded-lg border-2 border-black mb-4"
+                  />
+                );
               })()}
               {(() => {
                 const info = formulaInfoById.get(String(formulaDish.id || ""));
@@ -7066,7 +7075,23 @@ const allergens = String((info as any)?.allergens || "").trim();
                   (parentDish ? getDishName(parentDish, lang) : "") ||
                   parentDishNameFromFormula;
                 const parentDishName = stepDishName || getFormulaDisplayName(formulaDish);
-                return <div className="font-black text-base mb-2">{parentDishName}</div>;
+                const parentDishImageUrl = sanitizeMediaUrl(
+                  (mainFormulaStep?.dish as any)?.image_url || (parentDish as any)?.image_url,
+                  "dishes-images-"
+                );
+                return (
+                  <div className="flex items-center gap-3 mb-2">
+                    {parentDishImageUrl ? (
+                      <img
+                        src={parentDishImageUrl}
+                        alt={parentDishName}
+                        className="h-10 w-10 rounded-md object-cover border border-black/20"
+                        onError={hideBrokenImage}
+                      />
+                    ) : null}
+                    <div className="font-black text-base">{parentDishName}</div>
+                  </div>
+                );
               })()}
                   <div className="space-y-3">
                     {formulaMainConfig.hasRequiredSides ? (

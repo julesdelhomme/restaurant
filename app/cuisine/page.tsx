@@ -1859,6 +1859,7 @@ export default function KitchenPage() {
         async (payload) => {
           const eventType = String(payload?.eventType || "").toUpperCase();
           if (eventType === "UPDATE") {
+            console.log("Changement de statut détecté pour impression:", payload);
             const oldRow = (payload?.old || {}) as Record<string, unknown>;
             const newRow = (payload?.new || {}) as Record<string, unknown>;
             const oldOrderStatus = normalizeStatusValue(oldRow.status);
@@ -1869,7 +1870,10 @@ export default function KitchenPage() {
               oldOrderStatus !== "preparing" && newOrderStatus === "preparing";
             const preparingTransitionByItems =
               newItems.length > 0 && hasKitchenPreparingTransition(oldItems, newItems);
-            const hasPreparingTransition = preparingTransitionByStatus || preparingTransitionByItems;
+            const hasFormulaItems = newItems.some((item) => isFormulaItem(item as Item));
+            const forceFormulaPreparingPrint = newOrderStatus === "preparing" && hasFormulaItems;
+            const hasPreparingTransition =
+              preparingTransitionByStatus || preparingTransitionByItems || forceFormulaPreparingPrint;
             if (autoPrintEnabled && hasPreparingTransition) {
               const printOrderFromRealtime = buildOrderFromRealtimeRow(newRow);
               if (printOrderFromRealtime) {

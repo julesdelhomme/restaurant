@@ -4874,7 +4874,6 @@ export default function MenuManager() {
       end_time: normalizedEndTime || null,
       category_id: formData.category_id || null,
       subcategory_id: formData.subcategory_id || null,
-      category: selectedCategory?.name_fr || null,
       sub_category: selectedSubCategory?.name_fr || null,
       hunger_level: formData.hunger_level || null,
       image_url: formData.image_url || null,
