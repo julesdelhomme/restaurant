@@ -1,0 +1,20 @@
+[33m88a442c[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m)[m RETOUR A LA VERSION STABLE
+[33m779216c[m CRITICAL: Final logical reconstruct for formulas, staged service, encoding and printing
+[33m2d2fbd4[m CRITICAL: Final logical reconstruct for formulas, staged service, encoding and printing
+[33ma2374bc[m CRITICAL: Final logical reconstruct for formulas, staged service, encoding and printing
+[33m876152f[m CRITICAL: Final logical reconstruct for formulas, staged service, encoding and printing
+[33m98502be[m CRITICAL: Final logical reconstruct for formulas, staged service, encoding and printing
+[33m8622ce9[m CRITICAL: Final fix for encoding, prices, formula steps and printing
+[33meaa4251[m MASTER FIX: Manager steps, Admin visibility and Formula naming
+[33m7b99d40[m MASTER FIX: Manager steps, Admin visibility and Formula naming
+[33mc28d590[m MASTER FIX: Manager steps, Admin visibility and Formula naming
+[33me98bbbe[m MASTER FIX: Manager steps, Admin visibility and Formula naming
+[33m504e08b[m MASTER FIX: Manager steps, Admin visibility and Formula naming
+[33mafffc29[m FIX: Force integer types for formulas and branch Admin to order_items
+[33mb301946[m FINAL FIX: Sequential formulas, auto-print and admin ready column
+[33maec6c88[m FIX: Redirect ready button to order_items table
+[33m9543fdb[m FIX: Show preparing items in kitchen and admin
+[33m92e7b06[m EMERGENCY: Bridging order_items to old UI logic
+[33m5dd85ea[m FIX: Bridged old UI logic with new order_items table
+[33m75fbb5e[m RESTORE: Reverted to full logic and adapted to order_items
+[33mfe92d09[m KITCHEN: Complete UI reconstruction with grouping and full details
