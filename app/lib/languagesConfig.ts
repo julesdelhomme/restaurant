@@ -22,7 +22,8 @@ export type SmartCallOptionKeyExtended =
   | "need_water"
   | "need_bread"
   | "clear_table"
-  | "report_problem";
+  | "report_problem"
+  | "request_order";
 
 export const SMART_CALL_I18N_EXTENDED: Record<
   string,
@@ -48,6 +49,7 @@ export const SMART_CALL_I18N_EXTENDED: Record<
       need_bread: "Besoin de pain",
       clear_table: "Demander à débarrasser",
       report_problem: "Signaler un problème",
+      request_order: "Demander à commander",
     },
   },
   en: {
@@ -63,6 +65,7 @@ export const SMART_CALL_I18N_EXTENDED: Record<
       need_bread: "Need bread",
       clear_table: "Clear the table",
       report_problem: "Report a problem",
+      request_order: "Ready to order",
     },
   },
   es: {
@@ -78,6 +81,7 @@ export const SMART_CALL_I18N_EXTENDED: Record<
       need_bread: "Necesito pan",
       clear_table: "Pedir que retiren la mesa",
       report_problem: "Reportar un problema",
+      request_order: "Listo para pedir",
     },
   },
   de: {
@@ -93,6 +97,7 @@ export const SMART_CALL_I18N_EXTENDED: Record<
       need_bread: "Brot benötigt",
       clear_table: "Abräumen bitte",
       report_problem: "Problem melden",
+      request_order: "Bestellen bitte",
     },
   },
   it: {
@@ -108,6 +113,23 @@ export const SMART_CALL_I18N_EXTENDED: Record<
       need_bread: "Richiedere pane",
       clear_table: "Chiedere di sparecchiare",
       report_problem: "Segnalare un problema",
+      request_order: "Ordinare",
+    },
+  },
+  pt: {
+    title: "Precisa do garçom",
+    subtitle: "Escolha seu pedido",
+    cancel: "Fechar",
+    sending: "Enviando...",
+    sent: "Pedido enviado",
+    options: {
+      help_question: "Ajuda / Pergunta",
+      ask_bill: "Pedir a conta",
+      need_water: "Preciso de uma jarra de água",
+      need_bread: "Preciso de pão",
+      clear_table: "Pedir para limpar a mesa",
+      report_problem: "Relatar um problema",
+      request_order: "Pedir",
     },
   },
   nl: {
@@ -123,6 +145,7 @@ export const SMART_CALL_I18N_EXTENDED: Record<
       need_bread: "Brood nodig",
       clear_table: "Afruimen vragen",
       report_problem: "Probleem melden",
+      request_order: "Bestellen",
     },
   },
   pl: {
@@ -138,6 +161,7 @@ export const SMART_CALL_I18N_EXTENDED: Record<
       need_bread: "Proszę o pieczywo",
       clear_table: "Proszę posprzątać stół",
       report_problem: "Zgłoś problem",
+      request_order: "Prośba o zamówienie",
     },
   },
   ro: {
@@ -153,6 +177,7 @@ export const SMART_CALL_I18N_EXTENDED: Record<
       need_bread: "Am nevoie de pâine",
       clear_table: "Vă rog să debarasați",
       report_problem: "Semnalează o problemă",
+      request_order: "Gata de comandă",
     },
   },
   el: {
@@ -168,6 +193,7 @@ export const SMART_CALL_I18N_EXTENDED: Record<
       need_bread: "Χρειάζομαι ψωμί",
       clear_table: "Ζητώ μάζεμα τραπεζιού",
       report_problem: "Αναφορά προβλήματος",
+      request_order: "Παραγγελία",
     },
   },
   ja: {
@@ -183,6 +209,7 @@ export const SMART_CALL_I18N_EXTENDED: Record<
       need_bread: "パンをお願いする",
       clear_table: "下げてもらう",
       report_problem: "問題を伝える",
+      request_order: "注文をお願いします",
     },
   },
   zh: {
@@ -198,6 +225,7 @@ export const SMART_CALL_I18N_EXTENDED: Record<
       need_bread: "需要面包",
       clear_table: "请求收桌",
       report_problem: "反馈问题",
+      request_order: "我准备好点餐了",
     },
   },
   ko: {
@@ -213,6 +241,7 @@ export const SMART_CALL_I18N_EXTENDED: Record<
       need_bread: "빵 요청",
       clear_table: "테이블 정리 요청",
       report_problem: "문제 신고",
+      request_order: "주문할게요",
     },
   },
   ru: {
@@ -228,6 +257,23 @@ export const SMART_CALL_I18N_EXTENDED: Record<
       need_bread: "Нужен хлеб",
       clear_table: "Попросить убрать со стола",
       report_problem: "Сообщить о проблеме",
+      request_order: "Попросить сделать заказ",
+    },
+  },
+  tr: {
+    title: "Garson çağır",
+    subtitle: "Lütfen talebinizi seçin",
+    cancel: "Kapat",
+    sending: "Gönderiliyor...",
+    sent: "Talep gönderildi",
+    options: {
+      help_question: "Yardım / Soru",
+      ask_bill: "Hesabı iste",
+      need_water: "Bir sürahi su istiyorum",
+      need_bread: "Ekmek istiyorum",
+      clear_table: "Masanın toplanmasını iste",
+      report_problem: "Bir sorun bildir",
+      request_order: "Sipariş vermek istiyorum",
     },
   },
   ar: {
@@ -243,6 +289,7 @@ export const SMART_CALL_I18N_EXTENDED: Record<
       need_bread: "طلب خبز",
       clear_table: "طلب تنظيف الطاولة",
       report_problem: "الإبلاغ عن مشكلة",
+      request_order: "طلب الطعام",
     },
   },
 };

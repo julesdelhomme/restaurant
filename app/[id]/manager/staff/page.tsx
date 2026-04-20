@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
@@ -11,6 +11,7 @@ type StaffItem = {
   role: string;
   isActive: boolean;
   plainPassword: string;
+  assignedTables?: number[];
 };
 
 type StaffRole = "server" | "cuisine" | "bar_caisse";
@@ -49,10 +50,133 @@ export default function ManagerStaffPage() {
   const [showDraftPasswordById, setShowDraftPasswordById] = useState<Record<string, boolean>>({});
   const [updatingStaffId, setUpdatingStaffId] = useState("");
   const [deletingStaffId, setDeletingStaffId] = useState("");
+  const [availableTables, setAvailableTables] = useState<number[]>([]);
+  const [assignedTablesDraftById, setAssignedTablesDraftById] = useState<Record<string, number[]>>({});
+  const [createAssignedTables, setCreateAssignedTables] = useState<number[]>([]);
 
   const getAccessToken = async () => {
     const { data } = await supabase.auth.getSession();
     return String(data.session?.access_token || "").trim();
+  };
+
+  const normalizeTableList = (value: unknown): number[] => {
+    const list = Array.isArray(value) ? value : [];
+    const parsed = list
+      .map((entry) => Number(entry))
+      .filter((entry) => Number.isFinite(entry))
+      .map((entry) => Math.max(1, Math.trunc(entry)));
+    return Array.from(new Set(parsed)).sort((a, b) => a - b);
+  };
+
+  const toggleTableInList = (list: number[], tableNumber: number) => {
+    if (!Number.isFinite(tableNumber) || tableNumber <= 0) return list;
+    if (list.includes(tableNumber)) return list.filter((value) => value !== tableNumber);
+    return [...list, tableNumber].sort((a, b) => a - b);
+  };
+
+  const fetchRestaurantTables = async () => {
+    if (!restaurantId) {
+      setAvailableTables([]);
+      return;
+    }
+    const parseJsonObject = (value: unknown): Record<string, unknown> | null => {
+      if (value && typeof value === "object") return value as Record<string, unknown>;
+      if (typeof value !== "string") return null;
+      const raw = value.trim();
+      if (!raw) return null;
+      try {
+        const parsed = JSON.parse(raw);
+        return parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : null;
+      } catch {
+        return null;
+      }
+    };
+    const collectTableNumbersFromConfig = (source: unknown): number[] => {
+      const config = parseJsonObject(source);
+      if (!config) return [];
+      const toNum = (value: unknown) => {
+        const parsed = Number(value);
+        return Number.isFinite(parsed) && parsed > 0 ? Math.trunc(parsed) : null;
+      };
+      const explicitLists = [
+        config.tables,
+        config.table_numbers,
+        config.tableNumbers,
+      ];
+      const fromLists = explicitLists.flatMap((entry) => {
+        if (!Array.isArray(entry)) return [];
+        return entry
+          .map((row) => {
+            if (row && typeof row === "object") {
+              const rec = row as Record<string, unknown>;
+              return (
+                toNum(rec.table_number) ??
+                toNum(rec.tableNumber) ??
+                toNum(rec.number) ??
+                toNum(rec.id)
+              );
+            }
+            return toNum(row);
+          })
+          .filter((value): value is number => Number.isFinite(value));
+      });
+      const totalTables =
+        toNum(config.total_tables) ??
+        toNum(config.totalTables) ??
+        toNum(config.nb_tables) ??
+        toNum(config.number_of_tables) ??
+        null;
+      const fromTotal =
+        totalTables && totalTables > 0
+          ? Array.from({ length: totalTables }, (_, index) => index + 1)
+          : [];
+      return [...fromLists, ...fromTotal];
+    };
+    const { data: configuredTableRowsData, error: configuredTableRowsError } = await supabase
+      .from("table_assignments")
+      .select("table_number")
+      .eq("restaurant_id", restaurantId)
+      .order("table_number", { ascending: true });
+    if (configuredTableRowsError) {
+      false && console.warn("TRACE:", {
+        context: "manager.staff.fetchRestaurantTables.tableAssignmentsError",
+        message: String((configuredTableRowsError as { message?: string } | null)?.message || configuredTableRowsError || ""),
+      });
+    }
+    const configuredTableRows = Array.isArray(configuredTableRowsData)
+      ? (configuredTableRowsData as Array<Record<string, unknown>>)
+      : [];
+    const { data: restaurantConfigData, error: restaurantConfigError } = await supabase
+      .from("restaurants")
+      .select("table_config")
+      .eq("id", restaurantId)
+      .maybeSingle();
+    if (restaurantConfigError) {
+      false && console.warn("TRACE:", {
+        context: "manager.staff.fetchRestaurantTables.tableConfigError",
+        message: String((restaurantConfigError as { message?: string } | null)?.message || restaurantConfigError || ""),
+      });
+    }
+    const staticTableNumbers = collectTableNumbersFromConfig(restaurantConfigData?.table_config ?? null);
+    const nextTables = Array.from(
+      new Set(
+        [
+          ...staticTableNumbers,
+          ...configuredTableRows
+            .map((row) => Number(row.table_number ?? NaN))
+            .filter((value) => Number.isFinite(value))
+            .map((value) => Math.max(1, Math.trunc(value))),
+        ]
+      )
+    ).sort((a, b) => a - b);
+    false && console.log("TRACE:", {
+      context: "manager.staff.fetchRestaurantTables",
+      restaurantId,
+      staticTablesFromTableConfig: staticTableNumbers,
+      configuredTablesFromTableAssignments: configuredTableRows.length,
+      tables: nextTables,
+    });
+    setAvailableTables(nextTables);
   };
 
   const fetchStaff = async () => {
@@ -84,7 +208,12 @@ export default function ManagerStaffPage() {
       return;
     }
 
-    const nextItems = Array.isArray(payload.items) ? payload.items : [];
+    const nextItems = Array.isArray(payload.items)
+      ? payload.items.map((item) => ({
+          ...item,
+          assignedTables: normalizeTableList(item.assignedTables),
+        }))
+      : [];
     setItems(nextItems);
     setIdentifierDraftById(
       Object.fromEntries(nextItems.map((item) => [item.id, String(item.identifier || "").trim()]))
@@ -106,17 +235,29 @@ export default function ManagerStaffPage() {
     setPasswordDraftById(
       Object.fromEntries(nextItems.map((item) => [item.id, String(item.plainPassword || "").trim()]))
     );
+    setAssignedTablesDraftById(
+      Object.fromEntries(nextItems.map((item) => [item.id, normalizeTableList(item.assignedTables)]))
+    );
     setLoading(false);
   };
 
   useEffect(() => {
-    void fetchStaff();
+    void (async () => {
+      await fetchRestaurantTables();
+      await fetchStaff();
+    })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [restaurantId]);
 
   useEffect(() => {
     setIdentifier("");
   }, []);
+
+  useEffect(() => {
+    if (role !== "server" && createAssignedTables.length > 0) {
+      setCreateAssignedTables([]);
+    }
+  }, [role, createAssignedTables.length]);
 
   const handleCreate = async (event: FormEvent) => {
     event.preventDefault();
@@ -147,6 +288,7 @@ export default function ManagerStaffPage() {
         identifier: identifier.trim(),
         password,
         role,
+        assignedTables: role === "server" ? createAssignedTables : [],
       }),
     });
 
@@ -160,6 +302,7 @@ export default function ManagerStaffPage() {
     setIdentifier("");
     setPassword("");
     setRole("server");
+    setCreateAssignedTables([]);
     setShowCreatePassword(false);
     setMessage("Compte staff cree.");
     await fetchStaff();
@@ -206,6 +349,8 @@ export default function ManagerStaffPage() {
         ? nextRoleRaw
         : "server";
     const nextPassword = String(passwordDraftById[item.id] || "").trim();
+    const nextAssignedTables =
+      nextRole === "server" ? normalizeTableList(assignedTablesDraftById[item.id] || []) : [];
 
     if (!nextIdentifier) {
       setMessage("Identifiant invalide.");
@@ -239,6 +384,7 @@ export default function ManagerStaffPage() {
       staffAccountId: item.id,
       identifier: nextIdentifier,
       role: nextRole,
+      assignedTables: nextAssignedTables,
     };
     if (nextPassword) body.password = nextPassword;
 
@@ -324,6 +470,38 @@ export default function ManagerStaffPage() {
               />
               Voir le code
             </label>
+            {role === "server" ? (
+              <div className="md:col-span-4 rounded border border-gray-300 bg-gray-50 p-3">
+                <div className="mb-2 text-xs font-black uppercase tracking-wide text-gray-700">Tables assignées</div>
+                <div className="flex flex-wrap gap-2">
+                  {availableTables.map((tableNumber) => {
+                    const checked = createAssignedTables.includes(tableNumber);
+                    return (
+                      <label
+                        key={`create-assigned-table-${tableNumber}`}
+                        className={`inline-flex items-center gap-2 rounded border px-2 py-1 text-xs font-bold ${
+                          checked ? "border-green-700 bg-green-100 text-green-900" : "border-gray-300 bg-white text-gray-700"
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() =>
+                            setCreateAssignedTables((prev) => toggleTableInList(prev, tableNumber))
+                          }
+                        />
+                        T-{tableNumber}
+                      </label>
+                    );
+                  })}
+                  {availableTables.length === 0 ? (
+                    <div className="text-xs font-bold text-gray-500">
+                      Aucune table trouvée.
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
             <button
               type="submit"
               disabled={saving}
@@ -419,6 +597,42 @@ export default function ManagerStaffPage() {
                       {showStoredPasswordById[item.id] ? "Masquer code actuel" : "Voir code actuel"}
                     </button>
                   </div>
+                  {(roleDraftById[item.id] || "server") === "server" ? (
+                    <div className="rounded border border-gray-300 bg-gray-50 p-2">
+                      <div className="mb-1 text-xs font-black uppercase tracking-wide text-gray-700">Tables assignées</div>
+                      <div className="flex flex-wrap gap-2">
+                        {availableTables.map((tableNumber) => {
+                          const selected = normalizeTableList(assignedTablesDraftById[item.id] || []).includes(tableNumber);
+                          return (
+                            <label
+                              key={`staff-${item.id}-table-${tableNumber}`}
+                              className={`inline-flex items-center gap-2 rounded border px-2 py-1 text-xs font-bold ${
+                                selected ? "border-blue-700 bg-blue-100 text-blue-900" : "border-gray-300 bg-white text-gray-700"
+                              }`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={selected}
+                                onChange={() =>
+                                  setAssignedTablesDraftById((prev) => ({
+                                    ...prev,
+                                    [item.id]: toggleTableInList(
+                                      normalizeTableList(prev[item.id] || item.assignedTables || []),
+                                      tableNumber
+                                    ),
+                                  }))
+                                }
+                              />
+                              T-{tableNumber}
+                            </label>
+                          );
+                        })}
+                        {availableTables.length === 0 ? (
+                          <span className="text-xs font-bold text-gray-500">Aucune table disponible.</span>
+                        ) : null}
+                      </div>
+                    </div>
+                  ) : null}
                   <div className="flex flex-wrap items-center gap-2">
                     <button
                       type="button"

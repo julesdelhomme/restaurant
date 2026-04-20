@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
@@ -93,7 +93,7 @@ function resolveTotalTables(value: unknown): number | null {
 
 const FAST_ORDER_I18N = {
   fr: {
-    tableInvalid: "Numéro de table invalide.",
+    tableInvalid: "Num\u00E9ro de table invalide.",
     addItem: "Ajoutez au moins un article.",
     noValidItem: "Aucun article valide à envoyer.",
     sendError: "Erreur lors de l'envoi.",
@@ -317,6 +317,11 @@ type FormulaDisplay = {
   name: string;
   price: number;
   imageUrl: string;
+  dishId?: string;
+  formulaCategoryIds?: string[];
+  selectedDishIds?: string[];
+  dishSteps?: Record<string, number>;
+  defaultOptionIdsByDishId?: Record<string, string[]>;
   formulaLinks: FormulaDishLink[];
 };
 
@@ -345,8 +350,8 @@ type FastOrderLine = {
 };
 
 const DISH_SELECT_BASE =
-  "id,name,name_fr,name_en,name_es,name_de,price,category_id,restaurant_id";
-const DISH_SELECT_WITH_OPTIONS = `${DISH_SELECT_BASE},formula_price,is_formula,formula_category_ids,allow_multi_select,description,description_fr,description_en,description_es,description_de,ask_cooking,selected_sides,sides,has_sides,max_options,extras,supplement,supplements,options,selected_options`;
+  "id,name,price,category_id,restaurant_id,is_formula,formula_config";
+const DISH_SELECT_WITH_OPTIONS = `${DISH_SELECT_BASE}`;
 
 interface ParsedDishOptions {
   sideIds: Array<string | number>;
@@ -501,11 +506,11 @@ function isItemReady(item: Item) {
 }
 
 function getItemStatusLabel(item: Item) {
-  if (isItemServed(item)) return "SERVI";
+  if (isItemServed(item)) return "Servi";
   const status = getItemPrepStatus(item);
-  if (status === "ready") return "PRÊT";
-  if (status === "preparing") return "EN PRÉPARATION";
-  return "EN ATTENTE";
+  if (status === "ready") return "Pr\u00eat";
+  if (status === "preparing") return "En pr\u00e9paration";
+  return "En attente";
 }
 
 function getItemStatusClass(item: Item) {
@@ -637,7 +642,7 @@ function AdminContent() {
   const [serviceNotifications, setServiceNotifications] = useState<ServiceNotification[]>([]);
   const [activeTables, setActiveTables] = useState<TableAssignment[]>([]);
   const [activeDishNames, setActiveDishNames] = useState<Set<string>>(new Set());
-  const [activeTab, setActiveTab] = useState<"orders" | "sessions" | "new-order">("orders");
+  const [activeTab, setActiveTab] = useState<"orders" | "sessions" | "new-order" | "service">("orders");
 
   const [tableNumberInput, setTableNumberInput] = useState("");
   const [pinInput, setPinInput] = useState("");
@@ -796,7 +801,7 @@ const [formulaLinksByFormulaId, setFormulaLinksByFormulaId] = useState<Map<strin
     });
 
   const logFetchOrdersError = (label: string, error: unknown) => {
-    console.error("DEBUG_SQL_TOTAL:", error);
+    false && console.error("TRACE_SQL_TOTAL:", error);
     console.error(label, error);
   };
 
@@ -996,7 +1001,7 @@ const [formulaLinksByFormulaId, setFormulaLinksByFormulaId] = useState<Map<strin
         setRestaurantSettingsError(message);
       }
     } catch (error) {
-      console.error("DEBUG_SQL_TOTAL:", error);
+      false && console.error("TRACE_SQL_TOTAL:", error);
       const message = "Impossible de contacter restaurants.";
       console.error("fetchRestaurantSettings restaurants échoue:", message);
       setSettings(null);
@@ -1738,6 +1743,83 @@ const getFormulaDisplayName = (dish: DishItem) => {
     }
     return [];
   };
+  const parseFormulaOptionIds = (raw: unknown): string[] => {
+    if (!raw) return [];
+    if (Array.isArray(raw)) {
+      return Array.from(new Set(raw.map((entry) => String(entry || "").trim()).filter(Boolean)));
+    }
+    if (typeof raw === "string") {
+      const trimmed = raw.trim();
+      if (!trimmed) return [];
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed)) {
+          return Array.from(new Set(parsed.map((entry) => String(entry || "").trim()).filter(Boolean)));
+        }
+      } catch {
+        // ignore invalid json
+      }
+      return Array.from(
+        new Set(
+          trimmed
+            .replace(/[{}]/g, "")
+            .split(",")
+            .map((entry) => String(entry || "").trim())
+            .filter(Boolean)
+        )
+      );
+    }
+    return [];
+  };
+  const parseFormulaStepsMap = (raw: unknown): Record<string, number> => {
+    if (Array.isArray(raw)) {
+      const map: Record<string, number> = {};
+      raw.forEach((entry, index) => {
+        const row =
+          entry && typeof entry === "object" && !Array.isArray(entry)
+            ? (entry as Record<string, unknown>)
+            : {};
+        const optionsRaw = Array.isArray(row.options)
+          ? row.options
+          : Array.isArray(row.dish_ids)
+            ? row.dish_ids
+            : [];
+        optionsRaw
+          .map((dishId) => String(dishId || "").trim())
+          .filter(Boolean)
+          .forEach((dishId) => {
+            map[dishId] = index + 1;
+          });
+      });
+      return map;
+    }
+    const source =
+      typeof raw === "string"
+        ? parseJsonObject(raw)
+        : raw && typeof raw === "object" && !Array.isArray(raw)
+          ? (raw as Record<string, unknown>)
+          : null;
+    if (!source) return {};
+    return Object.fromEntries(
+      Object.entries(source)
+        .map(([dishId, step]) => [String(dishId || "").trim(), Math.max(1, Math.trunc(Number(step) || 1))])
+        .filter(([dishId]) => Boolean(dishId))
+    ) as Record<string, number>;
+  };
+  const parseFormulaDefaultOptionMap = (raw: unknown): Record<string, string[]> => {
+    const source =
+      typeof raw === "string"
+        ? parseJsonObject(raw)
+        : raw && typeof raw === "object" && !Array.isArray(raw)
+          ? (raw as Record<string, unknown>)
+          : null;
+    if (!source) return {};
+    return Object.fromEntries(
+      Object.entries(source)
+        .map(([dishId, optionIds]) => [String(dishId || "").trim(), parseFormulaOptionIds(optionIds)] as [string, string[]])
+        .filter(([dishId]) => Boolean(dishId))
+    );
+  };
 
   const dishNeedsCooking = (dish: DishItem) => {
     const parsed = parseDescriptionOptions(getDishOptionsSource(dish));
@@ -1924,16 +2006,23 @@ const getFormulaDisplayName = (dish: DishItem) => {
       const filtered = restrictToLinked
         ? baseOptions.filter((dish) => linkedIds?.has(String(dish.id || "").trim()))
         : baseOptions;
+      // Fallback: si les liens sont vides/cassés, on garde tous les plats de la catégorie.
+      const resolvedOptions = restrictToLinked && filtered.length === 0 ? baseOptions : filtered;
+      const filteredDishes = resolvedOptions.map((dish) => ({
+        id: String(dish.id || "").trim(),
+        name: String(dish.name_fr || dish.name || "").trim(),
+      }));
+      false && console.log("TRACE : Plats trouvés pour l'étape :", { categoryId, filteredDishes });
       const sourceDishId = String(formulaModalSourceDish?.id || "").trim();
       const sourceCategoryId = String(formulaModalSourceDish?.category_id || "").trim();
       if (sourceDishId && sourceCategoryId === categoryId) {
         const sourceDish = dishById.get(sourceDishId) || formulaModalSourceDish;
         if (sourceDish) {
-          const exists = filtered.some((dish) => String(dish.id || "").trim() === sourceDishId);
-          if (!exists) filtered.unshift(sourceDish);
+          const exists = resolvedOptions.some((dish) => String(dish.id || "").trim() === sourceDishId);
+          if (!exists) resolvedOptions.unshift(sourceDish);
         }
       }
-      map.set(categoryId, filtered);
+      map.set(categoryId, resolvedOptions);
     });
     return map;
   }, [dishes, formulaCategories, formulaModalDish, formulaLinkedOptionsByCategory, formulaModalSourceDish, dishById]);
@@ -2053,7 +2142,9 @@ const getFormulaDisplayName = (dish: DishItem) => {
   const handleOrderUpdate = (payload: { new: Order }) => {
     const updatedOrder = payload.new;
     setOrders((currentOrders) => {
-      const index = currentOrders.findIndex((o) => o.id === updatedOrder.id);
+      const updatedId = String(updatedOrder?.id ?? "").trim();
+      if (!updatedId) return currentOrders;
+      const index = currentOrders.findIndex((o) => String(o.id ?? "").trim() === updatedId);
       if (index > -1) {
         const nextOrders = [...currentOrders];
         nextOrders[index] = updatedOrder;
@@ -2105,9 +2196,9 @@ const getFormulaDisplayName = (dish: DishItem) => {
       }
   
       const itemsForPayload = normalizeFormulaItemsForOrderPayload(
-        validLines.flatMap((line) => {
+        validLines.flatMap<Record<string, unknown>>((line) => {
           const dish = dishById.get(String(line.dishId || ""));
-          const base = {
+          const base: Record<string, unknown> = {
             dish_id: line.dishId,
             name: line.dishName,
             quantity: line.quantity,
@@ -2125,7 +2216,7 @@ const getFormulaDisplayName = (dish: DishItem) => {
           if (line.isFormula && line.formulaSelections) {
             const formulaDish = dishById.get(String(line.formulaDishId || ""));
             const formulaPrice = getFormulaPackPrice(formulaDish as DishItem);
-            const formulaDetails = {
+            const formulaDetails: Record<string, unknown> = {
               ...base,
               name: line.formulaDishName,
               is_formula: true,
@@ -2157,10 +2248,10 @@ const getFormulaDisplayName = (dish: DishItem) => {
                 formula_id: line.formulaDishId,
                 sequence: sel.sequence,
                 step: sel.sequence,
-              };
+              } as Record<string, unknown>;
             });
 
-            const combined = [formulaDetails, ...childItems];
+            const combined: Record<string, unknown>[] = [formulaDetails, ...childItems];
             // Repeat for quantity
             return Array.from({ length: line.quantity }, () => combined).flat();
           }
@@ -2488,8 +2579,10 @@ const getFormulaDisplayName = (dish: DishItem) => {
 
     const ordersChannel = supabase
       .channel(`public:orders:restaurant_id=eq.${restaurantId}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, (payload) =>
-        handleOrderUpdate(payload as { new: Order })
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "orders" },
+        (payload) => handleOrderUpdate(payload as unknown as { new: Order })
       )
       .subscribe();
 
@@ -2502,8 +2595,10 @@ const getFormulaDisplayName = (dish: DishItem) => {
 
     const tablesChannel = supabase
       .channel(`public:table_assignments:restaurant_id=eq.${restaurantId}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "table_assignments" }, (payload) =>
-        handleTableAssignmentUpdate(payload as { new: TableAssignment })
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "table_assignments" },
+        (payload) => handleTableAssignmentUpdate(payload as unknown as { new: TableAssignment })
       )
       .subscribe();
 
@@ -2547,10 +2642,10 @@ const getFormulaDisplayName = (dish: DishItem) => {
   useEffect(() => {
     if (!restaurantId || fastEntryInitializedRef.current) return;
     (async () => {
-      const fetchMenu = async () => {
+      const fetchMenu = async (): Promise<DishItem[]> => {
         const { data, error } = await supabase.from("dishes").select(DISH_SELECT_WITH_OPTIONS).eq("restaurant_id", restaurantId).order("sort_order", { ascending: true });
         if (error) throw error;
-        return data.map(d => ({ ...d, id: String(d.id) }));
+        return ((data || []) as DishItem[]).map(d => ({ ...d, id: String(d.id) }));
       };
       const fetchCategories = async () => {
         const { data, error } = await supabase.from("categories").select("*").eq("restaurant_id", restaurantId).order("sort_order", { ascending: true });
@@ -2563,7 +2658,10 @@ const getFormulaDisplayName = (dish: DishItem) => {
         return data.map(s => ({ ...s, id: String(s.id) }));
       };
       const fetchFormulas = async () => {
-        const { data, error } = await supabase.from('restaurant_formulas').select('id, name, price, image_url, restaurant_id').eq('restaurant_id', restaurantId);
+        const { data, error } = await supabase
+          .from('restaurant_formulas')
+          .select('id, dish_id, name, price, image_url, restaurant_id, formula_category_ids, formula_config, options, is_active')
+          .eq('restaurant_id', restaurantId);
         if (error) {
           // setFormulasTableAvailable(false);
           return [];
@@ -2571,48 +2669,85 @@ const getFormulaDisplayName = (dish: DishItem) => {
         // setFormulasTableAvailable(true);
         return (data || []).map(f => ({ ...f, id: String(f.id) }));
       };
-      const fetchFormulaDishLinks = async () => {
-        const { data, error } = await supabase.from('formula_dish_links').select('*, formula_id(id, name, image_url, restaurant_id)').eq('formula_id.restaurant_id', restaurantId);
-        if (error) return [];
-        return data || [];
-      };
 
       try {
         setFastLoading(true);
-        const [dishes, categories, sides, formulas, links] = await Promise.all([
+        const [dishes, categories, sides, formulas] = await Promise.all([
           fetchMenu(),
           fetchCategories(),
           fetchSides(),
           fetchFormulas(),
-          fetchFormulaDishLinks(),
         ]);
         
+        const activeFormulas = formulas.filter((f: any) => {
+          const activeFlag = f.is_active == null ? true : readBooleanFlag(f.is_active, true);
+          return activeFlag;
+        });
+
         const formulaDishIds = new Set(dishes.filter(d => readBooleanFlag(d.is_formula)).map(d => String(d.id)));
-        const formulaIdsFromLinks = new Set(links.map(l => String(l.formula_id.id)));
-        const formulaIdsFromFormulas = new Set(formulas.map(f => String(f.id)));
-        const allFormulaIds = new Set([...formulaDishIds, ...formulaIdsFromLinks, ...formulaIdsFromFormulas]);
+        const formulaIdsFromFormulas = new Set(activeFormulas.map((f: any) => String(f.id)));
+        const linkedDishIdsFromFormulas = new Set(
+          activeFormulas
+            .map((f: any) => String(f.dish_id || "").trim())
+            .filter(Boolean)
+        );
+        const allFormulaIds = new Set([...formulaDishIds, ...formulaIdsFromFormulas, ...linkedDishIdsFromFormulas]);
         
         const activeDishes = dishes.filter(d => readBooleanFlag(d.active, true) && !allFormulaIds.has(String(d.id)));
         const activeCategories = categories.filter(c => readBooleanFlag(c.is_active, true));
 
-        const displays = formulas.map(f => {
-          const formulaLinks = (links || [])
-            .filter(l => String(l.formula_id.id) === String(f.id))
-            .map(l => ({
-              formulaDishId: String(l.formula_id.id),
-              dishId: String(l.dish_id),
-              sequence: normalizeFormulaStepValue(l.step_number),
-              step: normalizeFormulaStepValue(l.step_number),
-              isMain: Boolean(l.is_main_dish),
-              defaultProductOptionIds: [],
+        const displays = activeFormulas.map((f: any) => {
+          const formulaConfig =
+            typeof f.formula_config === "string"
+              ? parseJsonObject(f.formula_config)
+              : f.formula_config && typeof f.formula_config === "object" && !Array.isArray(f.formula_config)
+                ? (f.formula_config as Record<string, unknown>)
+                : {};
+          const selectedDishIds = parseFormulaOptionIds(
+            formulaConfig?.selected_dishes ??
+            formulaConfig?.selected_dish_ids ??
+            formulaConfig?.dish_ids
+          );
+          const stepsMap = parseFormulaStepsMap(formulaConfig?.steps);
+          const defaultOptionMap = parseFormulaDefaultOptionMap(
+            formulaConfig?.default_option_ids ??
+            formulaConfig?.options
+          );
+          const stepsDetailsMap =
+            formulaConfig?.steps_details && typeof formulaConfig.steps_details === "object" && !Array.isArray(formulaConfig.steps_details)
+              ? (formulaConfig.steps_details as Record<string, { step?: unknown }>)
+              : {};
+          const formulaLinks = selectedDishIds.map((dishId) => {
+            const normalizedDishId = String(dishId || "").trim();
+            const sequence = normalizeFormulaStepValue(
+              stepsMap[normalizedDishId] ??
+              stepsDetailsMap?.[normalizedDishId]?.step ??
+              1
+            );
+            return {
+              formulaDishId: String(f.id),
+              dishId: normalizedDishId,
+              sequence,
+              step: sequence,
+              isMain: false,
+              defaultProductOptionIds: Array.isArray(defaultOptionMap[normalizedDishId]) ? defaultOptionMap[normalizedDishId] : [],
               formulaName: f.name,
               formulaImageUrl: f.image_url,
-            }));
+            } as FormulaDishLink;
+          });
           return {
             id: String(f.id),
             name: f.name,
             price: parsePriceNumber(f.price),
             imageUrl: f.image_url,
+            dishId: String(f.dish_id || "").trim() || undefined,
+            formulaCategoryIds: parseFormulaCategoryIds(
+              f.formula_category_ids ??
+              formulaConfig?.formula_category_ids
+            ),
+            selectedDishIds,
+            dishSteps: stepsMap,
+            defaultOptionIdsByDishId: defaultOptionMap,
             formulaLinks,
           };
         });
@@ -2621,34 +2756,44 @@ const getFormulaDisplayName = (dish: DishItem) => {
         const linksByDishId = new Map<string, FormulaDishLink[]>();
         const dishIdsWithLinks = new Set<string>();
 
-        (links || []).forEach(link => {
-          const formulaId = String((link.formula_id as { id: string }).id);
-          const dishId = String(link.dish_id);
-          const record = {
-              formulaDishId: formulaId,
-              dishId: dishId,
-              sequence: normalizeFormulaStepValue(link.step_number),
-              step: normalizeFormulaStepValue(link.step_number),
-              isMain: Boolean(link.is_main_dish),
-              defaultProductOptionIds: [],
-              formulaName: (link.formula_id as {name: string}).name,
-              formulaImageUrl: (link.formula_id as {image_url: string}).image_url,
-          };
-          const formulaList = linksByFormulaId.get(formulaId) || [];
-          formulaList.push(record);
-          linksByFormulaId.set(formulaId, formulaList);
+        displays.forEach((display) => {
+          const formulaId = String(display.id || "").trim();
+          if (!formulaId) return;
+          const linkedFormulaDishId = String(display.dishId || "").trim();
+          const formulaKeys = linkedFormulaDishId ? [formulaId, linkedFormulaDishId] : [formulaId];
+          display.formulaLinks.forEach((record) => {
+            const dishId = String(record.dishId || "").trim();
+            if (!dishId) return;
+            formulaKeys.forEach((key) => {
+              const formulaList = linksByFormulaId.get(key) || [];
+              formulaList.push(record);
+              linksByFormulaId.set(key, formulaList);
+            });
 
-          const dishList = linksByDishId.get(dishId) || [];
-          dishList.push(record);
-          linksByDishId.set(dishId, dishList);
-          dishIdsWithLinks.add(dishId);
+            const dishList = linksByDishId.get(dishId) || [];
+            dishList.push(record);
+            linksByDishId.set(dishId, dishList);
+            dishIdsWithLinks.add(dishId);
+          });
         });
 
         const priceMap = new Map<string, number>();
-        formulas.forEach(f => priceMap.set(String(f.id), parsePriceNumber(f.price)));
+        activeFormulas.forEach((f: any) => {
+          const formulaId = String(f.id || "").trim();
+          const linkedDishId = String(f.dish_id || "").trim();
+          const price = parsePriceNumber(f.price);
+          if (formulaId) priceMap.set(formulaId, price);
+          if (linkedDishId) priceMap.set(linkedDishId, price);
+        });
 
         const displayMap = new Map<string, { name?: string; imageUrl?: string }>();
-        formulas.forEach(f => displayMap.set(String(f.id), { name: f.name, imageUrl: f.image_url }));
+        activeFormulas.forEach((f: any) => {
+          const formulaId = String(f.id || "").trim();
+          const linkedDishId = String(f.dish_id || "").trim();
+          const displayPayload = { name: f.name, imageUrl: f.image_url };
+          if (formulaId) displayMap.set(formulaId, displayPayload);
+          if (linkedDishId) displayMap.set(linkedDishId, displayPayload);
+        });
         
         const formulaDishes = dishes.filter(d => allFormulaIds.has(String(d.id)));
         const finalDishes = [...activeDishes, ...formulaDishes];
@@ -2720,6 +2865,7 @@ const getFormulaDisplayName = (dish: DishItem) => {
         image_url: display.imageUrl,
         is_formula: true,
         category_id: FORMULAS_CATEGORY_KEY,
+        formula_category_ids: display.formulaCategoryIds || [],
       };
       return dish;
     });
@@ -2746,7 +2892,7 @@ const getFormulaDisplayName = (dish: DishItem) => {
                 Commandes
                 {hasReadyTabAlert && (
                   <span className="ml-2 px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 animate-pulse">
-                    Prêt !
+                    {"Pr\u00EAt !"}
                   </span>
                 )}
               </button>
@@ -2819,7 +2965,7 @@ const getFormulaDisplayName = (dish: DishItem) => {
                     <div className="space-y-2">
                       {pendingOrPreparingItems.length > 0 && (
                         <div className="border-t pt-2">
-                          <h4 className="font-semibold text-gray-700 mb-1">En attente / préparation</h4>
+                          <h4 className="font-semibold text-gray-700 mb-1">{"En attente / pr\u00E9paration"}</h4>
                           {pendingOrPreparingItems.map((item) => {
                             const isFormula = isFormulaOrderItem(item);
                             // Create a synthetic DishItem for formula items to pass to helpers
@@ -2891,9 +3037,28 @@ const getFormulaDisplayName = (dish: DishItem) => {
                                     );
                                   })}
 
-                                {(item.side || item.accompagnement) && !isFormula && (
+                                {Boolean(item.side || item.accompagnement) && !isFormula && (
                                   <div className="pl-4 text-xs text-gray-600">
                                     - Accompagnement: {String(item.side || item.accompagnement)}
+                                  </div>
+                                )}
+                                {(((item as any).selected_options || (item as any).selectedOptions) &&
+                                  (Array.isArray((item as any).selected_options || (item as any).selectedOptions)
+                                    ? ((item as any).selected_options || (item as any).selectedOptions).length > 0
+                                    : Object.keys((item as any).selected_options || (item as any).selectedOptions).length > 0)) && (
+                                  <div className="pl-4">
+                                    {(Array.isArray((item as any).selected_options || (item as any).selectedOptions)
+                                      ? ((item as any).selected_options || (item as any).selectedOptions)
+                                      : Object.values((item as any).selected_options || (item as any).selectedOptions)
+                                    ).map((opt: any, idx: number) => {
+                                      const label = String(opt?.label_fr || opt?.value || opt?.name_fr || "").trim();
+                                      if (!label) return null;
+                                      return (
+                                        <div key={`${item.id}-selopt-${idx}`} className="text-xs text-gray-500 italic">
+                                          - {label}
+                                        </div>
+                                      );
+                                    })}
                                   </div>
                                 )}
 
@@ -2918,7 +3083,7 @@ const getFormulaDisplayName = (dish: DishItem) => {
                       
                       {readyItems.length > 0 && (
                         <div className="border-t pt-2">
-                          <h4 className="font-semibold text-green-700 mb-1">Prêts à servir</h4>
+                          <h4 className="font-semibold text-green-700 mb-1">{"Pr\u00EAts \u00E0 servir"}</h4>
                           {readyItems.map((item) => (
                             <div key={item.id} className="mb-2 text-sm bg-green-50 p-1 rounded">
                                <div className="flex justify-between">
@@ -2949,7 +3114,7 @@ const getFormulaDisplayName = (dish: DishItem) => {
                           disabled={sendingNextStepOrderIds[order.id]}
                           className="w-full bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded disabled:bg-gray-400"
                         >
-                          {sendingNextStepOrderIds[order.id] ? "Envoi..." : `Envoyer ${SERVICE_STEP_LABELS[nextServiceStep] || nextServiceStep.toUpperCase()}`}
+                          {sendingNextStepOrderIds[order.id] ? "Envoi..." : "Envoyer la suite"}
                         </button>
                       </div>
                     )}
@@ -2973,7 +3138,7 @@ const getFormulaDisplayName = (dish: DishItem) => {
                   }`}
                 >
                   <div className="font-bold text-lg">{tableNumber}</div>
-                  <div className="text-xs">{isOccupied ? "Occupée" : "Libre"}</div>
+                  <div className="text-xs">{isOccupied ? "Occup\u00E9e" : "Libre"}</div>
                   {isOccupied && row && readCoversFromRow(row) && (
                     <div className="text-xs mt-1">({readCoversFromRow(row)} couv.)</div>
                   )}
@@ -3172,7 +3337,7 @@ const getFormulaDisplayName = (dish: DishItem) => {
                  <div>
                   <label className="block text-sm font-medium text-gray-700">Cuisson</label>
                   <select value={modalCooking} onChange={e => setModalCooking(e.target.value)} className="mt-1 w-full border border-gray-300 rounded-md p-2">
-                    <option value="">Choisir</option>
+                    <option value="">{"S\u00E9lectionner"}</option>
                     {COOKING_CHOICES.map(c => <option key={c} value={toCookingKeyFromLabel(c)}>{c}</option>)}
                   </select>
                 </div>
@@ -3315,7 +3480,7 @@ const getFormulaDisplayName = (dish: DishItem) => {
                                   onChange={e => handleUpdateFormulaSelectionDetails(categoryId, { selectedCooking: e.target.value })} 
                                   className="mt-1 text-sm w-full border border-gray-300 rounded-md p-1"
                                 >
-                                  <option value="">Choisir</option>
+                                  <option value="">{"S\u00E9lectionner"}</option>
                                   {COOKING_CHOICES.map(c => <option key={c} value={toCookingKeyFromLabel(c)}>{c}</option>)}
                                 </select>
                               </div>
@@ -3354,7 +3519,7 @@ const getFormulaDisplayName = (dish: DishItem) => {
                  <div>
                   <label className="block text-sm font-medium text-gray-700">Cuisson</label>
                   <select value={modalCooking} onChange={e => setModalCooking(e.target.value)} className="mt-1 w-full border border-gray-300 rounded-md p-2">
-                    <option value="">Choisir</option>
+                    <option value="">{"S\u00E9lectionner"}</option>
                     {COOKING_CHOICES.map(c => <option key={c} value={toCookingKeyFromLabel(c)}>{c}</option>)}
                   </select>
                 </div>

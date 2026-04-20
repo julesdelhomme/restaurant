@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useMemo, useRef, useEffect } from "react";
+import { resolveSelectedDishLabel } from "@/app/lib/order-item-display";
 
 interface OrderItem {
   dish?: {
@@ -456,7 +457,7 @@ export default function PrintTicket({ order, isVisible, logoUrl, restaurantName,
                 <div style="border-bottom: 1px dashed #000; margin-bottom: 10px;"></div>
                 <div>
                   ${filteredItems.map((item, index) => {
-                    const itemName = keepStaffFrenchLabel(item?.name_fr || item?.name || item?.dish?.name_fr || item?.dish?.name || "Plat inconnu");
+                    const itemName = keepStaffFrenchLabel(resolveSelectedDishLabel(item) || "Plat inconnu");
                     const finalDetails = buildTicketFinalDetailsLine(item);
                     return `
                       <div style="margin-bottom: 5px;">

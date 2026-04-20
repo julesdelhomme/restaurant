@@ -1,4 +1,5 @@
 import React from "react";
+import { resolveSelectedDishLabel } from "@/app/lib/order-item-display";
 
 type OrderTicketItem = {
   quantity?: number;
@@ -85,7 +86,7 @@ export default function OrderTicket({ order }: { order: OrderTicketOrder | null 
             .filter((item) => resolveTicketDestination(item) === "cuisine")
             .map((item, idx) => (
               <div key={idx} style={{ fontSize: 22, fontWeight: "bold", marginBottom: 4 }}>
-                {Number(item.quantity || 1)}x {keepStaffFrenchLabel(item.name_fr || item.name || item.nom || "Plat inconnu")}
+                {Number(item.quantity || 1)}x {keepStaffFrenchLabel(resolveSelectedDishLabel(item) || item.nom || "Plat inconnu")}
               </div>
             ))}
         </div>

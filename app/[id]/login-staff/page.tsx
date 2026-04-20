@@ -219,7 +219,9 @@ export default function LoginStaffPage() {
         className="w-full max-w-md rounded-xl border-2 border-black bg-white p-6 shadow-[6px_6px_0px_0px_rgba(0,0,0,1)]"
       >
         <h1 className="text-2xl font-black">Connexion Staff</h1>
-        <p className="mt-1 text-sm text-gray-600">Restaurant: {restaurantId || "inconnu"}</p>
+        {offlineRestaurantName ? (
+          <p className="mt-1 text-sm text-gray-600">Restaurant: {offlineRestaurantName}</p>
+        ) : null}
 
         <div className="mt-4 space-y-3">
           <div>

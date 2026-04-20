@@ -1,0 +1,196 @@
+import { DEFAULT_LANGUAGE_LABELS } from "../../managerRuntimeShared";
+import {
+  extractFormulaProductOptionsForManager,
+  mergeProductOptions,
+} from "../supabase-mappers";
+import {
+  hasMissingColumnError,
+  isMissingTableError,
+  mergeExtrasUnique,
+  normalizeOptionIds,
+  parseAutoPrintSetting,
+  parseCategoryConfig,
+  parseDisplaySettingsFromRow,
+  parseDishOptionsRowsToExtras,
+  parseExtrasFromUnknown,
+  toBoolean,
+  toLoggableSupabaseError,
+} from "../runtime-data-utils";
+import {
+  DEFAULT_TOTAL_TABLES,
+  RESTAURANT_BANNERS_BUCKET,
+  buildDishStepMapFromFormulaSteps,
+  buildFormulaStepsFromDishStepMap,
+  createDefaultAllergenLibrary,
+  extractAllergenNamesFromDishPayload,
+  mergeAllergenLibraryRows,
+  normalizeBackgroundOpacity,
+  normalizeCardStyle,
+  normalizeDensityStyle,
+  normalizeFormulaStepEntries,
+  normalizeHexColor,
+  normalizeManagerFontFamily,
+  normalizeMenuLayout,
+  normalizeOpacityPercent,
+  normalizeWelcomePopupType,
+  parseAllergenLibrary,
+  parseCardLayoutToken,
+  parseCookingTranslations,
+  parseObjectRecord,
+  resolveSupabasePublicUrl,
+  supabaseKey,
+  supabaseUrl,
+} from "../runtime-core-utils";
+
+type BuildManagerBootstrapRuntimeConfigInput = {
+  scopedRestaurantId: string;
+  supabase: any;
+  impersonateMode: boolean;
+  sevenDaysAgoIso: string;
+  managerCoreState: any;
+  managerEditorUiState: any;
+  normalizeLanguageKey: any;
+  normalizeRestaurantId: any;
+  parseJsonObject: any;
+  parseI18nToken: any;
+  createLocalId: any;
+  normalizeText: any;
+  serializeEnabledLanguageEntries: any;
+  normalizeTotalTables: any;
+};
+
+export function buildManagerBootstrapRuntimeConfig({
+  scopedRestaurantId,
+  supabase,
+  impersonateMode,
+  sevenDaysAgoIso,
+  managerCoreState,
+  managerEditorUiState,
+  normalizeLanguageKey,
+  normalizeRestaurantId,
+  parseJsonObject,
+  parseI18nToken,
+  createLocalId,
+  normalizeText,
+  serializeEnabledLanguageEntries,
+  normalizeTotalTables,
+}: BuildManagerBootstrapRuntimeConfigInput) {
+  const { refs, state, setters } = managerCoreState;
+
+  return {
+    runtime: {
+      scopedRestaurantId,
+      supabase,
+      impersonateMode,
+      sevenDaysAgoIso,
+    },
+    refs: {
+      hasAllergenLibraryTableRef: refs.hasAllergenLibraryTableRef,
+      hasRestaurantLanguagesTableRef: refs.hasRestaurantLanguagesTableRef,
+      dishesRefetchLockUntilRef: refs.dishesRefetchLockUntilRef,
+      lastSaveTimeRef: refs.lastSaveTimeRef,
+      isSavingRef: refs.isSavingRef,
+      dishesRefetchLockTimerRef: refs.dishesRefetchLockTimerRef,
+    },
+    state: {
+      autoPrintKitchen: state.autoPrintKitchen,
+      categories: state.categories,
+      dishes: state.dishes,
+      allergenLibrary: state.allergenLibrary,
+      activeLanguageCodes: state.activeLanguageCodes,
+      subCategories: state.subCategories,
+      orders: state.orders,
+      forceFirstLoginPasswordChange: state.forceFirstLoginPasswordChange,
+      restaurant: state.restaurant,
+    },
+    setters: {
+      setShowCaloriesClient: setters.setShowCaloriesClient,
+      setHeroEnabled: setters.setHeroEnabled,
+      setHeroBadgeType: setters.setHeroBadgeType,
+      setConsultationModeEnabled: setters.setConsultationModeEnabled,
+      setSearchBarEnabled: setters.setSearchBarEnabled,
+      setTotalTables: setters.setTotalTables,
+      setActiveLanguageCodes: setters.setActiveLanguageCodes,
+      setLanguageLabels: setters.setLanguageLabels,
+      setTableAssignments: setters.setTableAssignments,
+      setIsRestaurantLoading: setters.setIsRestaurantLoading,
+      setIsSuperAdminSession: setters.setIsSuperAdminSession,
+      setManagerAccessError: setters.setManagerAccessError,
+      setRestaurant: setters.setRestaurant,
+      setManagerOtpEnabled: setters.setManagerOtpEnabled,
+      setManagerOtpError: setters.setManagerOtpError,
+      setForceFirstLoginPasswordChange: setters.setForceFirstLoginPasswordChange,
+      setAutoPrintKitchen: setters.setAutoPrintKitchen,
+      setSubCategories: setters.setSubCategories,
+      setCookingTranslations: setters.setCookingTranslations,
+      setAllergenLibrary: setters.setAllergenLibrary,
+      setRestaurantForm: setters.setRestaurantForm,
+      setCategories: setters.setCategories,
+      setFormulaLinksByFormulaId: setters.setFormulaLinksByFormulaId,
+      setFormulaLinksByDishId: setters.setFormulaLinksByDishId,
+      setFormulaLinkDefaultOptionsByFormulaId: setters.setFormulaLinkDefaultOptionsByFormulaId,
+      setFormulaMainDishOptionsByFormulaId: setters.setFormulaMainDishOptionsByFormulaId,
+      setFormulaLinkDisplayByFormulaId: setters.setFormulaLinkDisplayByFormulaId,
+      setFormulaLinkSequenceByFormulaId: setters.setFormulaLinkSequenceByFormulaId,
+      setDishes: setters.setDishes,
+      setManagerUserEmail: setters.setManagerUserEmail,
+      setGlobalManagerNotification: setters.setGlobalManagerNotification,
+      setReviews: setters.setReviews,
+      setCriticalStock: setters.setCriticalStock,
+      setSubCategoryRows: setters.setSubCategoryRows,
+      setSidesLibrary: setters.setSidesLibrary,
+      setOrders: setters.setOrders,
+      setStats: setters.setStats,
+    },
+    managerEditorUiState,
+    helpers: {
+      normalizeLanguageKey,
+      normalizeTotalTables,
+      parseDisplaySettingsFromRow,
+      serializeEnabledLanguageEntries,
+      parseObjectRecord,
+      toLoggableSupabaseError,
+      normalizeRestaurantId,
+      normalizeDensityStyle,
+      normalizeManagerFontFamily,
+      normalizeBackgroundOpacity,
+      normalizeCardStyle,
+      normalizeHexColor,
+      normalizeOpacityPercent,
+      toBoolean,
+      parseCategoryConfig,
+      parseAutoPrintSetting,
+      parseCookingTranslations,
+      parseAllergenLibrary,
+      createDefaultAllergenLibrary,
+      hasMissingColumnError,
+      isMissingTableError,
+      normalizeWelcomePopupType,
+      resolveSupabasePublicUrl,
+      normalizeMenuLayout,
+      parseCardLayoutToken,
+      parseJsonObject,
+      parseExtrasFromUnknown,
+      parseDishOptionsRowsToExtras,
+      createLocalId,
+      parseI18nToken,
+      extractFormulaProductOptionsForManager,
+      mergeExtrasUnique,
+      mergeProductOptions,
+      extractAllergenNamesFromDishPayload,
+      normalizeText,
+      mergeAllergenLibraryRows,
+      normalizeFormulaStepEntries,
+      buildDishStepMapFromFormulaSteps,
+      normalizeOptionIds,
+      buildFormulaStepsFromDishStepMap,
+    },
+    constants: {
+      DEFAULT_TOTAL_TABLES,
+      DEFAULT_LANGUAGE_LABELS,
+      RESTAURANT_BANNERS_BUCKET,
+      supabaseUrl,
+      supabaseKey,
+    },
+  };
+}

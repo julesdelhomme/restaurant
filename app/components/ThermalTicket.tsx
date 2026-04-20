@@ -1,4 +1,5 @@
 import React, { useEffect } from "react";
+import { resolveSelectedDishLabel } from "@/app/lib/order-item-display";
 
 type TicketItem = {
   quantity?: number;
@@ -90,7 +91,7 @@ export default function ThermalTicket({ order, isVisible }: { order: TicketOrder
               .map((item, idx) => (
                 <div key={idx} style={{ marginBottom: 6 }}>
                   <div style={{ fontSize: 22, fontWeight: "bold" }}>
-                    {Number(item.quantity || 1)}x {keepStaffFrenchLabel(item.name_fr || item.name || item.nom || "Plat inconnu")}
+                    {Number(item.quantity || 1)}x {keepStaffFrenchLabel(resolveSelectedDishLabel(item) || item.nom || "Plat inconnu")}
                   </div>
                   {(String(item.selected_side_label_fr || item.accompagnement_fr || "").trim() || (Array.isArray(item.selectedSides) && item.selectedSides.length > 0)) ? (
                     <div style={{ marginLeft: 18, fontSize: 16 }}>
@@ -105,7 +106,7 @@ export default function ThermalTicket({ order, isVisible }: { order: TicketOrder
                   ) : null}
                   {item.selected_option_name ? (
                     <div style={{ marginLeft: 18, fontSize: 16 }}>
-                      - Option: {keepStaffFrenchLabel(item.selected_option_name)}
+                      - OP: {keepStaffFrenchLabel(item.selected_option_name)}
                     </div>
                   ) : null}
                   {Array.isArray(item.selectedExtras) && item.selectedExtras.length > 0 ? (

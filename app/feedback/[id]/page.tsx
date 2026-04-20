@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { FormEvent, useEffect, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
@@ -345,8 +345,8 @@ export default function FeedbackPage() {
       const rawJsonItems = relatedOrders.flatMap((row) => parseJsonItems(row.items));
       if (rawJsonItems.length === 0) {
         console.log(order);
-        console.log("DEBUG ORDER:", orderRow);
-        console.log("DEBUG RELATED ORDERS:", relatedOrders);
+        false && console.log("TRACE ORDER:", orderRow);
+        false && console.log("TRACE RELATED ORDERS:", relatedOrders);
       }
       const dishIds = Array.from(
         new Set(
@@ -393,8 +393,8 @@ export default function FeedbackPage() {
       );
       if (nextLines.length === 0) {
         console.log(order);
-        console.log("DEBUG ORDER:", orderRow);
-        console.log("DEBUG RELATED ORDERS:", relatedOrders);
+        false && console.log("TRACE ORDER:", orderRow);
+        false && console.log("TRACE RELATED ORDERS:", relatedOrders);
       }
 
       if (!cancelled) {
@@ -499,7 +499,7 @@ export default function FeedbackPage() {
                     rel="noopener noreferrer"
                     className="mt-5 inline-flex w-full items-center justify-center rounded-xl border-2 border-black bg-[#4285F4] px-5 py-4 text-center text-base font-black text-white shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] transition hover:bg-[#2f6fe0]"
                   >
-                    ⭐ Cliquez ici pour publier votre avis sur Google
+                    ? Cliquez ici pour publier votre avis sur Google
                   </a>
                 ) : (
                   <p className="mt-4 text-sm text-slate-600">

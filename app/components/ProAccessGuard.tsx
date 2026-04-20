@@ -112,7 +112,7 @@ function ProAccessGuardContent({ children, requiredRole, allowSuperAdmin = true 
 
       if (!targetRestaurantId) {
         setGuardState("denied");
-        setErrorMessage("Acc\u00E8s refus\u00E9 : identifiant restaurant absent dans l'URL.");
+        setErrorMessage("Accès refusé : identifiant restaurant absent dans l'URL.");
         return;
       }
 
@@ -138,7 +138,7 @@ function ProAccessGuardContent({ children, requiredRole, allowSuperAdmin = true 
   if (guardState === "checking") {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-100 text-black">
-        V\u00E9rification des acc\u00E8s...
+        Vérification des accès...
       </div>
     );
   }
@@ -147,7 +147,7 @@ function ProAccessGuardContent({ children, requiredRole, allowSuperAdmin = true 
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-100 text-black p-4">
         <div className="max-w-lg w-full rounded-xl border-2 border-red-700 bg-red-50 p-4 text-red-800 font-bold">
-          {errorMessage || "Acc\u00E8s refus\u00E9."}
+          {errorMessage || "Accès refusé."}
         </div>
       </div>
     );

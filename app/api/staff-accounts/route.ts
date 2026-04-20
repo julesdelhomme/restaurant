@@ -1,4 +1,4 @@
-﻿import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { type ProRole } from "@/lib/auth/types";
 import {
   getBearerToken,
@@ -17,6 +17,7 @@ type StaffAccountRow = {
   role: string;
   is_active: boolean;
   plain_password: string | null;
+  assigned_tables?: unknown;
   created_at: string;
 };
 
@@ -25,6 +26,7 @@ type CreateStaffBody = {
   identifier?: string;
   password?: string;
   role?: string;
+  assignedTables?: unknown;
 };
 
 type UpdateStaffBody = {
@@ -33,6 +35,7 @@ type UpdateStaffBody = {
   password?: string;
   role?: string;
   isActive?: boolean;
+  assignedTables?: unknown;
 };
 
 type DeleteStaffBody = {
@@ -67,6 +70,32 @@ function readAllowedStaffRole(rawRole: unknown): ProRole | null {
   return null;
 }
 
+function normalizeAssignedTables(value: unknown): number[] {
+  const parsed = Array.isArray(value)
+    ? value
+    : typeof value === "string"
+    ? (() => {
+        try {
+          const json = JSON.parse(value);
+          return Array.isArray(json) ? json : [];
+        } catch {
+          return [];
+        }
+      })()
+    : [];
+  const normalized = parsed
+    .map((entry) => Number(entry))
+    .filter((entry) => Number.isFinite(entry))
+    .map((entry) => Math.max(1, Math.trunc(entry)));
+  return Array.from(new Set(normalized)).sort((a, b) => a - b);
+}
+
+function isMissingAssignedTablesColumn(error: unknown) {
+  const code = String((error as { code?: string } | null)?.code || "");
+  const message = String((error as { message?: string } | null)?.message || "").toLowerCase();
+  return code === "42703" && message.includes("assigned_tables");
+}
+
 async function resolveContext(request: NextRequest) {
   const accessToken = getBearerToken(request.headers.get("authorization"));
   if (!accessToken) return null;
@@ -80,6 +109,24 @@ function canManageRestaurant(context: Awaited<ReturnType<typeof readAccessContex
   return context.isSuperAdmin || userCanAccessRole(context, restaurantId, "manager", false);
 }
 
+async function selectStaffRows(supabase: ReturnType<typeof createSupabaseAdminClient>, restaurantId: string) {
+  let assignedTablesColumnMissing = false;
+  let result: any = await supabase
+    .from("staff_accounts")
+    .select("id,auth_user_id,restaurant_id,identifier,normalized_identifier,role,is_active,plain_password,assigned_tables,created_at")
+    .eq("restaurant_id", restaurantId)
+    .order("created_at", { ascending: true });
+  if (result.error && isMissingAssignedTablesColumn(result.error)) {
+    assignedTablesColumnMissing = true;
+    result = await supabase
+      .from("staff_accounts")
+      .select("id,auth_user_id,restaurant_id,identifier,normalized_identifier,role,is_active,plain_password,created_at")
+      .eq("restaurant_id", restaurantId)
+      .order("created_at", { ascending: true });
+  }
+  return { result, assignedTablesColumnMissing };
+}
+
 export async function GET(request: NextRequest) {
   const auth = await resolveContext(request);
   if (!auth) return NextResponse.json({ error: "Session invalide." }, { status: 401 });
@@ -91,12 +138,7 @@ export async function GET(request: NextRequest) {
   }
 
   const supabase = createSupabaseAdminClient();
-  const rowsResult = await supabase
-    .from("staff_accounts")
-    .select("id,auth_user_id,restaurant_id,identifier,normalized_identifier,role,is_active,plain_password,created_at")
-    .eq("restaurant_id", restaurantId)
-    .order("created_at", { ascending: true });
-
+  const { result: rowsResult, assignedTablesColumnMissing } = await selectStaffRows(supabase, restaurantId);
   if (rowsResult.error) {
     const missingColumn = String((rowsResult.error as { code?: string } | null)?.code || "") === "42703";
     const missingTable = String((rowsResult.error as { code?: string } | null)?.code || "") === "42P01";
@@ -120,6 +162,7 @@ export async function GET(request: NextRequest) {
         role: row.role,
         isActive: row.is_active,
         plainPassword: String(row.plain_password || ""),
+        assignedTables: assignedTablesColumnMissing ? [] : normalizeAssignedTables(row.assigned_tables),
         createdAt: row.created_at,
         authUserId: row.auth_user_id,
         email: String(authUser.data.user?.email || "").trim().toLowerCase(),
@@ -145,6 +188,7 @@ export async function POST(request: NextRequest) {
   const identifier = normalizeIdentifier(body.identifier);
   const password = String(body.password || "");
   const role = readAllowedStaffRole(body.role);
+  const assignedTables = normalizeAssignedTables(body.assignedTables);
 
   if (!restaurantId) return NextResponse.json({ error: "restaurantId manquant." }, { status: 400 });
   if (!identifier) return NextResponse.json({ error: "Identifiant manquant." }, { status: 400 });
@@ -195,12 +239,11 @@ export async function POST(request: NextRequest) {
     }
     createUserError = String(created.error?.message || "Création utilisateur impossible.");
   }
-
   if (!createdUserId) {
     return NextResponse.json({ error: createUserError || "Création utilisateur impossible." }, { status: 400 });
   }
 
-  const insertResult = await supabase
+  let insertResult = await supabase
     .from("staff_accounts")
     .insert({
       auth_user_id: createdUserId,
@@ -210,9 +253,27 @@ export async function POST(request: NextRequest) {
       role,
       is_active: true,
       plain_password: password,
+      assigned_tables: assignedTables,
     })
-    .select("id,auth_user_id,restaurant_id,identifier,normalized_identifier,role,is_active,plain_password,created_at")
+    .select("id,auth_user_id,restaurant_id,identifier,normalized_identifier,role,is_active,plain_password,assigned_tables,created_at")
     .maybeSingle();
+  let assignedTablesColumnMissing = false;
+  if (insertResult.error && isMissingAssignedTablesColumn(insertResult.error)) {
+    assignedTablesColumnMissing = true;
+    insertResult = await supabase
+      .from("staff_accounts")
+      .insert({
+        auth_user_id: createdUserId,
+        restaurant_id: restaurantId,
+        identifier,
+        normalized_identifier: normalizedIdentifier,
+        role,
+        is_active: true,
+        plain_password: password,
+      })
+      .select("id,auth_user_id,restaurant_id,identifier,normalized_identifier,role,is_active,plain_password,created_at")
+      .maybeSingle();
+  }
 
   if (insertResult.error || !insertResult.data) {
     await supabase.auth.admin.deleteUser(createdUserId);
@@ -236,6 +297,9 @@ export async function POST(request: NextRequest) {
         role: insertResult.data.role,
         isActive: insertResult.data.is_active,
         plainPassword: String(insertResult.data.plain_password || ""),
+        assignedTables: assignedTablesColumnMissing
+          ? []
+          : normalizeAssignedTables((insertResult.data as StaffAccountRow).assigned_tables),
         createdAt: insertResult.data.created_at,
         authUserId: insertResult.data.auth_user_id,
         email: createdEmail,
@@ -262,10 +326,9 @@ export async function PATCH(request: NextRequest) {
   const supabase = createSupabaseAdminClient();
   const existingResult = await supabase
     .from("staff_accounts")
-    .select("id,auth_user_id,restaurant_id,identifier,normalized_identifier,role,is_active,plain_password,created_at")
+    .select("id,auth_user_id,restaurant_id,identifier,normalized_identifier,role,is_active,plain_password,assigned_tables,created_at")
     .eq("id", staffAccountId)
     .maybeSingle();
-
   if (existingResult.error || !existingResult.data) {
     return NextResponse.json({ error: "Compte staff introuvable." }, { status: 404 });
   }
@@ -279,6 +342,7 @@ export async function PATCH(request: NextRequest) {
   const nextRole = body.role != null ? readAllowedStaffRole(body.role) : null;
   const nextPassword = body.password != null ? String(body.password || "") : null;
   const nextIsActive = body.isActive;
+  const nextAssignedTables = body.assignedTables != null ? normalizeAssignedTables(body.assignedTables) : null;
 
   if (nextIdentifier != null && !nextIdentifier) {
     return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 });
@@ -314,6 +378,8 @@ export async function PATCH(request: NextRequest) {
   }
   if (nextRole != null) updatePayload.role = nextRole;
   if (typeof nextIsActive === "boolean") updatePayload.is_active = nextIsActive;
+  if (nextAssignedTables != null) updatePayload.assigned_tables = nextAssignedTables;
+
   const authUpdatePayload: { password?: string; user_metadata?: Record<string, unknown> } = {};
   if (nextPassword != null) authUpdatePayload.password = nextPassword;
   if (nextIdentifier != null || nextRole != null) {
@@ -333,7 +399,11 @@ export async function PATCH(request: NextRequest) {
   if (nextPassword != null) updatePayload.plain_password = nextPassword;
 
   if (Object.keys(updatePayload).length > 0) {
-    const updatedRow = await supabase.from("staff_accounts").update(updatePayload).eq("id", staffAccountId);
+    let updatedRow = await supabase.from("staff_accounts").update(updatePayload).eq("id", staffAccountId);
+    if (updatedRow.error && nextAssignedTables != null && isMissingAssignedTablesColumn(updatedRow.error)) {
+      delete updatePayload.assigned_tables;
+      updatedRow = await supabase.from("staff_accounts").update(updatePayload).eq("id", staffAccountId);
+    }
     if (updatedRow.error) {
       const missingColumn = String((updatedRow.error as { code?: string } | null)?.code || "") === "42703";
       const duplicateIdentifier = String((updatedRow.error as { code?: string } | null)?.code || "") === "23505";
@@ -346,12 +416,20 @@ export async function PATCH(request: NextRequest) {
     }
   }
 
-  const finalResult = await supabase
+  let assignedTablesColumnMissing = false;
+  let finalResult = await supabase
     .from("staff_accounts")
-    .select("id,auth_user_id,restaurant_id,identifier,normalized_identifier,role,is_active,plain_password,created_at")
+    .select("id,auth_user_id,restaurant_id,identifier,normalized_identifier,role,is_active,plain_password,assigned_tables,created_at")
     .eq("id", staffAccountId)
     .maybeSingle();
-
+  if (finalResult.error && isMissingAssignedTablesColumn(finalResult.error)) {
+    assignedTablesColumnMissing = true;
+    finalResult = await supabase
+      .from("staff_accounts")
+      .select("id,auth_user_id,restaurant_id,identifier,normalized_identifier,role,is_active,plain_password,created_at")
+      .eq("id", staffAccountId)
+      .maybeSingle();
+  }
   if (finalResult.error || !finalResult.data) {
     return NextResponse.json({ error: "Compte staff mis à jour mais relecture impossible." }, { status: 200 });
   }
@@ -367,6 +445,9 @@ export async function PATCH(request: NextRequest) {
         role: finalResult.data.role,
         isActive: finalResult.data.is_active,
         plainPassword: String(finalResult.data.plain_password || ""),
+        assignedTables: assignedTablesColumnMissing
+          ? []
+          : normalizeAssignedTables((finalResult.data as StaffAccountRow).assigned_tables),
         createdAt: finalResult.data.created_at,
         authUserId: finalResult.data.auth_user_id,
         email: String(authUser.data.user?.email || "").trim().toLowerCase(),
@@ -396,7 +477,6 @@ export async function DELETE(request: NextRequest) {
     .select("id,restaurant_id")
     .eq("id", staffAccountId)
     .maybeSingle();
-
   if (existingResult.error || !existingResult.data) {
     return NextResponse.json({ error: "Compte staff introuvable." }, { status: 404 });
   }
@@ -413,6 +493,3 @@ export async function DELETE(request: NextRequest) {
 
   return NextResponse.json({ ok: true, staffAccountId }, { status: 200 });
 }
-
-
-
