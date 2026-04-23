@@ -1,3 +1,5 @@
+import { buildRestaurantSlug } from "./restaurant-slug";
+
 export function getAppBaseUrl() {
   if (typeof window !== "undefined" && window.location?.origin) {
     return String(window.location.origin || "").replace(/\/+$/, "");
@@ -17,12 +19,14 @@ export function getAppBaseUrl() {
   return "https://restaurant-olive-one-15.vercel.app";
 }
 
-export function buildRestaurantPublicUrl(restaurantId: string) {
+export function buildRestaurantPublicUrl(restaurantId: string, restaurantName?: string) {
   const safeRestaurantId = String(restaurantId || "").trim();
-  return `${getAppBaseUrl()}/restaurant/${encodeURIComponent(safeRestaurantId)}`;
+  const slug = buildRestaurantSlug(String(restaurantName || ""), safeRestaurantId);
+  return `${getAppBaseUrl()}/${encodeURIComponent(slug)}`;
 }
 
-export function buildRestaurantVitrineUrl(restaurantId: string) {
+export function buildRestaurantVitrineUrl(restaurantId: string, restaurantName?: string) {
   const safeRestaurantId = String(restaurantId || "").trim();
-  return `${getAppBaseUrl()}/vitrine/${encodeURIComponent(safeRestaurantId)}`;
+  const slug = buildRestaurantSlug(String(restaurantName || ""), safeRestaurantId);
+  return `${getAppBaseUrl()}/vitrine/${encodeURIComponent(slug)}`;
 }

@@ -106,7 +106,7 @@ export default function ConfigGeneral(props: ConfigGeneralProps) {
         <div className="text-sm font-black mb-2">QR Code Tables</div>
         <RestaurantQrCard
           restaurantId={currentRestaurantQrId}
-          restaurantName={String(restaurantForm.name || restaurant?.name || "Restaurant").trim()}
+          restaurantName={String((restaurantForm as any).name || (restaurantForm as any).restaurant_name || restaurant?.name || (restaurant as any)?.restaurant_name || "Restaurant").trim()}
           logoUrl={String(restaurantForm.logo_url || restaurant?.logo_url || "").trim()}
           primaryColor={String(restaurantForm.primary_color || restaurant?.primary_color || "#111111").trim()}
           title="QR Code Tables"
@@ -127,7 +127,7 @@ export default function ConfigGeneral(props: ConfigGeneralProps) {
         <div className="text-sm font-black mb-2">QR Code Vitrine</div>
         <RestaurantQrCard
           restaurantId={currentRestaurantQrId}
-          restaurantName={String(restaurantForm.name || restaurant?.name || "Restaurant").trim()}
+          restaurantName={String((restaurantForm as any).name || (restaurantForm as any).restaurant_name || restaurant?.name || (restaurant as any)?.restaurant_name || "Restaurant").trim()}
           logoUrl={String(restaurantForm.logo_url || restaurant?.logo_url || "").trim()}
           primaryColor={String(restaurantForm.primary_color || restaurant?.primary_color || "#111111").trim()}
           mode="vitrine"
